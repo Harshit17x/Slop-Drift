@@ -184,7 +184,7 @@ export class MountainRoad {
     this.shoulderWidth = options.shoulderWidth ?? 2.2;
     this.segmentCount = Math.max(24, Math.floor(options.segmentCount ?? 480));
     this.controlPointCount = Math.max(6, Math.floor(options.controlPointCount ?? 12));
-    this.roadElevation = options.roadElevation ?? 0.18;
+    this.roadElevation = options.roadElevation ?? 0.12;
     this.spawnHeight = options.spawnHeight ?? 0.2;
     this.bankStrength = options.bankStrength ?? 0.75;
     this.maxBank = options.maxBank ?? Math.PI * 0.14;
@@ -237,6 +237,9 @@ export class MountainRoad {
     const scaleX = clamp((this.heightfield.sizeX * 0.5 - 12) / 141, 0.58, 1);
     const scaleZ = clamp((this.heightfield.sizeZ * 0.5 - 12) / 112, 0.58, 1);
     const scaledLayout = layout.map((point) => new THREE.Vector2(point.x * scaleX, point.y * scaleZ));
+    if (scaledLayout.length > 1 && scaledLayout[0].distanceTo(scaledLayout[scaledLayout.length - 1]) < 0.01) {
+      scaledLayout.pop();
+    }
     this.hairpinPath = scaledLayout.slice(hairpinStartIndex, hairpinEndIndex + 1).map((point) => point.clone());
     this.hairpinPathLength = 0;
     for (let i = 1; i < this.hairpinPath.length; i += 1) this.hairpinPathLength += this.hairpinPath[i - 1].distanceTo(this.hairpinPath[i]);
@@ -305,13 +308,14 @@ export class MountainRoad {
       const baseNormal = new THREE.Vector3(terrain.normal.x, terrain.normal.y, terrain.normal.z);
       if (baseNormal.lengthSq() < 0.000001) baseNormal.set(0, 1, 0);
       baseNormal.normalize();
-      let right = tangent.clone().cross(baseNormal).normalize();
-      if (right.lengthSq() < 0.000001) {
-        right = tangent.clone().cross(new THREE.Vector3(0, 1, 0));
-        if (right.lengthSq() < 0.000001) right.set(1, 0, 0);
-        right.normalize();
-      }
+
+      // Road lateral right vector perpendicular to tangent and world UP
+      let right = tangent.clone().cross(new THREE.Vector3(0, 1, 0));
+      if (right.lengthSq() < 0.000001) right = new THREE.Vector3(1, 0, 0);
+      right.normalize();
+
       if (previousRight && right.dot(previousRight) < 0) right.negate();
+
       const previousDirection = position.clone().sub(previous);
       const nextDirection = next.clone().sub(position);
       const prevHeading = Math.atan2(previousDirection.x, -previousDirection.z);
@@ -324,7 +328,7 @@ export class MountainRoad {
       const bank = clamp(curvature * this.bankStrength + hairpinBank + (Number.isFinite(suppliedBank) ? suppliedBank : 0), -this.maxBank, this.maxBank);
       const bankedRight = rotateAroundAxis(right, tangent, bank).normalize();
       const bankedNormal = bankedRight.clone().cross(tangent).normalize();
-      if (bankedNormal.dot(baseNormal) < 0) {
+      if (bankedNormal.y < 0) {
         bankedRight.negate();
         bankedNormal.negate();
       }
@@ -427,24 +431,25 @@ export class MountainRoad {
   buildGuardrails() {
     this.guardrails = new THREE.Group();
     this.guardrails.name = 'MountainRoadGuardrails';
-    const postMaterial = new THREE.MeshStandardMaterial({ color: 0x9fa6ae, roughness: 0.5, metalness: 0.75 });
-    const beamMaterial = new THREE.MeshStandardMaterial({ color: 0xcbd0d5, roughness: 0.42, metalness: 0.8 });
+    const postMaterial = new THREE.MeshStandardMaterial({ color: 0x8a929a, roughness: 0.55, metalness: 0.7 });
+    const beamMaterial = new THREE.MeshStandardMaterial({ color: 0xc8ced4, roughness: 0.38, metalness: 0.85 });
+    const step = 2; // tight 2-sample spacing prevents chord cutting on curves
     for (const side of [-1, 1]) {
-      for (let i = 0; i < this.samples.length; i += this.guardrailSpacing) {
+      for (let i = 0; i < this.samples.length; i += step) {
         const sample = this.samples[i];
-        const next = this.samples[(i + this.guardrailSpacing) % this.samples.length];
-        const startOffset = roadWidthForSample(sample, this.roadWidth) * 0.5 + this.shoulderWidth * 0.8;
-        const endOffset = roadWidthForSample(next, this.roadWidth) * 0.5 + this.shoulderWidth * 0.8;
+        const next = this.samples[(i + step) % this.samples.length];
+        const startOffset = roadWidthForSample(sample, this.roadWidth) * 0.5 + this.shoulderWidth * 0.82;
+        const endOffset = roadWidthForSample(next, this.roadWidth) * 0.5 + this.shoulderWidth * 0.82;
         const start = sample.position.clone().addScaledVector(sample.right, side * startOffset);
         const end = next.position.clone().addScaledVector(next.right, side * endOffset);
-        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.07, 0.9, 6), postMaterial);
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.075, 0.95, 6), postMaterial);
         post.position.copy(start).addScaledVector(sample.normal, 0.45);
         post.castShadow = true;
         post.receiveShadow = true;
         this.guardrails.add(post);
-        const beamStart = start.clone().addScaledVector(sample.normal, 0.78);
-        const beamEnd = end.clone().addScaledVector(next.normal, 0.78);
-        const beam = makeBeam(beamStart, beamEnd, 0.07, beamMaterial, 'GuardrailBeam');
+        const beamStart = start.clone().addScaledVector(sample.normal, 0.72);
+        const beamEnd = end.clone().addScaledVector(next.normal, 0.72);
+        const beam = makeBeam(beamStart, beamEnd, 0.075, beamMaterial, 'GuardrailBeam');
         if (beam) this.guardrails.add(beam);
       }
     }
@@ -477,12 +482,15 @@ export class MountainRoad {
     this.checkpoints = [];
     this.checkpointGroup = new THREE.Group();
     this.checkpointGroup.name = 'MountainRoadCheckpoints';
-    const postMaterial = new THREE.MeshStandardMaterial({ color: 0xffc857, emissive: 0x8a4f00, emissiveIntensity: 0.55, roughness: 0.45 });
+    const postMaterial = new THREE.MeshStandardMaterial({ color: 0x22262a, roughness: 0.6, metalness: 0.75 });
+    const archMaterial = new THREE.MeshStandardMaterial({ color: 0xffb703, emissive: 0x553300, emissiveIntensity: 0.4, roughness: 0.35, metalness: 0.6 });
+    const finishMaterial = new THREE.MeshStandardMaterial({ color: 0xfb8500, emissive: 0x773300, emissiveIntensity: 0.6, roughness: 0.3, metalness: 0.7 });
+
     for (let i = 0; i < this.checkpointCount; i += 1) {
       const progress = i / this.checkpointCount;
       const index = Math.floor(progress * this.samples.length) % this.samples.length;
       const sample = this.samples[index];
-      const width = roadWidthForSample(sample, this.roadWidth) * 1.12;
+      const width = roadWidthForSample(sample, this.roadWidth) * 0.5 + this.shoulderWidth * 0.95;
       const checkpoint = {
         index: i,
         progress,
@@ -495,19 +503,29 @@ export class MountainRoad {
         rotation: new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(sample.right, sample.normal, sample.tangent.clone().negate())),
       };
       this.checkpoints.push(checkpoint);
-      const left = sample.position.clone().addScaledVector(sample.right, -width).addScaledVector(sample.normal, 1.6);
-      const right = sample.position.clone().addScaledVector(sample.right, width).addScaledVector(sample.normal, 1.6);
-      const postLeft = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 3.2, 8), postMaterial);
-      const postRight = postLeft.clone();
-      postLeft.position.copy(left).addScaledVector(sample.normal, 1.6);
-      postRight.position.copy(right).addScaledVector(sample.normal, 1.6);
-      postLeft.castShadow = true;
-      postRight.castShadow = true;
-      this.checkpointGroup.add(postLeft, postRight);
-      const beam = makeBeam(left.clone().addScaledVector(sample.normal, 3.1), right.clone().addScaledVector(sample.normal, 3.1), 0.1, postMaterial, 'CheckpointBeam');
-      if (beam) this.checkpointGroup.add(beam);
+
+      // Start/Finish gantry at checkpoint 0, and milestone arches every 4th checkpoint
+      if (i === 0 || i % 4 === 0) {
+        const isFinish = i === 0;
+        const mat = isFinish ? finishMaterial : archMaterial;
+        const archHeight = 4.8; // High vertical clearance so all camera angles and vehicles pass smoothly
+
+        const left = sample.position.clone().addScaledVector(sample.right, -width);
+        const right = sample.position.clone().addScaledVector(sample.right, width);
+
+        const postLeft = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, archHeight, 8), postMaterial);
+        const postRight = postLeft.clone();
+        postLeft.position.copy(left).addScaledVector(sample.normal, archHeight * 0.5);
+        postRight.position.copy(right).addScaledVector(sample.normal, archHeight * 0.5);
+        postLeft.castShadow = true;
+        postRight.castShadow = true;
+        this.checkpointGroup.add(postLeft, postRight);
+
+        const beam = makeBeam(left.clone().addScaledVector(sample.normal, archHeight - 0.2), right.clone().addScaledVector(sample.normal, archHeight - 0.2), 0.16, mat, isFinish ? 'FinishGantryBeam' : 'CheckpointBeam');
+        if (beam) this.checkpointGroup.add(beam);
+      }
     }
-    this.checkpointGroup.visible = false;
+    this.checkpointGroup.visible = true;
     this.root.add(this.checkpointGroup);
   }
 

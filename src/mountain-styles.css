@@ -118,10 +118,10 @@ button { cursor: pointer; }
 
 .screen { position: absolute; inset: 0; z-index: 10; display: grid; place-items: center; overflow: auto; padding: 24px; background: linear-gradient(135deg, rgba(8, 18, 23, .84), rgba(22, 45, 51, .82) 50%, rgba(7, 15, 20, .96)); pointer-events: auto; }
 .screen::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .22; background: repeating-linear-gradient(135deg, transparent 0 28px, rgba(199, 255, 82, .08) 28px 30px, transparent 30px 60px); }
-.screen-card { position: relative; z-index: 1; width: min(760px, calc(100vw - 40px)); padding: 40px; overflow: hidden; border: 1px solid rgba(220, 234, 231, .22); border-radius: 8px; background: linear-gradient(135deg, rgba(39, 61, 70, .98), rgba(16, 32, 40, .98)); box-shadow: 0 30px 80px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .08); }
+.screen-card { position: relative; z-index: 1; width: min(760px, 100%); padding: 40px; overflow: hidden; border: 1px solid rgba(220, 234, 231, .22); border-radius: 8px; background: linear-gradient(135deg, rgba(39, 61, 70, .98), rgba(16, 32, 40, .98)); box-shadow: 0 30px 80px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .08); }
 .screen-card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 6px; background: linear-gradient(90deg, var(--rally-lime), var(--rally-yellow), var(--rally-orange)); }
 .screen-card::after { content: ""; position: absolute; right: -76px; bottom: -106px; width: 260px; height: 220px; opacity: .38; transform: rotate(-18deg); background: repeating-linear-gradient(135deg, rgba(199, 255, 82, .16) 0 10px, transparent 10px 22px); pointer-events: none; }
-.menu-card { width: min(800px, calc(100vw - 40px)); }
+.menu-card { width: min(800px, 100%); }
 .menu-card h1 { position: relative; z-index: 1; margin: 12px 0 17px; color: #f3f7ef; font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif; font-size: clamp(58px, 12vw, 134px); font-weight: 900; line-height: .78; letter-spacing: .015em; }
 .menu-card h1 span { color: var(--rally-lime); }
 .screen-copy { max-width: 530px; margin: 0; color: #c2d0d0; line-height: 1.55; }
@@ -223,7 +223,7 @@ button { cursor: pointer; }
   .hud-debug { top: 212px; left: 12px; min-width: 210px; }
   .mode-grid, .settings-grid { grid-template-columns: 1fr; }
   .screen { padding: 12px; }
-  .screen-card { width: min(100%, calc(100vw - 24px)); padding: 26px 22px; }
+  .screen-card { width: 100%; padding: 26px 22px; }
   .menu-card h1 { font-size: 64px; }
   .menu-stage-strip span { padding-right: 9px; margin-right: 9px; font-size: 8px; }
   .menu-stage-strip span + span { padding-left: 9px; }

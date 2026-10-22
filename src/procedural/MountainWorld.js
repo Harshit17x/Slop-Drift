@@ -17,15 +17,15 @@ export class MountainWorld {
       sizeX: options.sizeX ?? 320,
       sizeZ: options.sizeZ ?? 260,
       baseHeight: options.baseHeight ?? 0,
-      amplitude: options.amplitude ?? 16,
-      ridgeAmplitude: options.ridgeAmplitude ?? 12,
-      detailAmplitude: options.detailAmplitude ?? 3.5,
-      basinDepth: options.basinDepth ?? 10,
+      amplitude: options.amplitude ?? 13,
+      ridgeAmplitude: options.ridgeAmplitude ?? 10,
+      detailAmplitude: options.detailAmplitude ?? 4.2,
+      basinDepth: options.basinDepth ?? 7,
       basinRadius: options.basinRadius ?? 0.58,
-      rimHeight: options.rimHeight ?? 27,
+      rimHeight: options.rimHeight ?? 21,
       rimRadius: options.rimRadius ?? 0.7,
       rimWidth: options.rimWidth ?? 0.2,
-      edgeDrop: options.edgeDrop ?? 18,
+      edgeDrop: options.edgeDrop ?? 14,
       ridgeFrequency: options.ridgeFrequency ?? 0.0065,
     });
     this.chunkSize = options.chunkSize ?? 64;
@@ -81,7 +81,7 @@ export class MountainWorld {
           minHeight: this.heightfield.baseHeight - this.heightfield.edgeDrop - this.heightfield.amplitude - this.heightfield.basinDepth,
           maxHeight: this.heightfield.baseHeight + this.heightfield.amplitude + this.heightfield.ridgeAmplitude + this.heightfield.detailAmplitude + this.heightfield.rimHeight,
         });
-        chunk.attach(this.terrainRoot, 1);
+        chunk.attach(this.terrainRoot, 0);
         this.chunks.push(chunk);
       }
     }

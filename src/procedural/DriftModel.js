@@ -58,11 +58,15 @@ export class DriftModel {
     const angle = state.angle ?? this.angleFromState({ velocity, forward, right });
     const handbrake = Boolean(state.handbrake);
     const surfaceFriction = clamp(state.surfaceFriction ?? 1, 0.1, 1.2);
-    const eligible = speed >= this.minSpeed && Math.abs(angle) >= this.entryAngle && Math.abs(angle) <= this.maxAngle && (handbrake || Math.abs(velocity.x) + Math.abs(velocity.z) > this.minSpeed * 0.45);
+    const absAngle = Math.abs(angle);
+    const eligible = speed >= this.minSpeed && absAngle <= this.maxAngle && (
+      (handbrake && absAngle >= this.entryAngle) ||
+      (!handbrake && absAngle >= THREE.MathUtils.degToRad(25) && speed >= 13)
+    );
     this.wasDrifting = this.drifting;
     if (eligible) this.entryTimer += deltaTime;
-    else this.entryTimer = Math.max(0, this.entryTimer - deltaTime * 2.5);
-    this.drifting = eligible && this.entryTimer >= this.confirmTime;
+    else this.entryTimer = Math.max(0, this.entryTimer - deltaTime * 3.5);
+    this.drifting = eligible && this.entryTimer >= (handbrake ? 0.08 : this.confirmTime);
     this.angle = wrapAngle(angle);
     if (this.drifting) {
       this.comboTimer = this.comboWindow;
