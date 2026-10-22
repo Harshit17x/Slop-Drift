@@ -8,14 +8,14 @@ function terrainColor(sample, minHeight, maxHeight) {
   const normalizedHeight = clamp((sample.height - minHeight) / Math.max(0.001, maxHeight - minHeight), 0, 1);
   const slope = clamp(sample.slopeAngle / (Math.PI * 0.5), 0, 1);
   const color = new THREE.Color();
-  if (slope > 0.62) {
-    color.setRGB(0.27 + normalizedHeight * 0.1, 0.28 + normalizedHeight * 0.1, 0.28 + normalizedHeight * 0.12);
-  } else if (normalizedHeight > 0.72) {
-    color.setRGB(0.46 + normalizedHeight * 0.12, 0.47 + normalizedHeight * 0.12, 0.43 + normalizedHeight * 0.1);
-  } else if (normalizedHeight > 0.42) {
-    color.setRGB(0.24 + normalizedHeight * 0.12, 0.38 + normalizedHeight * 0.14, 0.18 + normalizedHeight * 0.08);
+  if (slope > 0.58 || normalizedHeight > 0.84) {
+    color.setRGB(0.24 + normalizedHeight * 0.14, 0.25 + normalizedHeight * 0.13, 0.2 + normalizedHeight * 0.1);
+  } else if (slope > 0.38) {
+    color.setRGB(0.2 + normalizedHeight * 0.1, 0.31 + normalizedHeight * 0.12, 0.14 + normalizedHeight * 0.07);
+  } else if (normalizedHeight > 0.55) {
+    color.setRGB(0.28 + normalizedHeight * 0.1, 0.42 + normalizedHeight * 0.13, 0.18 + normalizedHeight * 0.08);
   } else {
-    color.setRGB(0.11 + normalizedHeight * 0.08, 0.25 + normalizedHeight * 0.12, 0.12 + normalizedHeight * 0.06);
+    color.setRGB(0.08 + normalizedHeight * 0.07, 0.22 + normalizedHeight * 0.13, 0.1 + normalizedHeight * 0.06);
   }
   return color;
 }

@@ -11,10 +11,15 @@ export class Heightfield {
     this.sizeX = options.sizeX ?? 320;
     this.sizeZ = options.sizeZ ?? 260;
     this.baseHeight = options.baseHeight ?? 0;
-    this.amplitude = options.amplitude ?? 25;
+    this.amplitude = options.amplitude ?? 16;
     this.ridgeAmplitude = options.ridgeAmplitude ?? 12;
     this.detailAmplitude = options.detailAmplitude ?? 3.5;
-    this.edgeDrop = options.edgeDrop ?? 12;
+    this.basinDepth = options.basinDepth ?? 10;
+    this.basinRadius = options.basinRadius ?? 0.58;
+    this.rimHeight = options.rimHeight ?? 27;
+    this.rimRadius = options.rimRadius ?? 0.7;
+    this.rimWidth = options.rimWidth ?? 0.2;
+    this.edgeDrop = options.edgeDrop ?? 18;
     this.edgePower = options.edgePower ?? 2.2;
     this.frequency = options.frequency ?? 0.0045;
     this.detailFrequency = options.detailFrequency ?? 0.018;
@@ -66,9 +71,22 @@ export class Heightfield {
       lacunarity: 2.2,
       gain: 0.48,
     });
+    const nx = x / Math.max(1, this.sizeX * 0.5);
+    const nz = z / Math.max(1, this.sizeZ * 0.5);
+    const radial = Math.hypot(nx, nz);
+    const angle = Math.atan2(nz, nx);
+    const basin = -this.basinDepth * Math.exp(-((radial / this.basinRadius) ** 2));
+    const rimEnvelope = Math.exp(-(((radial - this.rimRadius) / this.rimWidth) ** 2));
+    const angularPeaks = clamp(
+      0.62 + 0.18 * Math.sin(angle * 3 + 0.8) + 0.12 * Math.sin(angle * 7 - 1.7) + 0.08 * Math.cos(angle * 11 + 0.3),
+      0.24,
+      1.08,
+    );
+    const rim = rimEnvelope * this.rimHeight * angularPeaks;
+    const shoulder = Math.exp(-(((radial - 0.42) / 0.26) ** 2)) * 3.5;
     const edge = this.edgeFactor(x, z);
     const edgeDrop = Math.pow(edge, this.edgePower) * this.edgeDrop;
-    return this.baseHeight + macro * this.amplitude + (ridge - 0.5) * this.ridgeAmplitude + detail * this.detailAmplitude - edgeDrop;
+    return this.baseHeight + macro * this.amplitude + (ridge - 0.5) * this.ridgeAmplitude + detail * this.detailAmplitude + basin + rim + shoulder - edgeDrop;
   }
 
   sampleNormal(x, z, step = this.normalStep) {

@@ -116,6 +116,50 @@ function makeColoredRibbonGeometry(samples, width, colors, normalOffset = 0) {
   return geometry;
 }
 
+function makeCurbGeometry(samples, side, curbWidth, normalOffset = 0.035) {
+  const positions = new Float32Array(samples.length * 6);
+  const colors = new Float32Array(samples.length * 6);
+  const indices = new Uint32Array(samples.length * 6);
+  const red = new THREE.Color(0xc8443e);
+  const white = new THREE.Color(0xe8dfc7);
+  for (let i = 0; i < samples.length; i += 1) {
+    const sample = samples[i];
+    const halfWidth = roadWidthForSample(sample, 7.6) * 0.5;
+    const inner = sample.position.clone().addScaledVector(sample.right, side * (halfWidth + 0.02)).addScaledVector(sample.normal, normalOffset);
+    const outer = sample.position.clone().addScaledVector(sample.right, side * (halfWidth + curbWidth)).addScaledVector(sample.normal, normalOffset);
+    const offset = i * 6;
+    positions[offset] = inner.x;
+    positions[offset + 1] = inner.y;
+    positions[offset + 2] = inner.z;
+    positions[offset + 3] = outer.x;
+    positions[offset + 4] = outer.y;
+    positions[offset + 5] = outer.z;
+    const color = (Math.floor(sample.distance / 3.2) % 2 === 0) ? red : white;
+    colors[offset] = color.r;
+    colors[offset + 1] = color.g;
+    colors[offset + 2] = color.b;
+    colors[offset + 3] = color.r;
+    colors[offset + 4] = color.g;
+    colors[offset + 5] = color.b;
+    const next = (i + 1) % samples.length;
+    const base = i * 6;
+    indices[base] = i * 2;
+    indices[base + 1] = next * 2;
+    indices[base + 2] = i * 2 + 1;
+    indices[base + 3] = next * 2;
+    indices[base + 4] = next * 2 + 1;
+    indices[base + 5] = i * 2 + 1;
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
 function makeBeam(start, end, radius, material, name) {
   const direction = end.clone().sub(start);
   const length = direction.length();
@@ -157,6 +201,7 @@ export class MountainRoad {
     this.roadMesh = null;
     this.shoulderMesh = null;
     this.guardrails = null;
+    this.curbs = null;
     this.hairpinWarnings = null;
     this.checkpointGroup = null;
     this.built = false;
@@ -230,6 +275,7 @@ export class MountainRoad {
     this.roadMesh = null;
     this.shoulderMesh = null;
     this.guardrails = null;
+    this.curbs = null;
     this.hairpinWarnings = null;
     this.checkpointGroup = null;
   }
@@ -347,7 +393,7 @@ export class MountainRoad {
 
   buildRoadMeshes() {
     const roadGeometry = makeColoredRibbonGeometry(this.samples, this.roadWidth * 0.5, { left: 0x34383d, right: 0x34383d }, 0.015);
-    const roadMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0.02, side: THREE.DoubleSide });
+    const roadMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0.02, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
     this.roadMesh = new THREE.Mesh(roadGeometry, roadMaterial);
     this.roadMesh.name = 'MountainRoadSurface';
     this.roadMesh.receiveShadow = true;
@@ -355,9 +401,22 @@ export class MountainRoad {
     this.roadMesh.userData = { surface: 'asphalt', type: 'mountain-road' };
     this.root.add(this.roadMesh);
 
+    this.curbs = new THREE.Group();
+    this.curbs.name = 'MountainRoadRacingCurbs';
+    const curbMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0.04, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    for (const side of [-1, 1]) {
+      const curb = new THREE.Mesh(makeCurbGeometry(this.samples, side, 0.48), curbMaterial);
+      curb.name = side < 0 ? 'MountainRoadCurbLeft' : 'MountainRoadCurbRight';
+      curb.receiveShadow = true;
+      curb.castShadow = true;
+      curb.userData = { surface: 'curb', type: 'racing-curb' };
+      this.curbs.add(curb);
+    }
+    this.root.add(this.curbs);
+
     const shoulderSamples = this.samples.map((sample) => ({ ...sample, right: sample.right.clone(), position: sample.position.clone() }));
     const shoulderGeometry = makeShoulderGeometry(shoulderSamples, this.roadWidth * 0.5, this.shoulderWidth);
-    const shoulderMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, side: THREE.DoubleSide });
+    const shoulderMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -0.5, polygonOffsetUnits: -0.5 });
     this.shoulderMesh = new THREE.Mesh(shoulderGeometry, shoulderMaterial);
     this.shoulderMesh.name = 'MountainRoadShoulders';
     this.shoulderMesh.receiveShadow = true;
@@ -551,7 +610,9 @@ export class MountainRoad {
 
     if (bestIndex === -1) return null;
     const sample = this.interpolateSample(bestIndex, bestAmount);
-    const signedDistance = bestDx * sample.right.x + bestDz * sample.right.z;
+    const planarRight = new THREE.Vector3(sample.right.x, 0, sample.right.z);
+    if (planarRight.lengthSq() > 0.0001) planarRight.normalize();
+    const signedDistance = bestDx * planarRight.x + bestDz * planarRight.z;
     return { ...sample, distanceSq: bestDistSq, distance: Math.sqrt(bestDistSq), signedDistance, index: bestIndex, amount: bestAmount };
   }
 

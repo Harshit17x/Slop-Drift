@@ -192,11 +192,12 @@ export class MountainGame {
       const x = Math.cos(angle) * radius;
       const z = Math.sin(angle) * radius;
       const nearest = this.world.road.getNearestPoint(x, z);
-      if (!nearest || nearest.distance < 18) continue;
+      const objectRadius = index % 3 !== 1 ? 5.5 : 3.8;
+      if (!nearest || nearest.distance < 24 + objectRadius) continue;
       const terrain = this.world.sampleTerrain(x, z);
       const item = new THREE.Group();
       item.position.set(x, terrain.height, z);
-      if (index % 4 === 0) {
+      if (index % 3 !== 1) {
         const rock = new THREE.Mesh(rockGeometry, rockMaterial);
         rock.scale.set(1.2 + noise.sample2D(index, 10.1) * 1.5, 0.6 + noise.sample2D(index, 9.7) * 0.7, 0.8 + noise.sample2D(index, 7.1) * 1.2);
         rock.rotation.set(noise.sample2D(index, 12.2), noise.sample2D(index, 11.4) * Math.PI, noise.sample2D(index, 8.8));

@@ -50,11 +50,11 @@ Gamepad and touch controls are also included.
 - `index.html` — CDN import map and entry point
 - `src/mountain-main.js` — game state, scene, modes, and render loop
 - `src/mountain-config.js` — all major tuning values and saved settings
-- `src/procedural/Heightfield.js` — deterministic mountain terrain with ridges and edge drop-offs
+- `src/procedural/Heightfield.js` — deterministic basin-and-rim mountain terrain with ridges, cliffs, and edge drop-offs
 - `src/procedural/TerrainChunk.js` — chunked terrain rendering and LOD
-- `src/procedural/MountainRoad.js` — spline road, banked hairpin U-turn, shoulders, guardrails, warning cones, checkpoints
-- `src/procedural/ProceduralCar.js` — primitive-built sports car and interior
-- `src/procedural/MountainVehicle.js` — custom vehicle dynamics, road-follow stability assist, suspension, and fixed-step simulation
+- `src/procedural/MountainRoad.js` — spline road, banked hairpin U-turn, red/white racing curbs, shoulders, guardrails, warning cones, checkpoints
+- `src/procedural/ProceduralCar.js` — primitive-built rally car and interior
+- `src/procedural/MountainVehicle.js` — custom vehicle dynamics, road-follow stability assist, suspension, traction-limited tires, drag, downforce, and fixed-step simulation
 - `src/procedural/DriftModel.js` — handbrake drift detection and scoring
 - `src/mountain-camera.js` — chase, far, hood, and cockpit cameras
 - `src/mountain-effects.js` — smoke, dust, sparks, flames, and skid marks
