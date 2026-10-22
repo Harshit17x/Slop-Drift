@@ -20,6 +20,10 @@ function normalizedNormal(value, fallback = UP) {
   return normal;
 }
 
+function isRoadSurface(sample) {
+  return Boolean(sample && (sample.surface === 'asphalt' || sample.surface === 'shoulder'));
+}
+
 function makeOrientation(forward, up) {
   const projectedForward = forward.clone().sub(up.clone().multiplyScalar(forward.dot(up))).normalize();
   const safeForward = projectedForward.lengthSq() > 0.0001 ? projectedForward : new THREE.Vector3(0, 0, -1);
@@ -65,6 +69,8 @@ export class MountainVehicle {
     this.roadAssist = options.roadAssist ?? 1.6;
     this.roadHeadingGain = options.roadHeadingGain ?? 4.5;
     this.roadCenteringGain = options.roadCenteringGain ?? 3.2;
+    this.roadSupportSlack = options.roadSupportSlack ?? 1;
+    this.wheelContactSlack = 0;
     this.cliffSlope = options.cliffSlope ?? Math.PI * 0.69;
     this.cliffDelay = options.cliffDelay ?? 0.9;
     this.fallDistance = options.fallDistance ?? 8;
@@ -127,7 +133,7 @@ export class MountainVehicle {
       const normal = normalizedNormal(sample.normal, this.groundNormal);
       const surfacePoint = new THREE.Vector3(mount.x, sample.height, mount.z);
       const distance = mount.clone().sub(surfacePoint).dot(normal) - this.wheelRadius;
-      const contact = !sample.cliff && sample.inside !== false && distance <= this.suspensionRest + this.suspensionTravel;
+       const contact = !sample.cliff && sample.inside !== false && distance <= this.suspensionRest + this.suspensionTravel + this.wheelContactSlack;
       const compression = contact ? clamp(this.suspensionRest - Math.max(0, distance), -this.suspensionTravel, this.suspensionRest) : 0;
       wheel.compression = compression;
       return { wheel, mount, sample, distance, contact };
@@ -198,17 +204,42 @@ export class MountainVehicle {
     this.throttle = input.throttle;
     this.brake = input.brake;
     this.handbrake = input.handbrake;
+    const road = this.mountainWorld?.road;
+    const roadNearest = road?.getNearestPoint?.(this.position.x, this.position.z);
+    const roadRecoveryLimit = road ? (Number(road.roadWidth) || 7.6) * 0.5 + (Number(road.shoulderWidth) || 2.5) * 2.5 : 0;
+    const roadSupportSample = roadNearest && roadNearest.distance <= roadRecoveryLimit ? {
+      height: roadNearest.position.y,
+      normal: roadNearest.normal,
+      surface: 'shoulder',
+      friction: 0.72,
+      rollingResistance: 0.038,
+      inside: true,
+      cliff: false,
+      distanceToRoad: roadNearest.distance,
+      tangent: roadNearest.tangent,
+      bank: roadNearest.bank,
+      slopeAngle: 0,
+    } : null;
     const centerSample = this.sampleSurface(this.position.x, this.position.z);
-    this.updateOrientation(normalizedNormal(centerSample?.normal, this.groundNormal));
+    const centerOnRoad = isRoadSurface(centerSample);
+    const roadSupported = centerOnRoad || Boolean(roadSupportSample);
+    const preSupportSample = centerOnRoad ? centerSample : roadSupportSample || centerSample;
+    this.wheelContactSlack = roadSupported ? this.roadSupportSlack : 0;
+    const preNormal = this.groundNormal.clone().lerp(normalizedNormal(preSupportSample?.normal, this.groundNormal), clamp(dt * 10, 0, 1)).normalize();
+    this.updateOrientation(preNormal);
     const contacts = this.sampleWheels();
     const grounded = contacts.filter((contact) => contact.contact && contact.sample && !contact.sample.cliff && contact.sample.inside !== false);
-    const averageHeight = grounded.length ? grounded.reduce((sum, contact) => sum + contact.sample.height, 0) / grounded.length : null;
-    const averageNormal = grounded.length
+    const supportSample = roadSupported ? preSupportSample : grounded[0]?.sample || centerSample;
+    const averageHeight = roadSupported ? supportSample.height : grounded.length ? grounded.reduce((sum, contact) => sum + contact.sample.height, 0) / grounded.length : null;
+    const averageNormal = roadSupported
+      ? normalizedNormal(supportSample.normal, this.groundNormal)
+      : grounded.length
       ? grounded.reduce((normal, contact) => normal.add(normalizedNormal(contact.sample.normal, this.groundNormal)), new THREE.Vector3()).normalize()
       : normalizedNormal(centerSample?.normal, this.groundNormal);
-    this.surfaceSample = grounded[0]?.sample || centerSample || null;
+    const supported = Boolean(grounded.length || roadSupported);
+    this.surfaceSample = supportSample || null;
     this.surface = this.surfaceSample?.surface || 'cliff';
-    this.groundNormal.copy(normalizedNormal(averageNormal, this.groundNormal));
+    this.groundNormal.lerp(normalizedNormal(averageNormal, this.groundNormal), clamp(dt * 14, 0, 1)).normalize();
     this.updateOrientation(this.groundNormal);
     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.quaternion).normalize();
     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.quaternion).normalize();
@@ -226,13 +257,13 @@ export class MountainVehicle {
     const dragForce = -longitudinal * Math.abs(longitudinal) * this.airDrag;
     const rollingForce = -longitudinal * rollingResistance * this.mass * this.gravity;
     const gravityForce = new THREE.Vector3(0, -this.gravity * this.mass, 0);
-    const slopeGravity = grounded.length
+    const slopeGravity = supported
       ? gravityForce.clone().sub(this.groundNormal.clone().multiplyScalar(gravityForce.dot(this.groundNormal)))
       : gravityForce;
     const force = forward.clone().multiplyScalar(driveForce - brakeForce - handbrakeForce + dragForce + rollingForce).add(right.clone().multiplyScalar(lateralForce)).add(slopeGravity).add(roadAssist.centerForce);
     const acceleration = force.multiplyScalar(1 / this.mass);
     this.velocity.addScaledVector(acceleration, dt);
-    if (grounded.length && averageHeight !== null) {
+    if (supported && averageHeight !== null) {
       const targetHeight = averageHeight + this.bodyRideHeight;
       const heightError = targetHeight - this.position.y;
       const normalY = Math.max(0.25, this.groundNormal.y);
@@ -264,7 +295,7 @@ export class MountainVehicle {
     const yawRate = clamp(yawTarget + handbrakeYaw + roadAssist.headingRate, -this.maxYawRate, this.maxYawRate);
     this.yaw += yawRate * dt;
     this.position.addScaledVector(this.velocity, dt);
-    if (grounded.length && averageHeight !== null) {
+    if (supported && averageHeight !== null) {
       const postSample = this.sampleSurface(this.position.x, this.position.z);
       const postHeight = Number.isFinite(postSample?.height) ? postSample.height : averageHeight;
       const postError = postHeight + this.bodyRideHeight - this.position.y;
@@ -295,7 +326,7 @@ export class MountainVehicle {
       this.surface = postSurface.surface || this.surface;
     }
     const cliffHeight = Number.isFinite(postSurface?.height) ? postSurface.height : averageHeight;
-    const cliff = !grounded.length || !postSurface || postSurface.inside === false || Boolean(postSurface.cliff) || (cliffHeight !== null && cliffHeight !== undefined && this.position.y < cliffHeight - this.fallDistance) || (postSurface?.slopeAngle ?? 0) > this.cliffSlope;
+    const cliff = !supported || !postSurface || postSurface.inside === false || Boolean(postSurface.cliff) || (cliffHeight !== null && cliffHeight !== undefined && this.position.y < cliffHeight - this.fallDistance) || (postSurface?.slopeAngle ?? 0) > this.cliffSlope;
     if (cliff) this.cliffTimer += dt;
     else {
       this.cliffTimer = 0;

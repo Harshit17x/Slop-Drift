@@ -16,9 +16,11 @@ export class MountainWorld {
       sizeX: options.sizeX ?? 320,
       sizeZ: options.sizeZ ?? 260,
       baseHeight: options.baseHeight ?? 0,
-      amplitude: options.amplitude ?? 25,
-      ridgeAmplitude: options.ridgeAmplitude ?? 12,
-      detailAmplitude: options.detailAmplitude ?? 3.5,
+      amplitude: options.amplitude ?? 31,
+      ridgeAmplitude: options.ridgeAmplitude ?? 17,
+      detailAmplitude: options.detailAmplitude ?? 4.2,
+      edgeDrop: options.edgeDrop ?? 16,
+      ridgeFrequency: options.ridgeFrequency ?? 0.0065,
     });
     this.chunkSize = options.chunkSize ?? 64;
     this.chunkResolution = options.chunkResolution ?? 24;
