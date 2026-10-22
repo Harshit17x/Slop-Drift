@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# Production build outputs
+dist/
+
+# OS and IDE files
+.DS_Store
+Thumbs.db
+.opencode/
+
+# Large model assets exceeding GitHub's 100MB file limit
+public/models/track.glb
