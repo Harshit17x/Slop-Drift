@@ -184,8 +184,8 @@ export class MountainRoad {
     this.shoulderWidth = options.shoulderWidth ?? 2.2;
     this.segmentCount = Math.max(24, Math.floor(options.segmentCount ?? 480));
     this.controlPointCount = Math.max(6, Math.floor(options.controlPointCount ?? 12));
-    this.roadElevation = options.roadElevation ?? 0.08;
-    this.spawnHeight = options.spawnHeight ?? 0.08;
+    this.roadElevation = options.roadElevation ?? 0.18;
+    this.spawnHeight = options.spawnHeight ?? 0.2;
     this.bankStrength = options.bankStrength ?? 0.75;
     this.maxBank = options.maxBank ?? Math.PI * 0.14;
     this.checkpointCount = Math.max(1, Math.floor(options.checkpointCount ?? 16));
@@ -655,7 +655,9 @@ export class MountainRoad {
       right: this.samples[0]?.right || new THREE.Vector3(1, 0, 0),
     };
     const rotation = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(checkpoint.right, checkpoint.normal, checkpoint.tangent.clone().negate()));
-    return { position: checkpoint.position.clone().addScaledVector(checkpoint.normal, this.spawnHeight), rotation, checkpoint: checkpoint.index ?? checkpointIndex };
+    const position = checkpoint.position.clone();
+    position.y += this.spawnHeight;
+    return { position, rotation, checkpoint: checkpoint.index ?? checkpointIndex };
   }
 
   getCheckpointData() {

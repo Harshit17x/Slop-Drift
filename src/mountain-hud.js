@@ -190,7 +190,7 @@ export class MountainHUD {
     this.refs.pauseScreen.classList.add('hidden');
     this.refs.finish.classList.add('hidden');
     this.refs.settingsScreen.classList.add('hidden');
-    this.refs.hud.classList.add('dimmed');
+    this.refs.hud.classList.add('hidden');
   }
 
   showRace() {
@@ -198,6 +198,7 @@ export class MountainHUD {
     this.refs.pauseScreen.classList.add('hidden');
     this.refs.finish.classList.add('hidden');
     this.refs.settingsScreen.classList.add('hidden');
+    this.refs.hud.classList.remove('hidden');
     this.refs.hud.classList.remove('dimmed');
   }
 
@@ -256,8 +257,8 @@ export class MountainHUD {
   mapPoint(point, width, height) {
     if (!this.trackBounds) return { x: width * 0.5, y: height * 0.5 };
     const padding = 16;
-    const x = (point.x - this.trackBounds.minX) / Math.max(1, this.trackBounds.maxX - this.trackBounds.minX) * (width - padding * 2) + padding;
-    const y = (1 - (point.z - this.trackBounds.minZ) / Math.max(1, this.trackBounds.maxZ - this.trackBounds.minZ)) * (height - padding * 2) + padding;
+    const x = Math.max(padding, Math.min(width - padding, (point.x - this.trackBounds.minX) / Math.max(1, this.trackBounds.maxX - this.trackBounds.minX) * (width - padding * 2) + padding));
+    const y = Math.max(padding, Math.min(height - padding, (1 - (point.z - this.trackBounds.minZ) / Math.max(1, this.trackBounds.maxZ - this.trackBounds.minZ)) * (height - padding * 2) + padding));
     return { x, y };
   }
 

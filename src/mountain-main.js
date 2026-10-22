@@ -171,8 +171,20 @@ export class MountainGame {
       autoBuild: true,
     });
     this.createDecorations();
-    const bounds = this.world.heightfield.getBounds();
-    this.hud.setTrack(this.world.road.samples.map((sample) => sample.position.clone()), bounds);
+    const trackPoints = this.world.road.samples.map((sample) => sample.position.clone());
+    const trackBounds = trackPoints.reduce((bounds, point) => ({
+      minX: Math.min(bounds.minX, point.x),
+      maxX: Math.max(bounds.maxX, point.x),
+      minZ: Math.min(bounds.minZ, point.z),
+      maxZ: Math.max(bounds.maxZ, point.z),
+    }), { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity });
+    const mapPadding = CONFIG.world.roadWidth * 0.5 + CONFIG.world.shoulderWidth + 12;
+    this.hud.setTrack(trackPoints, {
+      minX: trackBounds.minX - mapPadding,
+      maxX: trackBounds.maxX + mapPadding,
+      minZ: trackBounds.minZ - mapPadding,
+      maxZ: trackBounds.maxZ + mapPadding,
+    });
   }
 
   createDecorations() {
@@ -239,6 +251,7 @@ export class MountainGame {
       steeringReturn: CONFIG.vehicle.steeringReturn,
       lateralGrip: CONFIG.vehicle.lateralGrip,
       maxSpeed: CONFIG.vehicle.maxSpeed,
+      driveLayout: CONFIG.vehicle.driveLayout,
       drift: CONFIG.drift,
     });
     this.headlights = [

@@ -17,6 +17,7 @@ export class ProceduralCar extends THREE.Group {
       wheelRadius: options.wheelRadius ?? 0.34,
       wheelWidth: options.wheelWidth ?? 0.22,
     };
+    this.chassisOffsetY = options.chassisOffsetY ?? 0.16;
     this.wheels = new Map();
     this.wheelPivots = new Map();
     this.wheelSpin = new Map();
@@ -56,6 +57,7 @@ export class ProceduralCar extends THREE.Group {
 
     this.chassis = new THREE.Group();
     this.chassis.name = 'CarChassis';
+    this.chassis.position.y = this.chassisOffsetY;
     this.add(this.chassis);
 
     const wheelPositions = {
@@ -252,7 +254,7 @@ export class ProceduralCar extends THREE.Group {
     if (!this.chassis) return;
     this.chassis.rotation.z = roll;
     this.chassis.rotation.x = pitch;
-    this.chassis.position.y = squat;
+    this.chassis.position.y = this.chassisOffsetY + squat;
   }
 
   setBraking(isBraking) {

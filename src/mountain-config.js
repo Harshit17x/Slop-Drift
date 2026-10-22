@@ -60,6 +60,7 @@ export const CONFIG = {
     steeringReturn: 9,
     lateralGrip: 7.8,
     maxSpeed: 58,
+    driveLayout: 'rwd',
   },
   drift: {
     minSpeed: 11,
