@@ -96,6 +96,11 @@ export class MountainVehicle {
     this.lastSafeTransform = null;
     this.groundNormal = UP.clone();
     this.checkpoint = 0;
+    this.bodyRoll = 0;
+    this.bodyPitch = 0;
+    this.bodySquat = 0;
+    this.prevLongitudinalSpeed = 0;
+    this.isReversing = false;
     this.driftModel = options.driftModel || new DriftModel(options.drift || {});
     this.wheels = [
       { key: 'frontLeft', local: new THREE.Vector3(-this.trackWidth * 0.5, this.wheelMountY, -this.wheelbase * 0.5), steer: true, drive: false, compression: 0, spin: 0 },
@@ -185,6 +190,9 @@ export class MountainVehicle {
       this.accumulator -= this.fixedDt;
       steps += 1;
     }
+    if (this.accumulator > this.fixedDt) {
+      this.accumulator = 0;
+    }
     this.fixedSteps += steps;
     this.updateVisual(dt);
     return this.getSnapshot();
@@ -249,11 +257,29 @@ export class MountainVehicle {
     const friction = clamp(this.surfaceSample?.friction ?? 0.35, 0.08, 1.2);
     const rollingResistance = this.surfaceSample?.rollingResistance ?? 0.12;
     const reversing = this.brake > this.throttle && longitudinal < 0.5;
+    this.isReversing = reversing;
     const driveForce = reversing ? -this.reverseForce * this.brake : this.engineForce * this.throttle;
     const brakeForce = !reversing && Math.abs(longitudinal) > 0.05 ? Math.sign(longitudinal) * this.brakeForce * this.brake : 0;
-    const handbrakeForce = this.handbrake && Math.abs(longitudinal) > 0.05 ? Math.sign(longitudinal) * this.brakeForce * 0.18 : 0;
-    const handbrakeGrip = this.handbrake ? 0.22 : 1;
-    const lateralForce = -lateral * this.lateralGrip * friction * handbrakeGrip * this.mass;
+    const handbrakeForce = this.handbrake && Math.abs(longitudinal) > 0.05 ? Math.sign(longitudinal) * this.brakeForce * 0.22 : 0;
+    
+    // Pacejka-inspired non-linear lateral tire slip curve
+    const speedTotal = Math.hypot(longitudinal, lateral);
+    const slipAngle = speedTotal > 0.8 ? Math.atan2(lateral, Math.max(0.6, Math.abs(longitudinal))) : 0;
+    const absSlip = Math.abs(slipAngle);
+    const gripPeakFactor = absSlip < 0.2 ? (absSlip / 0.2) * 1.15 : Math.max(0.65, 1.15 - (absSlip - 0.2) * 0.72);
+    const handbrakeGrip = this.handbrake ? 0.24 : 1;
+    const counterSteer = Math.sign(input.steer) === -Math.sign(lateral);
+    const counterSteerBonus = counterSteer ? (1 + Math.abs(input.steer) * 0.28) : 1;
+    const lateralForce = -Math.sign(lateral) * Math.min(Math.abs(lateral), 15) * this.lateralGrip * friction * handbrakeGrip * gripPeakFactor * counterSteerBonus * this.mass;
+
+    // Weight transfer & body roll/pitch estimation
+    const longAccel = dt > 0.0001 ? (longitudinal - this.prevLongitudinalSpeed) / dt : 0;
+    this.prevLongitudinalSpeed = longitudinal;
+    const targetPitch = clamp(longAccel * -0.0034, -0.075, 0.065);
+    const targetRoll = clamp((lateral / Math.max(1, Math.abs(longitudinal) + 4)) * 0.14, -0.095, 0.095);
+    this.bodyPitch = THREE.MathUtils.lerp(this.bodyPitch, targetPitch, clamp(dt * 10, 0, 1));
+    this.bodyRoll = THREE.MathUtils.lerp(this.bodyRoll, targetRoll, clamp(dt * 12, 0, 1));
+
     const dragForce = -longitudinal * Math.abs(longitudinal) * this.airDrag;
     const rollingForce = -longitudinal * rollingResistance * this.mass * this.gravity;
     const gravityForce = new THREE.Vector3(0, -this.gravity * this.mass, 0);
@@ -390,6 +416,9 @@ export class MountainVehicle {
     this.visual.position.copy(this.position);
     this.visual.quaternion.copy(this.quaternion);
     this.visual.setSteering?.(this.steering);
+    this.visual.setBodyDynamics?.({ roll: this.bodyRoll, pitch: this.bodyPitch, squat: this.bodySquat });
+    this.visual.setBraking?.(this.brake > 0.08 && !this.isReversing);
+    this.visual.setReversing?.(this.isReversing);
     const spinDelta = this.velocity.length() * dt / Math.max(0.05, this.wheelRadius);
     this.wheels.forEach((wheel) => {
       this.visual.setSuspension?.(wheel.key, wheel.compression);

@@ -1,18 +1,18 @@
 {
-  "name": "hungaroring-drift-lab",
+  "name": "slop-drift",
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "description": "Procedural mountain drift racing game in Three.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@dimforge/rapier3d-compat": "^0.21.0",
-    "stats-gl": "^4.2.3",
-    "three": "^0.186.1",
-    "vite": "^8.3.5"
+    "three": "^0.186.1"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "vite": "^8.3.5"
+  }
 }

@@ -115,7 +115,11 @@ export class MountainInput {
   }
 
   installPointer() {
-    this.onContextMenu = (event) => event.preventDefault();
+    this.onContextMenu = (event) => {
+      if (this.pointer.rightDown || event.target?.tagName === 'CANVAS') {
+        event.preventDefault();
+      }
+    };
     this.onPointerDown = (event) => {
       if (event.button === 2) {
         this.pointer.rightDown = true;

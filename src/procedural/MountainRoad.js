@@ -311,8 +311,38 @@ export class MountainRoad {
     this.buildGuardrails();
     this.buildHairpinWarnings();
     this.buildCheckpoints();
+    this.buildSpatialGrid(28);
     this.built = true;
     return this;
+  }
+
+  buildSpatialGrid(cellSize = 28) {
+    this.spatialCellSize = cellSize;
+    this.spatialGrid = new Map();
+    const pad = (this.roadWidth + this.shoulderWidth) * 1.5;
+    for (let i = 0; i < this.samples.length; i += 1) {
+      const a = this.samples[i];
+      const b = this.samples[(i + 1) % this.samples.length];
+      const minX = Math.min(a.position.x, b.position.x) - pad;
+      const maxX = Math.max(a.position.x, b.position.x) + pad;
+      const minZ = Math.min(a.position.z, b.position.z) - pad;
+      const maxZ = Math.max(a.position.z, b.position.z) + pad;
+      const minCx = Math.floor(minX / cellSize);
+      const maxCx = Math.floor(maxX / cellSize);
+      const minCz = Math.floor(minZ / cellSize);
+      const maxCz = Math.floor(maxZ / cellSize);
+      for (let cx = minCx; cx <= maxCx; cx += 1) {
+        for (let cz = minCz; cz <= maxCz; cz += 1) {
+          const key = `${cx},${cz}`;
+          let bucket = this.spatialGrid.get(key);
+          if (!bucket) {
+            bucket = [];
+            this.spatialGrid.set(key, bucket);
+          }
+          bucket.push(i);
+        }
+      }
+    }
   }
 
   buildRoadMeshes() {
@@ -443,8 +473,38 @@ export class MountainRoad {
 
   getNearestPoint(x, z) {
     if (!this.samples.length) return null;
-    let best = null;
-    for (let i = 0; i < this.samples.length; i += 1) {
+    let candidateIndices = null;
+    if (this.spatialGrid && this.spatialCellSize) {
+      const cx = Math.floor(x / this.spatialCellSize);
+      const cz = Math.floor(z / this.spatialCellSize);
+      const bucket = this.spatialGrid.get(`${cx},${cz}`);
+      if (bucket && bucket.length > 0) {
+        candidateIndices = bucket;
+      } else {
+        // Sample 3x3 neighborhood if right on cell boundary
+        const set = new Set();
+        for (let ox = -1; ox <= 1; ox += 1) {
+          for (let oz = -1; oz <= 1; oz += 1) {
+            const b = this.spatialGrid.get(`${cx + ox},${cz + oz}`);
+            if (b) {
+              for (let k = 0; k < b.length; k += 1) set.add(b[k]);
+            }
+          }
+        }
+        if (set.size > 0) candidateIndices = Array.from(set);
+      }
+    }
+
+    const indices = candidateIndices;
+    const count = indices ? indices.length : this.samples.length;
+    let bestDistSq = Infinity;
+    let bestIndex = -1;
+    let bestAmount = 0;
+    let bestDx = 0;
+    let bestDz = 0;
+
+    for (let c = 0; c < count; c += 1) {
+      const i = indices ? indices[c] : c;
       const a = this.samples[i];
       const b = this.samples[(i + 1) % this.samples.length];
       const abX = b.position.x - a.position.x;
@@ -456,13 +516,43 @@ export class MountainRoad {
       const dx = x - px;
       const dz = z - pz;
       const distanceSq = dx * dx + dz * dz;
-      if (!best || distanceSq < best.distanceSq) {
-        const sample = this.interpolateSample(i, amount);
-        const signedDistance = dx * sample.right.x + dz * sample.right.z;
-        best = { ...sample, distanceSq, distance: Math.sqrt(distanceSq), signedDistance, index: i, amount };
+      if (distanceSq < bestDistSq) {
+        bestDistSq = distanceSq;
+        bestIndex = i;
+        bestAmount = amount;
+        bestDx = dx;
+        bestDz = dz;
       }
     }
-    return best;
+
+    // Fallback coarse search if point is far outside regular grid cells
+    if (bestIndex === -1) {
+      for (let i = 0; i < this.samples.length; i += 1) {
+        const a = this.samples[i];
+        const b = this.samples[(i + 1) % this.samples.length];
+        const abX = b.position.x - a.position.x;
+        const abZ = b.position.z - a.position.z;
+        const lengthSq = abX * abX + abZ * abZ;
+        const amount = lengthSq > 0 ? clamp(((x - a.position.x) * abX + (z - a.position.z) * abZ) / lengthSq, 0, 1) : 0;
+        const px = a.position.x + abX * amount;
+        const pz = a.position.z + abZ * amount;
+        const dx = x - px;
+        const dz = z - pz;
+        const distanceSq = dx * dx + dz * dz;
+        if (distanceSq < bestDistSq) {
+          bestDistSq = distanceSq;
+          bestIndex = i;
+          bestAmount = amount;
+          bestDx = dx;
+          bestDz = dz;
+        }
+      }
+    }
+
+    if (bestIndex === -1) return null;
+    const sample = this.interpolateSample(bestIndex, bestAmount);
+    const signedDistance = bestDx * sample.right.x + bestDz * sample.right.z;
+    return { ...sample, distanceSq: bestDistSq, distance: Math.sqrt(bestDistSq), signedDistance, index: bestIndex, amount: bestAmount };
   }
 
   sampleSurface(x, z) {

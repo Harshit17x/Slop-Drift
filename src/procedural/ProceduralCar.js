@@ -49,7 +49,15 @@ export class ProceduralCar extends THREE.Group {
     const tireMaterial = this.material({ color: 0x121315, metalness: 0.03, roughness: 0.9 });
     const rimMaterial = this.material({ color: 0xb7bdc6, metalness: 0.85, roughness: 0.28 });
     const lampMaterial = this.material({ color: 0xfff3ca, emissive: 0xffd36b, emissiveIntensity: 1.4, roughness: 0.22 });
-    const tailMaterial = this.material({ color: 0x5c0808, emissive: 0xff1010, emissiveIntensity: 0.5, roughness: 0.3 });
+    const tailMaterial = this.material({ color: 0x5c0808, emissive: 0xff1010, emissiveIntensity: 0.45, roughness: 0.3 });
+    const reverseLampMaterial = this.material({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.2 });
+    this.tailMaterial = tailMaterial;
+    this.reverseLampMaterial = reverseLampMaterial;
+
+    this.chassis = new THREE.Group();
+    this.chassis.name = 'CarChassis';
+    this.add(this.chassis);
+
     const wheelPositions = {
       frontLeft: new THREE.Vector3(-this.dimensions.track * 0.5, 0.37, -this.dimensions.wheelbase * 0.5),
       frontRight: new THREE.Vector3(this.dimensions.track * 0.5, 0.37, -this.dimensions.wheelbase * 0.5),
@@ -57,19 +65,19 @@ export class ProceduralCar extends THREE.Group {
       rearRight: new THREE.Vector3(this.dimensions.track * 0.5, 0.37, this.dimensions.wheelbase * 0.5),
     };
 
-     const stripeMaterial = this.material({ color: 0xe84a57, metalness: 0.18, roughness: 0.34 });
+    const stripeMaterial = this.material({ color: 0xe84a57, metalness: 0.18, roughness: 0.34 });
     const accentMaterial = this.material({ color: 0x1c5da8, metalness: 0.44, roughness: 0.3 });
     const dashboardMaterial = this.material({ color: 0x292d33, metalness: 0.16, roughness: 0.68 });
     const gaugeMaterial = this.material({ color: 0x78d6ff, emissive: 0x145f91, emissiveIntensity: 1.3, metalness: 0.12, roughness: 0.3 });
     const warningMaterial = this.material({ color: 0xff9d2e, emissive: 0x8b2d05, emissiveIntensity: 0.9, roughness: 0.3 });
 
-    const addPart = (geometry, material, name, position = null, parent = this, rotation = null) => {
+    const addPart = (geometry, material, name, position = null, parent = this.chassis, rotation = null) => {
       const object = this.mesh(geometry, material, name, position, parent);
       if (rotation) object.rotation.set(rotation.x || 0, rotation.y || 0, rotation.z || 0);
       return object;
     };
     const addPaintPart = (geometry, name, position = null, rotation = null) => {
-      const object = addPart(geometry, bodyMaterial, name, position, this, rotation);
+      const object = addPart(geometry, bodyMaterial, name, position, this.chassis, rotation);
       this.paintMeshes.push(object);
       return object;
     };
@@ -113,11 +121,13 @@ export class ProceduralCar extends THREE.Group {
 
     this.headlightLeft = addPart(new THREE.BoxGeometry(this.dimensions.width * 0.21, 0.12, 0.06), lampMaterial, 'HeadlightLeft', new THREE.Vector3(-this.dimensions.width * 0.34, 0.72, -this.dimensions.length * 0.535), this, { z: -0.08 });
     this.headlightRight = addPart(new THREE.BoxGeometry(this.dimensions.width * 0.21, 0.12, 0.06), lampMaterial, 'HeadlightRight', new THREE.Vector3(this.dimensions.width * 0.34, 0.72, -this.dimensions.length * 0.535), this, { z: 0.08 });
-    this.tailLightLeft = addPart(new THREE.BoxGeometry(this.dimensions.width * 0.19, 0.12, 0.06), tailMaterial, 'TailLightLeft', new THREE.Vector3(-this.dimensions.width * 0.36, 0.71, this.dimensions.length * 0.535), this, { z: 0.08 });
-    this.tailLightRight = addPart(new THREE.BoxGeometry(this.dimensions.width * 0.19, 0.12, 0.06), tailMaterial, 'TailLightRight', new THREE.Vector3(this.dimensions.width * 0.36, 0.71, this.dimensions.length * 0.535), this, { z: -0.08 });
+    this.tailLightLeft = addPart(new THREE.BoxGeometry(this.dimensions.width * 0.19, 0.12, 0.06), tailMaterial, 'TailLightLeft', new THREE.Vector3(-this.dimensions.width * 0.36, 0.71, this.dimensions.length * 0.535), this.chassis, { z: 0.08 });
+    this.tailLightRight = addPart(new THREE.BoxGeometry(this.dimensions.width * 0.19, 0.12, 0.06), tailMaterial, 'TailLightRight', new THREE.Vector3(this.dimensions.width * 0.36, 0.71, this.dimensions.length * 0.535), this.chassis, { z: -0.08 });
     addPart(new THREE.BoxGeometry(this.dimensions.width * 0.32, 0.06, 0.05), tailMaterial, 'RearLightBar', new THREE.Vector3(0, 0.73, this.dimensions.length * 0.538));
-    addPart(new THREE.CylinderGeometry(0.06, 0.06, 0.12, 8), trimMaterial, 'ExhaustLeft', new THREE.Vector3(-this.dimensions.width * 0.37, 0.44, this.dimensions.length * 0.56), this, { z: Math.PI * 0.5 });
-    addPart(new THREE.CylinderGeometry(0.06, 0.06, 0.12, 8), trimMaterial, 'ExhaustRight', new THREE.Vector3(this.dimensions.width * 0.37, 0.44, this.dimensions.length * 0.56), this, { z: Math.PI * 0.5 });
+    this.reverseLampLeft = addPart(new THREE.BoxGeometry(this.dimensions.width * 0.07, 0.05, 0.05), reverseLampMaterial, 'ReverseLampLeft', new THREE.Vector3(-this.dimensions.width * 0.22, 0.65, this.dimensions.length * 0.536));
+    this.reverseLampRight = addPart(new THREE.BoxGeometry(this.dimensions.width * 0.07, 0.05, 0.05), reverseLampMaterial, 'ReverseLampRight', new THREE.Vector3(this.dimensions.width * 0.22, 0.65, this.dimensions.length * 0.536));
+    addPart(new THREE.CylinderGeometry(0.06, 0.06, 0.12, 8), trimMaterial, 'ExhaustLeft', new THREE.Vector3(-this.dimensions.width * 0.37, 0.44, this.dimensions.length * 0.56), this.chassis, { z: Math.PI * 0.5 });
+    addPart(new THREE.CylinderGeometry(0.06, 0.06, 0.12, 8), trimMaterial, 'ExhaustRight', new THREE.Vector3(this.dimensions.width * 0.37, 0.44, this.dimensions.length * 0.56), this.chassis, { z: Math.PI * 0.5 });
 
     const addRallyStripe = (centerZ, topY, depth, name) => {
       addPart(new THREE.BoxGeometry(this.dimensions.width * 0.06, 0.026, depth), stripeMaterial, `${name}Left`, new THREE.Vector3(-this.dimensions.width * 0.11, topY, centerZ));
@@ -148,7 +158,7 @@ export class ProceduralCar extends THREE.Group {
 
     this.cockpit = new THREE.Group();
     this.cockpit.name = 'RallyCockpit';
-    this.add(this.cockpit);
+    this.chassis.add(this.cockpit);
     addPart(new THREE.BoxGeometry(this.dimensions.width * 0.68, 0.13, 0.38), dashboardMaterial, 'Dashboard', new THREE.Vector3(0, 0.92, -0.58), this.cockpit);
     addPart(new THREE.BoxGeometry(this.dimensions.width * 0.64, 0.045, 0.31), trimMaterial, 'DashboardTop', new THREE.Vector3(0, 1.0, -0.62), this.cockpit);
     const instrumentCluster = new THREE.Group();
@@ -236,6 +246,24 @@ export class ProceduralCar extends THREE.Group {
     const pivot = this.wheelPivots.get(key);
     if (!pivot) return;
     pivot.position.y = 0.37 - Math.max(-0.16, Math.min(0.18, compression)) * 0.12;
+  }
+
+  setBodyDynamics({ roll = 0, pitch = 0, squat = 0 } = {}) {
+    if (!this.chassis) return;
+    this.chassis.rotation.z = roll;
+    this.chassis.rotation.x = pitch;
+    this.chassis.position.y = squat;
+  }
+
+  setBraking(isBraking) {
+    if (!this.tailMaterial) return;
+    this.tailMaterial.emissiveIntensity = isBraking ? 2.8 : 0.45;
+    this.tailMaterial.color.setHex(isBraking ? 0xff2020 : 0x5c0808);
+  }
+
+  setReversing(isReversing) {
+    if (!this.reverseLampMaterial) return;
+    this.reverseLampMaterial.emissiveIntensity = isReversing ? 2.4 : 0;
   }
 
   getMountPoints() {

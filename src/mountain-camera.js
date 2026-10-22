@@ -77,6 +77,14 @@ export class MountainCameraRig {
     const driftAngle = Math.abs(pose.drift?.angleDeg || 0);
     const ahead = CONFIG.camera.lookAhead + speed * 0.12;
     const target = position.clone().addScaledVector(forward, ahead).addScaledVector(up, 0.7);
+
+    // Realistic drift look-ahead anticipation: camera frames the exit of the drift
+    const driftAngleRad = pose.drift?.angle || 0;
+    if (Math.abs(driftAngleRad) > 0.08 && speed > 5) {
+      const driftLookOffset = -Math.sin(driftAngleRad) * Math.min(3.8, speed * 0.085);
+      target.addScaledVector(right, driftLookOffset);
+    }
+
     let desired = position.clone();
     let fov = 70;
     if (mode === 'wide') {
@@ -95,6 +103,14 @@ export class MountainCameraRig {
       desired.addScaledVector(forward, -distance).addScaledVector(up, height);
       fov = THREE.MathUtils.lerp(64, 88, clamp(speed / 60, 0, 1));
     }
+
+    // High speed / rough surface vibration
+    if (speed > 22 || (pose.surface && pose.surface !== 'asphalt')) {
+      const shakeIntensity = (pose.surface !== 'asphalt' ? 0.032 : 0.01) * Math.min(1.4, speed / 30);
+      desired.x += (Math.random() - 0.5) * shakeIntensity;
+      desired.y += (Math.random() - 0.5) * shakeIntensity;
+    }
+
     const lookYaw = this.freeLook.active ? this.freeLook.x : 0;
     const lookPitch = this.freeLook.active ? this.freeLook.y : 0;
     const lookBack = this.freeLook.lookBack ? Math.PI : 0;
@@ -126,15 +142,6 @@ export class MountainCameraRig {
     camera.fov = this.currentFov;
     camera.aspect = this.aspect;
     camera.updateProjectionMatrix();
-    CAMERA_MODES.filter((mode) => mode !== this.activeMode).forEach((mode) => {
-      const other = this.cameras[mode];
-      const pose = this.computePose(mode);
-      other.position.copy(pose.position);
-      other.lookAt(pose.target);
-      other.fov = pose.fov;
-      other.aspect = this.aspect;
-      other.updateProjectionMatrix();
-    });
     return camera;
   }
 

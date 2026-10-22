@@ -133,6 +133,56 @@ export class MountainHUD {
   setTrack(points, bounds) {
     this.trackPoints = points || [];
     this.trackBounds = bounds || null;
+    this.prerenderMinimap();
+  }
+
+  prerenderMinimap() {
+    if (!this.trackPoints || this.trackPoints.length < 2 || !this.trackBounds) return;
+    const canvas = this.refs.minimap;
+    const width = canvas.width;
+    const height = canvas.height;
+    if (!this.staticMapCanvas) {
+      this.staticMapCanvas = document.createElement('canvas');
+      this.staticMapCanvas.width = width;
+      this.staticMapCanvas.height = height;
+    }
+    const context = this.staticMapCanvas.getContext('2d');
+    context.clearRect(0, 0, width, height);
+    context.fillStyle = 'rgba(14, 31, 39, 0.96)';
+    context.fillRect(0, 0, width, height);
+    context.strokeStyle = 'rgba(199, 255, 82, 0.14)';
+    context.lineWidth = 1;
+    context.beginPath();
+    context.arc(width * 0.5, height * 0.5, width * 0.34, 0, Math.PI * 2);
+    context.stroke();
+    context.beginPath();
+    context.moveTo(width * 0.5, 12);
+    context.lineTo(width * 0.5, height - 12);
+    context.moveTo(12, height * 0.5);
+    context.lineTo(width - 12, height * 0.5);
+    context.stroke();
+
+    context.strokeStyle = 'rgba(218, 239, 160, 0.2)';
+    context.lineWidth = 7;
+    context.beginPath();
+    this.trackPoints.forEach((point, index) => {
+      const mapped = this.mapPoint(point, width, height);
+      if (index === 0) context.moveTo(mapped.x, mapped.y);
+      else context.lineTo(mapped.x, mapped.y);
+    });
+    context.closePath();
+    context.stroke();
+
+    context.strokeStyle = 'rgba(199, 255, 82, 0.92)';
+    context.lineWidth = 2.4;
+    context.beginPath();
+    this.trackPoints.forEach((point, index) => {
+      const mapped = this.mapPoint(point, width, height);
+      if (index === 0) context.moveTo(mapped.x, mapped.y);
+      else context.lineTo(mapped.x, mapped.y);
+    });
+    context.closePath();
+    context.stroke();
   }
 
   showMenu() {
@@ -216,41 +266,12 @@ export class MountainHUD {
     const context = this.refs.minimapContext;
     const width = canvas.width;
     const height = canvas.height;
-    context.clearRect(0, 0, width, height);
-    context.fillStyle = 'rgba(14, 31, 39, 0.96)';
-    context.fillRect(0, 0, width, height);
-    context.strokeStyle = 'rgba(199, 255, 82, 0.14)';
-    context.lineWidth = 1;
-    context.beginPath();
-    context.arc(width * 0.5, height * 0.5, width * 0.34, 0, Math.PI * 2);
-    context.stroke();
-    context.beginPath();
-    context.moveTo(width * 0.5, 12);
-    context.lineTo(width * 0.5, height - 12);
-    context.moveTo(12, height * 0.5);
-    context.lineTo(width - 12, height * 0.5);
-    context.stroke();
-    if (this.trackPoints.length > 1) {
-      context.strokeStyle = 'rgba(218, 239, 160, 0.2)';
-      context.lineWidth = 7;
-      context.beginPath();
-      this.trackPoints.forEach((point, index) => {
-        const mapped = this.mapPoint(point, width, height);
-        if (index === 0) context.moveTo(mapped.x, mapped.y);
-        else context.lineTo(mapped.x, mapped.y);
-      });
-      context.closePath();
-      context.stroke();
-      context.strokeStyle = 'rgba(199, 255, 82, 0.92)';
-      context.lineWidth = 2.4;
-      context.beginPath();
-      this.trackPoints.forEach((point, index) => {
-        const mapped = this.mapPoint(point, width, height);
-        if (index === 0) context.moveTo(mapped.x, mapped.y);
-        else context.lineTo(mapped.x, mapped.y);
-      });
-      context.closePath();
-      context.stroke();
+    if (this.staticMapCanvas) {
+      context.drawImage(this.staticMapCanvas, 0, 0);
+    } else {
+      context.clearRect(0, 0, width, height);
+      context.fillStyle = 'rgba(14, 31, 39, 0.96)';
+      context.fillRect(0, 0, width, height);
     }
     const player = this.mapPoint(position || { x: 0, z: 0 }, width, height);
     const angle = Math.atan2(forward?.x || 0, -(forward?.z || 1));

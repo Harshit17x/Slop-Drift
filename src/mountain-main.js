@@ -77,6 +77,15 @@ export class MountainGame {
     this.resize();
     window.addEventListener('resize', this.onResize);
     document.addEventListener('fullscreenchange', () => this.hud?.setStateLabel(document.fullscreenElement ? 'FULLSCREEN' : 'READY'));
+    const unlockAudio = () => {
+      this.audio.unlock().catch(() => {});
+      window.removeEventListener('pointerdown', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+      window.removeEventListener('touchstart', unlockAudio);
+    };
+    window.addEventListener('pointerdown', unlockAudio, { once: true });
+    window.addEventListener('keydown', unlockAudio, { once: true });
+    window.addEventListener('touchstart', unlockAudio, { once: true });
     this.lastTime = performance.now();
     this.frameHandle = requestAnimationFrame(this.onFrame);
     return this;
@@ -532,7 +541,9 @@ export class MountainGame {
     this.updateTransmission(dt, input, snapshot);
     this.updateProgress(snapshot);
     this.effects.emitVehicle(this.vehicle, snapshot, dt);
-    if (snapshot.drift?.drifting) this.audio.drift(clamp(Math.abs(snapshot.drift.angleDeg) / 42, 0.4, 1.7));
+    const driftAngleDeg = Math.abs(snapshot.drift?.angleDeg || 0);
+    const slipIntensity = snapshot.drift?.drifting ? clamp(driftAngleDeg / 40, 0.35, 1.6) : (snapshot.brake > 0.4 && snapshot.speedMps > 8 ? 0.6 : 0);
+    this.audio.updateTire({ intensity: slipIntensity, speedMps: snapshot.speedMps, surface: snapshot.surface });
     this.audio.updateEngine({ rpm: this.rpm, speedMps: snapshot.speedMps, throttle: snapshot.throttle, drifting: snapshot.drift?.drifting, boost: boosting });
     if (this.mode === 'drift' && this.session.elapsed >= CONFIG.race.driftDuration) this.finishRun();
   }
@@ -611,10 +622,12 @@ export class MountainGame {
 const root = document.querySelector('#app');
 const game = new MountainGame(root);
 globalThis.__MOUNTAIN_DRIFT__ = game;
-game.init().catch((error) => {
+try {
+  game.init();
+} catch (error) {
   console.error(error);
   const failure = document.createElement('section');
   failure.className = 'fatal-error';
   failure.innerHTML = `<div><div class="eyebrow">RUNTIME LOAD FAILURE</div><h2>Could not start Mountain Drift</h2><p>${String(error?.message || error)}</p><p>Serve the project root with <code>python -m http.server 8080</code> and allow the Three.js CDN request.</p></div>`;
   root.appendChild(failure);
-});
+}

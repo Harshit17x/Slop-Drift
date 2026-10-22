@@ -11,10 +11,15 @@ export class MountainAudio {
     this.windSource = null;
     this.windFilter = null;
     this.windGain = null;
+    this.tireSource = null;
+    this.tireFilter = null;
+    this.tireGain = null;
     this.muted = false;
     this.started = false;
     this.lastPlayed = new Map();
     this.volume = { master: 0.72, engine: 0.62, sfx: 0.7 };
+    this.previousThrottle = 0;
+    this.previousBoost = false;
   }
 
   async unlock() {
@@ -69,6 +74,19 @@ export class MountainAudio {
     this.windGain.gain.value = 0.0001;
     this.windSource.connect(this.windFilter).connect(this.windGain).connect(this.engineBus);
     this.windSource.start();
+
+    // Continuous tire squeal noise synthesizer
+    this.tireSource = context.createBufferSource();
+    this.tireSource.buffer = buffer;
+    this.tireSource.loop = true;
+    this.tireFilter = context.createBiquadFilter();
+    this.tireFilter.type = 'bandpass';
+    this.tireFilter.frequency.value = 920;
+    this.tireFilter.Q.value = 2.8;
+    this.tireGain = context.createGain();
+    this.tireGain.gain.value = 0.0001;
+    this.tireSource.connect(this.tireFilter).connect(this.tireGain).connect(this.sfxBus);
+    this.tireSource.start();
   }
 
   updateEngine({ rpm = 900, speedMps = 0, throttle = 0, drifting = false, boost = false } = {}) {
@@ -84,7 +102,73 @@ export class MountainAudio {
     this.engineFilter.frequency.setTargetAtTime(480 + normalizedRpm * 1500, now, 0.08);
     this.engineGain.gain.setTargetAtTime(this.muted ? 0.0001 : gain, now, 0.08);
     this.windFilter.frequency.setTargetAtTime(520 + speedMps * 28, now, 0.12);
-    this.windGain.gain.setTargetAtTime(this.muted ? 0.0001 : wind + (drifting ? 0.012 : 0), now, 0.14);
+    this.windGain.gain.setTargetAtTime(this.muted ? 0.0001 : wind, now, 0.14);
+
+    // Rev limiter pop
+    if (rpm >= 7450 && throttle > 0.75 && Math.random() > 0.65) {
+      this.backfire(0.5);
+    }
+
+    // Turbo blow-off valve flutter on sudden throttle lift-off after boost/high RPM
+    if (this.previousThrottle > 0.7 && throttle < 0.2 && (this.previousBoost || rpm > 5400)) {
+      this.turboFlutter();
+    }
+    this.previousThrottle = throttle;
+    this.previousBoost = boost;
+  }
+
+  updateTire({ intensity = 0, speedMps = 0, surface = 'asphalt' } = {}) {
+    if (!this.context || !this.started || !this.tireGain) return;
+    const now = this.context.currentTime;
+    const active = intensity > 0.04 && speedMps > 2.5;
+    const isDirt = surface === 'grass' || surface === 'dirt' || surface === 'shoulder';
+    const targetFreq = isDirt ? (420 + intensity * 380) : (820 + intensity * 1050);
+    const targetQ = isDirt ? 1.4 : (2.4 + intensity * 1.4);
+    const targetGain = active && !this.muted ? Math.min(0.24, 0.02 + intensity * 0.18) : 0.0001;
+    this.tireFilter.frequency.setTargetAtTime(targetFreq, now, 0.05);
+    this.tireFilter.Q.setTargetAtTime(targetQ, now, 0.05);
+    this.tireGain.gain.setTargetAtTime(targetGain, now, 0.06);
+  }
+
+  turboFlutter() {
+    if (!this.context || !this.started || this.muted || !this.sfxBus) return;
+    const now = this.context.currentTime;
+    if (now - (this.lastPlayed.get('flutter') || -Infinity) < 0.5) return;
+    this.lastPlayed.set('flutter', now);
+    const freqs = [1720, 1360, 1080, 840];
+    freqs.forEach((freq, idx) => {
+      const time = now + idx * 0.065;
+      const osc = this.context.createOscillator();
+      const gain = this.context.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, time);
+      osc.frequency.exponentialRampToValueAtTime(freq * 0.75, time + 0.055);
+      const vol = 0.08 * Math.pow(0.68, idx);
+      gain.gain.setValueAtTime(0.0001, time);
+      gain.gain.linearRampToValueAtTime(vol, time + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.055);
+      osc.connect(gain).connect(this.sfxBus);
+      osc.start(time);
+      osc.stop(time + 0.06);
+    });
+  }
+
+  backfire(intensity = 1) {
+    if (!this.context || !this.started || this.muted || !this.sfxBus) return;
+    const now = this.context.currentTime;
+    if (now - (this.lastPlayed.get('backfire') || -Infinity) < 0.12) return;
+    this.lastPlayed.set('backfire', now);
+    
+    const osc = this.context.createOscillator();
+    const gain = this.context.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(140 + Math.random() * 40, now);
+    osc.frequency.exponentialRampToValueAtTime(35, now + 0.08);
+    gain.gain.setValueAtTime(0.2 * intensity, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
+    osc.connect(gain).connect(this.sfxBus);
+    osc.start(now);
+    osc.stop(now + 0.1);
   }
 
   setMuted(value) {
@@ -155,6 +239,7 @@ export class MountainAudio {
     try { this.engineOscillator?.stop(); } catch {}
     try { this.engineHarmonic?.stop(); } catch {}
     try { this.windSource?.stop(); } catch {}
+    try { this.tireSource?.stop(); } catch {}
     this.context?.close?.();
     this.context = null;
   }
