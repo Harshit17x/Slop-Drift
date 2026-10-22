@@ -2,6 +2,7 @@
   "name": "slop-drift",
   "version": "1.0.0",
   "private": true,
+  "homepage": "https://slop-drift.vercel.app/",
   "type": "module",
   "description": "Procedural mountain drift racing game in Three.js",
   "scripts": {

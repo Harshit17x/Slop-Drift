@@ -1,5 +1,9 @@
 # Slop-Drift
 
+[![Live Demo](https://img.shields.io/badge/Demo-Play%20Online-success?style=for-the-badge&logo=vercel)](https://slop-drift.vercel.app/)
+
+🎮 **Play Live in Browser:** [**https://slop-drift.vercel.app/**](https://slop-drift.vercel.app/)
+
 Self-contained browser mountain drift game. The current runtime does not use the supplied GLB files. Terrain, road, car, decorations, checkpoints, effects, and audio are generated at runtime.
 
 ## Run
