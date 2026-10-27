@@ -112,8 +112,8 @@ export class MountainVehicle {
     this.groundNormal = UP.clone();
     this.checkpoint = 0;
     this.launchHold = 0;
-    this.parked = false;
-    this.coastLock = false;
+    this.parked = true;
+    this.coastLock = true;
     this.bodyRoll = 0;
     this.bodyPitch = 0;
     this.bodySquat = 0;
@@ -154,9 +154,9 @@ export class MountainVehicle {
         const road = this.mountainWorld?.road;
         const roadSurface = road?.sampleSurface?.(mount.x, mount.z);
         if (roadSurface && roadSurface.inside !== false) sample = roadSurface;
-        const nearest = road?.getNearestPoint?.(mount.x, mount.z);
+        const nearest = road?.getNearestPoint?.(mount.x, mount.z, this.position.y);
         const limits = this.getRoadLimits(nearest);
-        if (!isRoadSurface(sample) && nearest && nearest.distance <= limits.railLimit) {
+        if (!isRoadSurface(sample) && nearest && nearest.distance <= limits.railLimit + 0.6) {
           const normal = normalizedNormal(nearest.normal, this.groundNormal);
           const dx = mount.x - nearest.position.x;
           const dz = mount.z - nearest.position.z;
@@ -165,8 +165,8 @@ export class MountainVehicle {
             height,
             normal,
             surface: 'shoulder',
-            friction: 0.72,
-            rollingResistance: 0.038,
+            friction: 0.75,
+            rollingResistance: 0.035,
             inside: true,
             cliff: false,
           };
@@ -195,51 +195,80 @@ export class MountainVehicle {
 
   getRoadLimits(nearest = null) {
     const road = this.mountainWorld?.road;
-    const halfWidth = Math.max(0.5, Number(nearest?.roadWidth ?? road?.roadWidth ?? 7.6) * 0.5);
-    const shoulderWidth = Math.max(0.5, Number(road?.shoulderWidth ?? 2.5));
-    const railLimit = halfWidth + shoulderWidth * 0.8;
-    return { halfWidth, shoulderWidth, railLimit, containmentLimit: Math.max(halfWidth + 0.35, railLimit - this.railClearance) };
+    const halfWidth = nearest?.halfWidth ?? Math.max(0.5, Number(nearest?.roadWidth ?? road?.roadWidth ?? 7.6) * 0.5);
+    const shoulderWidth = nearest?.shoulderWidth ?? Math.max(0.5, Number(road?.shoulderWidth ?? 2.5));
+    const railLimit = nearest?.railDistance ?? (halfWidth + shoulderWidth * 0.82);
+    return { halfWidth, shoulderWidth, railLimit };
   }
 
   containWithinRails() {
     const road = this.mountainWorld?.road;
     if (!road?.getNearestPoint) return false;
-    const nearest = road.getNearestPoint(this.position.x, this.position.z);
-    if (!nearest) return false;
+    const nearest = road.getNearestPoint(this.position.x, this.position.z, this.position.y);
+    if (!nearest || !Number.isFinite(nearest.distance)) return false;
     const limits = this.getRoadLimits(nearest);
-    if (nearest.distance <= limits.railLimit) return false;
-    const side = Math.sign(nearest.signedDistance) || 1;
+
     const roadRight = new THREE.Vector3(nearest.right.x, 0, nearest.right.z).normalize();
-    const center = nearest.position.clone().addScaledVector(roadRight, side * limits.containmentLimit);
+    const roadTangent = new THREE.Vector3(nearest.tangent.x, 0, nearest.tangent.z).normalize();
+    const carForward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.quaternion);
+    const carRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.quaternion);
+
+    // Car bounding dimensions: half-width ~0.95m, half-length ~2.15m
+    const carHalfWidth = 0.95;
+    const carHalfLength = 2.15;
+    // Projected lateral extent along road normal based on current vehicle orientation
+    const carLateralRadius = Math.abs(carRight.dot(roadRight)) * carHalfWidth + Math.abs(carForward.dot(roadRight)) * carHalfLength;
+
+    const side = Math.sign(nearest.signedDistance) || 1;
+    const centerDist = Math.abs(nearest.signedDistance);
+    const outerDist = centerDist + carLateralRadius;
+
+    // Check if outer edge penetrates or touches guardrail
+    if (outerDist <= limits.railLimit) return false;
+
+    // Constrain center position so outer boundary strictly remains inside guardrail
+    const allowedCenterDist = Math.max(0.4, limits.railLimit - carLateralRadius - 0.03);
+    const center = nearest.position.clone().addScaledVector(roadRight, side * allowedCenterDist);
     this.position.x = center.x;
     this.position.z = center.z;
+
+    // Keep vehicle vertically supported on the road plane at the boundary
+    const roadNormal = normalizedNormal(nearest.normal, this.groundNormal);
+    const normalY = Math.max(0.2, roadNormal.y);
+    const planeY = nearest.position.y - (roadNormal.x * (this.position.x - nearest.position.x) + roadNormal.z * (this.position.z - nearest.position.z)) / normalY;
+    const targetY = planeY + this.bodyRideHeight;
+    if (this.position.y < targetY) {
+      this.position.y = targetY;
+      if (this.velocity.y < 0) this.velocity.y = 0;
+    }
+
+    // Gentle bounce restitution and friction against guardrail
     const outwardSpeed = this.velocity.dot(roadRight) * side;
     if (outwardSpeed > 0) {
-      this.velocity.addScaledVector(roadRight, -side * outwardSpeed * 1.35);
-      this.velocity.multiplyScalar(0.92);
+      const restitution = 0.22;
+      this.velocity.addScaledVector(roadRight, -side * outwardSpeed * (1 + restitution));
+
+      // Sliding friction along guardrail beam
+      const tangentSpeed = this.velocity.dot(roadTangent);
+      this.velocity.sub(roadTangent.clone().multiplyScalar(tangentSpeed * 0.08));
     }
+
+    // Rotational deflection: turns the nose parallel to guardrail so car glances off smoothly
+    const carForwardPlanar = new THREE.Vector3(carForward.x, 0, carForward.z).normalize();
+    const headingError = -Math.atan2(
+      roadTangent.x * carForwardPlanar.z - roadTangent.z * carForwardPlanar.x,
+      roadTangent.x * carForwardPlanar.x + roadTangent.z * carForwardPlanar.z
+    );
+    const alignTorque = -headingError * 1.8;
+    this.yawRate = THREE.MathUtils.lerp(this.yawRate, alignTorque, 0.35);
+
     this.railImpact = 1;
     return true;
   }
 
   getRoadAssist(input, speed) {
-    const road = this.mountainWorld?.road;
-    const nearest = road?.getNearestPoint?.(this.position.x, this.position.z);
-    if (!nearest || !Number.isFinite(nearest.distance)) return { steer: input.steer, centerForce: new THREE.Vector3(), headingRate: 0 };
-    const limits = this.getRoadLimits(nearest);
-    if (nearest.distance > limits.railLimit) return { steer: input.steer, centerForce: new THREE.Vector3(), headingRate: 0 };
-
-    let steer = input.steer;
-    if (input.driftAssist > 0.1 && Math.abs(nearest.signedDistance) > limits.halfWidth * 0.75) {
-      const roadTang = new THREE.Vector3(nearest.tangent.x, 0, nearest.tangent.z).normalize();
-      const carFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.quaternion);
-      const carFwdPlanar = new THREE.Vector3(carFwd.x, 0, carFwd.z).normalize();
-      const angleOff = -Math.atan2(roadTang.x * carFwdPlanar.z - roadTang.z * carFwdPlanar.x, roadTang.x * carFwdPlanar.x + roadTang.z * carFwdPlanar.z);
-      if (Math.abs(input.steer) < 0.1) {
-        steer = clamp(angleOff * 0.28 * input.driftAssist, -0.22, 0.22);
-      }
-    }
-    return { steer, centerForce: new THREE.Vector3(), headingRate: 0 };
+    // Road assist should never steer on its own when player is not actively steering!
+    return { steer: input.steer, centerForce: new THREE.Vector3(), headingRate: 0 };
   }
 
   step(realDt, controls = {}) {
@@ -274,30 +303,29 @@ export class MountainVehicle {
     this.throttle = input.throttle;
     this.brake = input.brake;
     this.handbrake = input.handbrake;
-    const driverActive = input.throttle > 0.02 || input.brake > 0.02 || input.handbrake;
-    if (driverActive) this.coastLock = false;
-    if (this.coastLock && !driverActive) {
+
+    const wantsForward = input.throttle > 0.05 && !input.handbrake;
+    const wantsReverse = input.brake > 0.05 && !input.handbrake;
+    const activeDriveIntent = wantsForward || wantsReverse;
+    const driverActive = activeDriveIntent || input.handbrake || Math.abs(input.steer) > 0.05;
+
+    if (activeDriveIntent) {
+      this.parked = false;
+      this.coastLock = false;
+      this.launchHold = 0;
+    }
+
+    if (this.parked || this.coastLock) {
       this.velocity.set(0, 0, 0);
       this.yawRate = 0;
       this.steering = 0;
       this.isReversing = false;
+      this.railImpact = 0;
+      this.cliffTimer = 0;
       return this.getSnapshot();
     }
-    if (this.parked) {
-      if (input.throttle > 0.02 || input.brake > 0.02 || input.handbrake) {
-        this.parked = false;
-        this.launchHold = 0;
-      } else {
-        this.velocity.set(0, 0, 0);
-        this.steering = 0;
-        this.isReversing = false;
-        this.railImpact = 0;
-        this.cliffTimer = 0;
-        return this.getSnapshot();
-      }
-    }
     if (this.launchHold > 0) {
-      if (input.throttle > 0.02 || input.brake > 0.02 || input.handbrake) this.launchHold = 0;
+      if (activeDriveIntent) this.launchHold = 0;
       else {
         this.launchHold = Math.max(0, this.launchHold - dt);
         this.velocity.set(0, 0, 0);
@@ -307,10 +335,25 @@ export class MountainVehicle {
     }
     this.railImpact = Math.max(0, this.railImpact - dt * 4);
     const road = this.mountainWorld?.road;
-    const roadNearest = road?.getNearestPoint?.(this.position.x, this.position.z);
+    const roadNearest = road?.getNearestPoint?.(this.position.x, this.position.z, this.position.y);
     const roadLimits = this.getRoadLimits(roadNearest);
-    const roadSurface = road?.sampleSurface?.(this.position.x, this.position.z);
-    const roadSupportSample = roadNearest && roadNearest.distance <= roadLimits.railLimit && roadSurface ? roadSurface : null;
+    let roadSurface = road?.sampleSurface?.(this.position.x, this.position.z, this.position.y);
+    if (!roadSurface && roadNearest && roadNearest.distance <= roadLimits.railLimit + 0.6) {
+      const norm = normalizedNormal(roadNearest.normal, this.groundNormal);
+      const dx = this.position.x - roadNearest.position.x;
+      const dz = this.position.z - roadNearest.position.z;
+      const planeH = roadNearest.position.y - (norm.x * dx + norm.z * dz) / Math.max(0.2, norm.y);
+      roadSurface = {
+        height: planeH,
+        normal: norm,
+        surface: 'shoulder',
+        friction: 0.75,
+        rollingResistance: 0.035,
+        inside: true,
+        cliff: false,
+      };
+    }
+    const roadSupportSample = roadNearest && roadNearest.distance <= roadLimits.railLimit + 0.6 && roadSurface ? roadSurface : null;
     const centerSample = this.sampleSurface(this.position.x, this.position.z);
     const centerOnRoad = isRoadSurface(centerSample);
     const roadSupported = centerOnRoad || Boolean(roadSupportSample);
@@ -344,8 +387,6 @@ export class MountainVehicle {
     const lateral = this.velocity.dot(right);
     const friction = clamp(this.surfaceSample?.friction ?? 0.35, 0.08, 1.2);
     const rollingResistance = this.surfaceSample?.rollingResistance ?? 0.12;
-    const reversing = this.brake > this.throttle && longitudinal < 0.5;
-    this.isReversing = reversing;
     const speedTotal = Math.hypot(longitudinal, lateral);
     const steeringTarget = roadAssist.steer * this.steeringMax * clamp(1 - Math.abs(longitudinal) / this.maxSpeed * 0.35, 0.3, 1);
     this.steering += (steeringTarget - this.steering) * Math.min(1, dt * this.steeringResponse);
@@ -373,39 +414,93 @@ export class MountainVehicle {
     const frontLoad = Math.max(normalLoad * 0.18, staticFrontLoad - weightTransfer);
     const rearLoad = Math.max(normalLoad * 0.18, staticRearLoad + weightTransfer);
     const frontGrip = friction * this.frontGripBias;
-    const rearGrip = friction * this.rearGripBias * (this.handbrake ? 0.40 : 1.0);
+    const handbrakeDriftIntent = this.handbrake && speedTotal > 6 && Math.abs(input.steer) > 0.25;
+    const rearGrip = friction * this.rearGripBias * (handbrakeDriftIntent ? 0.55 : 1.0);
     const lateralTireForce = (slipAngle, load, grip, stiffness) => -load * grip * Math.tanh(stiffness * slipAngle);
     const lowSpeedTireFactor = clamp(speedTotal / 6, 0, 1);
     const frontLateralForce = lateralTireForce(frontSlipAngle, frontLoad, frontGrip, this.frontCornerStiffness) * lowSpeedTireFactor;
     const rearLateralForce = lateralTireForce(rearSlipAngle, rearLoad, rearGrip, this.rearCornerStiffness) * lowSpeedTireFactor;
     const frontCapacity = Math.sqrt(Math.max(0, (frontLoad * frontGrip) ** 2 - frontLateralForce ** 2));
     const rearCapacity = Math.sqrt(Math.max(0, (rearLoad * rearGrip) ** 2 - rearLateralForce ** 2));
-    const driveForce = reversing ? -this.reverseForce * this.brake : this.engineForce * this.throttle;
-    const brakeSign = Math.abs(longitudinal) > 0.08 ? -Math.sign(longitudinal) : 0;
-    const brakeForce = this.brakeForce * this.brake;
-    const frontBrakeForce = brakeSign * brakeForce * 0.62;
-    const rearBrakeForce = brakeSign * brakeForce * 0.38;
-    const handbrakeForce = this.handbrake && Math.abs(longitudinal) > 0.08 ? brakeSign * this.brakeForce * 0.34 : 0;
+
+    let driveForce = 0;
+    let brakeForce = 0;
+
+    if (this.handbrake) {
+      // Emergency / Handbrake (Space): cut engine, massive stopping force
+      driveForce = 0;
+      brakeForce = this.brakeForce * 1.5;
+      this.isReversing = false;
+    } else if (input.throttle > 0.02) {
+      // Throttle (W):
+      if (longitudinal < -0.3) {
+        // Moving backward: W acts as brake against backward movement
+        driveForce = this.brakeForce * 1.2 * input.throttle;
+        brakeForce = 0;
+        this.isReversing = false;
+      } else {
+        // Forward drive
+        driveForce = this.engineForce * input.throttle;
+        brakeForce = 0;
+        this.isReversing = false;
+      }
+    } else if (input.brake > 0.02) {
+      // Brake (S):
+      if (longitudinal > 0.3) {
+        // Moving forward: S acts as service brake
+        driveForce = 0;
+        brakeForce = this.brakeForce * 1.25 * input.brake;
+        this.isReversing = false;
+      } else {
+        // Stopped or moving backward: S acts as reverse gear
+        const maxReverseSpeed = 8.5; // ~30 km/h reverse limit
+        driveForce = longitudinal > -maxReverseSpeed ? -this.reverseForce * input.brake : 0;
+        brakeForce = 0;
+        this.isReversing = true;
+      }
+    } else {
+      // Neutral coasting
+      driveForce = 0;
+      brakeForce = 0;
+      this.isReversing = false;
+    }
+
+    const brakeSign = Math.abs(longitudinal) > 0.05 ? -Math.sign(longitudinal) : 0;
+    const frontBrakeForce = brakeSign * brakeForce * 0.60;
+    const rearBrakeForce = brakeSign * brakeForce * 0.40;
     const frontDriveForce = this.driveLayout === 'fwd' ? driveForce : this.driveLayout === 'awd' ? driveForce * 0.5 : 0;
     const rearDriveForce = this.driveLayout === 'rwd' ? driveForce : this.driveLayout === 'awd' ? driveForce * 0.5 : 0;
     const frontLongitudinalForce = clamp(frontDriveForce + frontBrakeForce, -frontCapacity, frontCapacity);
-    const rearLongitudinalForce = clamp(rearDriveForce + rearBrakeForce + handbrakeForce, -rearCapacity, rearCapacity);
+    const rearLongitudinalForce = clamp(rearDriveForce + rearBrakeForce, -rearCapacity, rearCapacity);
     const totalLongitudinalForce = frontLongitudinalForce + rearLongitudinalForce + dragForce + rollingForce;
     const totalLateralForce = frontLateralForce + rearLateralForce;
+
     const gravityForce = new THREE.Vector3(0, -this.gravity * this.mass, 0);
-    const slopeGravity = supported
-      ? gravityForce.clone().sub(this.groundNormal.clone().multiplyScalar(gravityForce.dot(this.groundNormal)))
-      : gravityForce;
-    const coastBrake = !driverActive && supported
-      ? clamp(-longitudinal * this.mass * 0.9, -this.brakeForce * 0.35, this.brakeForce * 0.35)
+    let slopeGravity = new THREE.Vector3();
+    if (supported && !this.parked && !this.coastLock) {
+      const rawSlope = gravityForce.clone().sub(this.groundNormal.clone().multiplyScalar(gravityForce.dot(this.groundNormal)));
+      if (activeDriveIntent) {
+        slopeGravity = rawSlope;
+      } else {
+        // While coasting to a stop, scale down slope gravity pull at low speeds so coast brake can bring vehicle to a complete rest
+        const slopeScale = clamp((speedTotal - 0.5) / 2.0, 0, 1);
+        slopeGravity = rawSlope.multiplyScalar(slopeScale);
+      }
+    } else if (!supported) {
+      slopeGravity = gravityForce;
+    }
+
+    const coastBrake = (!activeDriveIntent && supported)
+      ? clamp(-longitudinal * this.mass * 3.0, -this.brakeForce * 0.8, this.brakeForce * 0.8)
       : 0;
     const force = forward.clone().multiplyScalar(totalLongitudinalForce + coastBrake).add(right.clone().multiplyScalar(totalLateralForce)).add(slopeGravity);
     const acceleration = force.multiplyScalar(1 / this.mass);
     this.velocity.addScaledVector(acceleration, dt);
     const yawTorque = frontLateralForce * frontAxle - rearLateralForce * rearAxle;
-    // Caster self-aligning torque: naturally stabilizes vehicle heading along travel direction
-    const casterTorque = (Math.abs(input.steer) < 0.25 && Math.abs(longitudinal) > 1.2)
-      ? -Math.sign(longitudinal) * lateral * this.mass * 0.42
+    // High-speed heading stabilization: naturally centers steering along travel direction
+    const slipAngle = Math.atan2(lateral, Math.max(1.5, Math.abs(longitudinal)));
+    const casterTorque = (Math.abs(input.steer) < 0.15 && Math.abs(longitudinal) > 2)
+      ? -slipAngle * this.mass * 0.8
       : 0;
     const yawDamping = this.yawRate * (4.2 + speedTotal * 0.05);
     this.yawRate = clamp(this.yawRate + ((yawTorque + casterTorque) / Math.max(1, this.yawInertia) - yawDamping) * dt, -this.maxYawRate, this.maxYawRate);
@@ -441,9 +536,17 @@ export class MountainVehicle {
       this.velocity.z = planarVelocity.z;
     }
     this.position.addScaledVector(this.velocity, dt);
-    if (!driverActive && Math.hypot(this.velocity.x, this.velocity.z) < 0.8) {
+    const postSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+    if (!activeDriveIntent && postSpeed < 0.6) {
       this.velocity.set(0, 0, 0);
       this.yawRate = 0;
+      this.parked = true;
+      this.coastLock = true;
+    }
+    if (this.handbrake && postSpeed < 1.2) {
+      this.velocity.set(0, 0, 0);
+      this.yawRate = 0;
+      this.parked = true;
       this.coastLock = true;
     }
     this.containWithinRails();
@@ -477,9 +580,15 @@ export class MountainVehicle {
       surfaceFriction: friction,
       yawRate: this.yawRate,
       assist: input.driftAssist,
+      steerInput: input.steer,
+      surface: this.surface,
+      supported,
     });
     if (drift.drifting && input.driftAssist > 0) {
-      this.yawRate *= 1 - clamp(input.driftAssist * dt * 0.55, 0, 0.08);
+      // Counter-steer assist during drift to help hold slides without spinning out
+      const counterTorque = -drift.angle * input.driftAssist * 0.12;
+      this.yawRate += counterTorque * dt * 10;
+      this.yawRate *= 1 - clamp(input.driftAssist * dt * 0.6, 0, 0.1);
     }
     const postSurface = this.sampleSurface(this.position.x, this.position.z) || this.surfaceSample;
     if (postSurface && (!this.surfaceSample || postSurface.surface !== this.surfaceSample.surface)) {
@@ -487,7 +596,8 @@ export class MountainVehicle {
       this.surface = postSurface.surface || this.surface;
     }
     const cliffHeight = Number.isFinite(postSurface?.height) ? postSurface.height : averageHeight;
-    const cliff = !supported || !postSurface || postSurface.inside === false || Boolean(postSurface.cliff) || (cliffHeight !== null && cliffHeight !== undefined && this.position.y < cliffHeight - this.fallDistance) || (postSurface?.slopeAngle ?? 0) > this.cliffSlope;
+    const isAtGuardrail = Boolean(roadNearest && roadNearest.distance <= roadLimits.railLimit + 0.6);
+    const cliff = !supported || !postSurface || postSurface.inside === false || (Boolean(postSurface.cliff) && !isAtGuardrail) || (cliffHeight !== null && cliffHeight !== undefined && this.position.y < cliffHeight - this.fallDistance && !isAtGuardrail) || ((postSurface?.slopeAngle ?? 0) > this.cliffSlope && !isAtGuardrail);
     if (cliff) this.cliffTimer += dt;
     else {
       this.cliffTimer = 0;
@@ -541,7 +651,7 @@ export class MountainVehicle {
     this.cliffTimer = 0;
     this.launchHold = 0;
     this.parked = true;
-    this.coastLock = false;
+    this.coastLock = true;
     this.yawRate = 0;
     this.state = 'active';
     this.respawnCount += 1;

@@ -169,9 +169,8 @@ button { cursor: pointer; }
 .touch-cluster { display: flex; gap: 8px; pointer-events: auto; }
 .touch-cluster button { min-width: 54px; min-height: 52px; padding: 0 10px; border: 1px solid rgba(220, 234, 231, .28); border-radius: 4px; background: rgba(16, 35, 42, .82); color: #f4f8f1; font-size: 10px; font-weight: 900; box-shadow: 0 8px 18px rgba(0, 0, 0, .22); backdrop-filter: blur(8px); touch-action: none; }
 .touch-steer button { min-width: 60px; font-size: 18px; }
-.touch-drive { justify-content: center; }
-.touch-drive button[data-touch="throttle"] { color: var(--ink); background: rgba(199, 255, 82, .9); }
-.touch-cluster button.active { border-color: var(--rally-lime); color: var(--ink); background: var(--rally-lime); }
+.touch-drive button[data-touch="throttle"] { color: #f4f8f1; background: rgba(22, 45, 54, .88); }
+.touch-cluster button.active { border-color: var(--rally-lime); color: var(--ink); background: var(--rally-lime) !important; }
 
 .fatal-error { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; background: #15232b; color: #f5f8f3; pointer-events: auto; }
 .fatal-error > div { width: min(640px, 100%); padding: 26px; border: 1px solid rgba(255, 109, 103, .5); border-radius: 6px; background: rgba(29, 13, 18, .94); }

@@ -58,10 +58,12 @@ export class DriftModel {
     const angle = state.angle ?? this.angleFromState({ velocity, forward, right });
     const handbrake = Boolean(state.handbrake);
     const surfaceFriction = clamp(state.surfaceFriction ?? 1, 0.1, 1.2);
+    const steerInput = Math.abs(state.steerInput ?? 0);
+    const validSurface = state.surface !== 'cliff' && state.supported !== false;
     const absAngle = Math.abs(angle);
-    const eligible = speed >= this.minSpeed && absAngle <= this.maxAngle && (
+    const eligible = validSurface && speed >= this.minSpeed && absAngle <= this.maxAngle && (
       (handbrake && absAngle >= this.entryAngle) ||
-      (!handbrake && absAngle >= THREE.MathUtils.degToRad(25) && speed >= 13)
+      (!handbrake && absAngle >= THREE.MathUtils.degToRad(26) && speed >= 13.5 && steerInput >= 0.28)
     );
     this.wasDrifting = this.drifting;
     if (eligible) this.entryTimer += deltaTime;

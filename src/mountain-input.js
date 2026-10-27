@@ -1,23 +1,23 @@
 import { CONFIG } from './mountain-config.js';
 
 const DEFAULT_BINDINGS = Object.freeze({
-  throttle: ['KeyW', 'ArrowUp'],
-  brake: ['KeyS', 'ArrowDown'],
-  steerLeft: ['KeyA', 'ArrowLeft'],
-  steerRight: ['KeyD', 'ArrowRight'],
-  handbrake: ['Space'],
-  boost: ['ShiftLeft', 'ShiftRight'],
-  camera: ['KeyC'],
-  respawn: ['KeyR'],
-  manualUp: ['KeyE'],
-  manualDown: ['KeyQ'],
-  transmission: ['KeyT'],
-  headlights: ['KeyH'],
-  mute: ['KeyM'],
-  pause: ['KeyP', 'Escape'],
+  throttle: ['KeyW', 'ArrowUp', 'w', 'W'],
+  brake: ['KeyS', 'ArrowDown', 's', 'S'],
+  steerLeft: ['KeyA', 'ArrowLeft', 'a', 'A'],
+  steerRight: ['KeyD', 'ArrowRight', 'd', 'D'],
+  handbrake: ['Space', ' ', 'Spacebar'],
+  boost: ['ShiftLeft', 'ShiftRight', 'Shift'],
+  camera: ['KeyC', 'c', 'C'],
+  respawn: ['KeyR', 'r', 'R'],
+  manualUp: ['KeyE', 'e', 'E'],
+  manualDown: ['KeyQ', 'q', 'Q'],
+  transmission: ['KeyT', 't', 'T'],
+  headlights: ['KeyH', 'h', 'H'],
+  mute: ['KeyM', 'm', 'M'],
+  pause: ['KeyP', 'p', 'P', 'Escape'],
   debug: ['F1'],
-  lookBack: ['KeyB'],
-  fullscreen: ['KeyF'],
+  lookBack: ['KeyB', 'b', 'B'],
+  fullscreen: ['KeyF', 'f', 'F'],
 });
 
 function clamp(value, min, max) {
@@ -73,7 +73,15 @@ export class MountainInput {
   loadBindings() {
     try {
       const stored = globalThis.localStorage?.getItem('mountain-drift-bindings-v1');
-      return copyBindings(stored ? { ...DEFAULT_BINDINGS, ...JSON.parse(stored) } : DEFAULT_BINDINGS);
+      if (!stored) return copyBindings(DEFAULT_BINDINGS);
+      const parsed = JSON.parse(stored);
+      const merged = copyBindings(DEFAULT_BINDINGS);
+      Object.keys(merged).forEach((action) => {
+        if (Array.isArray(parsed[action])) {
+          merged[action] = [...new Set([...merged[action], ...parsed[action]])];
+        }
+      });
+      return merged;
     } catch {
       return copyBindings(DEFAULT_BINDINGS);
     }
@@ -102,12 +110,19 @@ export class MountainInput {
   installKeyboard() {
     this.onKeyDown = (event) => {
       this.keys.add(event.code);
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) event.preventDefault();
+      if (event.key) this.keys.add(event.key);
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code) || [' ', 'Spacebar'].includes(event.key)) {
+        event.preventDefault();
+      }
     };
-    this.onKeyUp = (event) => this.keys.delete(event.code);
+    this.onKeyUp = (event) => {
+      this.keys.delete(event.code);
+      if (event.key) this.keys.delete(event.key);
+    };
     this.onBlur = () => {
       this.keys.clear();
       Object.keys(this.touch).forEach((key) => { this.touch[key] = false; });
+      this.touchPulses.clear();
     };
     window.addEventListener('keydown', this.onKeyDown, { passive: false });
     window.addEventListener('keyup', this.onKeyUp);
@@ -163,6 +178,10 @@ export class MountainInput {
       button.addEventListener('pointercancel', release, { passive: false });
       button.addEventListener('pointerleave', release, { passive: false });
     });
+    window.addEventListener('pointerup', () => {
+      Object.keys(this.touch).forEach((key) => { this.touch[key] = false; });
+      this.touchRoot?.querySelectorAll('.active').forEach((el) => el.classList.remove('active'));
+    });
   }
 
   setDrivingVisible(value) {
@@ -199,12 +218,17 @@ export class MountainInput {
     }
     const buttons = pad.buttons.map((button) => Boolean(button?.pressed));
     const pressed = (index) => Boolean(buttons[index] && !this.previousGamepadButtons[index]);
-    const deadzone = CONFIG.input.deadzone;
+    const deadzone = CONFIG.input.deadzone || 0.12;
     const normalize = (value) => Math.abs(value) < deadzone ? 0 : Math.sign(value) * ((Math.abs(value) - deadzone) / (1 - deadzone));
+    const rawThrottle = pad.buttons?.[7]?.value ?? 0;
+    const rawBrake = pad.buttons?.[6]?.value ?? 0;
+    const triggerDeadzone = 0.12;
+    const throttle = rawThrottle > triggerDeadzone ? (rawThrottle - triggerDeadzone) / (1 - triggerDeadzone) : 0;
+    const brake = rawBrake > triggerDeadzone ? (rawBrake - triggerDeadzone) / (1 - triggerDeadzone) : 0;
     const result = {
       steer: normalize(pad.axes?.[0] || 0),
-      throttle: pad.buttons?.[7]?.value ?? 0,
-      brake: pad.buttons?.[6]?.value ?? 0,
+      throttle,
+      brake,
       handbrake: Boolean(buttons[0]),
       boost: Boolean(buttons[1]),
       camera: pressed(3),

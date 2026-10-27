@@ -343,6 +343,9 @@ export class MountainRoad {
         bank,
         hairpinFactor,
         roadWidth: this.roadWidth * (1 - hairpinFactor * 0.16),
+        halfWidth: (this.roadWidth * (1 - hairpinFactor * 0.16)) * 0.5,
+        shoulderWidth: this.shoulderWidth,
+        railDistance: (this.roadWidth * (1 - hairpinFactor * 0.16)) * 0.5 + this.shoulderWidth * 0.82,
         progress: 0,
         distance: 0,
       };
@@ -438,19 +441,29 @@ export class MountainRoad {
       for (let i = 0; i < this.samples.length; i += step) {
         const sample = this.samples[i];
         const next = this.samples[(i + step) % this.samples.length];
-        const startOffset = roadWidthForSample(sample, this.roadWidth) * 0.5 + this.shoulderWidth * 0.82;
-        const endOffset = roadWidthForSample(next, this.roadWidth) * 0.5 + this.shoulderWidth * 0.82;
+        const startOffset = sample.railDistance || (roadWidthForSample(sample, this.roadWidth) * 0.5 + this.shoulderWidth * 0.82);
+        const endOffset = next.railDistance || (roadWidthForSample(next, this.roadWidth) * 0.5 + this.shoulderWidth * 0.82);
         const start = sample.position.clone().addScaledVector(sample.right, side * startOffset);
         const end = next.position.clone().addScaledVector(next.right, side * endOffset);
-        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.075, 0.95, 6), postMaterial);
-        post.position.copy(start).addScaledVector(sample.normal, 0.45);
+        
+        // Solid steel post anchored into shoulder
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.08, 1.1, 8), postMaterial);
+        post.position.copy(start).addScaledVector(sample.normal, 0.52);
         post.castShadow = true;
         post.receiveShadow = true;
         this.guardrails.add(post);
-        const beamStart = start.clone().addScaledVector(sample.normal, 0.72);
-        const beamEnd = end.clone().addScaledVector(next.normal, 0.72);
-        const beam = makeBeam(beamStart, beamEnd, 0.075, beamMaterial, 'GuardrailBeam');
-        if (beam) this.guardrails.add(beam);
+
+        // Lower impact beam (0.42m above ground)
+        const lowerBeamStart = start.clone().addScaledVector(sample.normal, 0.42);
+        const lowerBeamEnd = end.clone().addScaledVector(next.normal, 0.42);
+        const lowerBeam = makeBeam(lowerBeamStart, lowerBeamEnd, 0.07, beamMaterial, 'GuardrailLowerBeam');
+        if (lowerBeam) this.guardrails.add(lowerBeam);
+
+        // Upper containment beam (0.74m above ground)
+        const upperBeamStart = start.clone().addScaledVector(sample.normal, 0.74);
+        const upperBeamEnd = end.clone().addScaledVector(next.normal, 0.74);
+        const upperBeam = makeBeam(upperBeamStart, upperBeamEnd, 0.075, beamMaterial, 'GuardrailUpperBeam');
+        if (upperBeam) this.guardrails.add(upperBeam);
       }
     }
     this.root.add(this.guardrails);
@@ -543,12 +556,15 @@ export class MountainRoad {
       bank: THREE.MathUtils.lerp(a.bank, b.bank, mix),
       hairpinFactor: THREE.MathUtils.lerp(a.hairpinFactor ?? 0, b.hairpinFactor ?? 0, mix),
       roadWidth: THREE.MathUtils.lerp(roadWidthForSample(a, this.roadWidth), roadWidthForSample(b, this.roadWidth), mix),
+      halfWidth: THREE.MathUtils.lerp(roadWidthForSample(a, this.roadWidth), roadWidthForSample(b, this.roadWidth), mix) * 0.5,
+      shoulderWidth: this.shoulderWidth,
+      railDistance: THREE.MathUtils.lerp(roadWidthForSample(a, this.roadWidth), roadWidthForSample(b, this.roadWidth), mix) * 0.5 + this.shoulderWidth * 0.82,
       progress: a.progress + (b.progress < a.progress ? b.progress + 1 - a.progress : b.progress - a.progress) * mix,
       distance: a.distance + (b.distance < a.distance ? b.distance + this.totalLength - a.distance : b.distance - a.distance) * mix,
     };
   }
 
-  getNearestPoint(x, z) {
+  getNearestPoint(x, z, expectedY = null) {
     if (!this.samples.length) return null;
     let candidateIndices = null;
     if (this.spatialGrid && this.spatialCellSize) {
@@ -590,9 +606,16 @@ export class MountainRoad {
       const amount = lengthSq > 0 ? clamp(((x - a.position.x) * abX + (z - a.position.z) * abZ) / lengthSq, 0, 1) : 0;
       const px = a.position.x + abX * amount;
       const pz = a.position.z + abZ * amount;
+      const py = a.position.y + (b.position.y - a.position.y) * amount;
       const dx = x - px;
       const dz = z - pz;
-      const distanceSq = dx * dx + dz * dz;
+      let distanceSq = dx * dx + dz * dz;
+      if (expectedY !== null && Number.isFinite(expectedY)) {
+        const dy = py - expectedY;
+        if (Math.abs(dy) > 5.0) {
+          distanceSq += dy * dy * 4.0;
+        }
+      }
       if (distanceSq < bestDistSq) {
         bestDistSq = distanceSq;
         bestIndex = i;
@@ -613,9 +636,16 @@ export class MountainRoad {
         const amount = lengthSq > 0 ? clamp(((x - a.position.x) * abX + (z - a.position.z) * abZ) / lengthSq, 0, 1) : 0;
         const px = a.position.x + abX * amount;
         const pz = a.position.z + abZ * amount;
+        const py = a.position.y + (b.position.y - a.position.y) * amount;
         const dx = x - px;
         const dz = z - pz;
-        const distanceSq = dx * dx + dz * dz;
+        let distanceSq = dx * dx + dz * dz;
+        if (expectedY !== null && Number.isFinite(expectedY)) {
+          const dy = py - expectedY;
+          if (Math.abs(dy) > 5.0) {
+            distanceSq += dy * dy * 4.0;
+          }
+        }
         if (distanceSq < bestDistSq) {
           bestDistSq = distanceSq;
           bestIndex = i;
@@ -634,11 +664,11 @@ export class MountainRoad {
     return { ...sample, distanceSq: bestDistSq, distance: Math.sqrt(bestDistSq), signedDistance, index: bestIndex, amount: bestAmount };
   }
 
-  sampleSurface(x, z) {
-    const nearest = this.getNearestPoint(x, z);
+  sampleSurface(x, z, expectedY = null) {
+    const nearest = this.getNearestPoint(x, z, expectedY);
     if (!nearest) return null;
-    const halfWidth = roadWidthForSample(nearest, this.roadWidth) * 0.5;
-    const shoulderLimit = halfWidth + this.shoulderWidth;
+    const halfWidth = nearest.halfWidth || (roadWidthForSample(nearest, this.roadWidth) * 0.5);
+    const shoulderLimit = halfWidth + this.shoulderWidth * 1.05;
     if (nearest.distance > shoulderLimit) return null;
     const lateral = nearest.signedDistance;
     const planeHeight = nearest.position.y - (nearest.normal.x * (x - nearest.position.x) + nearest.normal.z * (z - nearest.position.z)) / Math.max(0.2, nearest.normal.y);

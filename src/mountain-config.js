@@ -63,9 +63,9 @@ export const CONFIG = {
     driveLayout: 'rwd',
   },
   drift: {
-    minSpeed: 11,
-    entryAngleDeg: 16,
-    confirmTime: 0.15,
+    minSpeed: 7,
+    entryAngleDeg: 14,
+    confirmTime: 0.12,
     comboWindow: 1.35,
     maxMultiplier: 5,
     maxAngleDeg: 72,
