@@ -68,7 +68,7 @@ export class MountainWorld {
     const maxX = Math.ceil(bounds.maxX / this.chunkSize) * this.chunkSize;
     const minZ = Math.floor(bounds.minZ / this.chunkSize) * this.chunkSize;
     const maxZ = Math.ceil(bounds.maxZ / this.chunkSize) * this.chunkSize;
-    const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, side: THREE.DoubleSide });
+    this.terrainMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, side: THREE.DoubleSide });
     for (let x = minX; x < maxX; x += this.chunkSize) {
       for (let z = minZ; z < maxZ; z += this.chunkSize) {
         const chunk = new TerrainChunk({
@@ -77,7 +77,7 @@ export class MountainWorld {
           size: this.chunkSize,
           resolution: this.chunkResolution,
           lodResolutions: this.terrainLods,
-          material,
+          material: this.terrainMaterial,
           minHeight: this.heightfield.baseHeight - this.heightfield.edgeDrop - this.heightfield.amplitude - this.heightfield.basinDepth,
           maxHeight: this.heightfield.baseHeight + this.heightfield.amplitude + this.heightfield.ridgeAmplitude + this.heightfield.detailAmplitude + this.heightfield.rimHeight,
         });
@@ -91,8 +91,9 @@ export class MountainWorld {
     this.ridgeBackdrop = new THREE.Group();
     this.ridgeBackdrop.name = 'MountainRidgeBackdrop';
     const noise = new SeededNoise(this.seed + 701);
-    const ridgeMaterial = new THREE.MeshStandardMaterial({ color: 0x41563a, roughness: 1, metalness: 0, flatShading: true });
-    const rockMaterial = new THREE.MeshStandardMaterial({ color: 0x5b5a4d, roughness: 0.98, metalness: 0, flatShading: true });
+    this.backdropConeGeometry = new THREE.ConeGeometry(1, 1, 7, 2);
+    this.backdropRidgeMaterial = new THREE.MeshStandardMaterial({ color: 0x41563a, roughness: 1, metalness: 0, flatShading: true });
+    this.backdropRockMaterial = new THREE.MeshStandardMaterial({ color: 0x5b5a4d, roughness: 0.98, metalness: 0, flatShading: true });
     let placed = 0;
     for (let index = 0; index < 64 && placed < 16; index += 1) {
       const angle = (index / 16) * Math.PI * 2 + noise.sample2D(index * 0.31, 4.4) * 0.12;
@@ -104,7 +105,7 @@ export class MountainWorld {
       const terrain = this.heightfield.sample(x, z);
       const height = 28 + noise.sample2D(index * 0.91, 8.1) * 24;
       const width = 14 + noise.sample2D(index * 0.47, 2.7) * 10;
-      const mountain = new THREE.Mesh(new THREE.ConeGeometry(1, 1, 7, 2), index % 3 === 0 ? rockMaterial : ridgeMaterial);
+      const mountain = new THREE.Mesh(this.backdropConeGeometry, index % 3 === 0 ? this.backdropRockMaterial : this.backdropRidgeMaterial);
       mountain.position.set(x, terrain.height + height * 0.42, z);
       mountain.scale.set(width, height, width * (0.82 + noise.sample2D(index * 0.52, 9.2) * 0.38));
       mountain.rotation.set(noise.sample2D(index * 0.8, 10.4) * 0.18, angle + Math.PI * 0.5, noise.sample2D(index * 0.41, 11.7) * 0.18);
@@ -153,6 +154,14 @@ export class MountainWorld {
     this.chunks.forEach((chunk) => chunk.dispose());
     this.chunks = [];
     this.road.dispose();
+    this.terrainMaterial?.dispose();
+    this.terrainMaterial = null;
+    this.backdropConeGeometry?.dispose();
+    this.backdropConeGeometry = null;
+    this.backdropRidgeMaterial?.dispose();
+    this.backdropRidgeMaterial = null;
+    this.backdropRockMaterial?.dispose();
+    this.backdropRockMaterial = null;
     this.ridgeBackdrop = null;
     this.scene?.remove(this.root);
     this.built = false;

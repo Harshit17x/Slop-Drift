@@ -76,11 +76,15 @@ export class MountainCameraRig {
     const speed = pose.speedMps || 0;
     const driftAngle = Math.abs(pose.drift?.angleDeg || 0);
     const ahead = CONFIG.camera.lookAhead + speed * 0.12;
-    const target = position.clone().addScaledVector(forward, ahead).addScaledVector(up, 0.7);
+    const isLookBack = Boolean(this.freeLook?.lookBack);
+    const lookYaw = this.freeLook?.active ? this.freeLook.x : 0;
+    const lookPitch = this.freeLook?.active ? this.freeLook.y : 0;
+
+    let target = position.clone().addScaledVector(forward, isLookBack ? -ahead : ahead).addScaledVector(up, 0.7);
 
     // Realistic drift look-ahead anticipation: camera frames the exit of the drift
     const driftAngleRad = pose.drift?.angle || 0;
-    if (Math.abs(driftAngleRad) > 0.08 && speed > 5) {
+    if (Math.abs(driftAngleRad) > 0.08 && speed > 5 && !isLookBack) {
       const driftLookOffset = -Math.sin(driftAngleRad) * Math.min(3.8, speed * 0.085);
       target.addScaledVector(right, driftLookOffset);
     }
@@ -88,20 +92,33 @@ export class MountainCameraRig {
     let desired = position.clone();
     let fov = 70;
     if (mode === 'wide') {
-      desired.addScaledVector(forward, -(CONFIG.camera.farDistance + Math.min(2.5, speed * 0.04)));
-      desired.addScaledVector(up, CONFIG.camera.farHeight + Math.min(1.4, speed * 0.02));
+      const distance = CONFIG.camera.farDistance + Math.min(2.5, speed * 0.04);
+      const height = CONFIG.camera.farHeight + Math.min(1.4, speed * 0.02);
+      const dirMult = isLookBack ? 1 : -1;
+      desired.addScaledVector(forward, dirMult * distance);
+      desired.addScaledVector(up, height);
       fov = 66 + Math.min(10, speed * 0.045);
     } else if (mode === 'hood') {
-      desired.addScaledVector(forward, 1.45).addScaledVector(up, 1.02);
+      const dirMult = isLookBack ? -1.45 : 1.45;
+      desired.addScaledVector(forward, dirMult).addScaledVector(up, 1.02);
       fov = 72 + Math.min(10, speed * 0.055);
     } else if (mode === 'cockpit') {
-      desired.addScaledVector(forward, 0.22).addScaledVector(up, CONFIG.camera.cockpitHeight);
+      desired.addScaledVector(forward, -0.08).addScaledVector(right, -0.37).addScaledVector(up, CONFIG.camera.cockpitHeight);
       fov = 74 + Math.min(5, speed * 0.02);
     } else {
       const distance = CONFIG.camera.chaseDistance + Math.min(2.4, speed * 0.045) + Math.min(1.2, driftAngle * 0.014);
       const height = CONFIG.camera.chaseHeight + Math.min(1.1, speed * 0.018) + Math.min(0.6, driftAngle * 0.008);
-      desired.addScaledVector(forward, -distance).addScaledVector(up, height);
+      const dirMult = isLookBack ? 1 : -1;
+      desired.addScaledVector(forward, dirMult * distance);
+      desired.addScaledVector(up, height);
       fov = THREE.MathUtils.lerp(64, 88, clamp(speed / 60, 0, 1));
+    }
+
+    // Orbit control when free-look is active in chase/wide modes
+    if (this.freeLook?.active && !isLookBack && mode !== 'cockpit') {
+      const offset = desired.clone().sub(position);
+      offset.applyAxisAngle(up, lookYaw).applyAxisAngle(right, lookPitch);
+      desired.copy(position).add(offset);
     }
 
     // High speed / rough surface vibration
@@ -111,10 +128,8 @@ export class MountainCameraRig {
       desired.y += (Math.random() - 0.5) * shakeIntensity;
     }
 
-    const lookYaw = this.freeLook.active ? this.freeLook.x : 0;
-    const lookPitch = this.freeLook.active ? this.freeLook.y : 0;
-    const lookBack = this.freeLook.lookBack ? Math.PI : 0;
-    const lookDirection = forward.clone().applyAxisAngle(up, lookYaw + lookBack).applyAxisAngle(right, lookPitch).normalize();
+    const lookBackAngle = isLookBack ? Math.PI : 0;
+    const lookDirection = forward.clone().applyAxisAngle(up, lookYaw + lookBackAngle).applyAxisAngle(right, lookPitch).normalize();
     const finalTarget = mode === 'cockpit' ? desired.clone().addScaledVector(lookDirection, 14) : target;
     return { position: desired, target: finalTarget, fov };
   }

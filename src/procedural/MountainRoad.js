@@ -84,11 +84,11 @@ function makeRibbonGeometry(samples, leftWidth, rightWidth, normalOffset = 0) {
     const b = next * 2;
     const base = i * 6;
     indices[base] = a;
-    indices[base + 1] = b;
-    indices[base + 2] = a + 1;
-    indices[base + 3] = b;
+    indices[base + 1] = a + 1;
+    indices[base + 2] = b;
+    indices[base + 3] = a + 1;
     indices[base + 4] = b + 1;
-    indices[base + 5] = a + 1;
+    indices[base + 5] = b;
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -143,12 +143,21 @@ function makeCurbGeometry(samples, side, curbWidth, normalOffset = 0.035) {
     colors[offset + 5] = color.b;
     const next = (i + 1) % samples.length;
     const base = i * 6;
-    indices[base] = i * 2;
-    indices[base + 1] = next * 2;
-    indices[base + 2] = i * 2 + 1;
-    indices[base + 3] = next * 2;
-    indices[base + 4] = next * 2 + 1;
-    indices[base + 5] = i * 2 + 1;
+    if (side < 0) {
+      indices[base] = i * 2;
+      indices[base + 1] = next * 2;
+      indices[base + 2] = i * 2 + 1;
+      indices[base + 3] = next * 2;
+      indices[base + 4] = next * 2 + 1;
+      indices[base + 5] = i * 2 + 1;
+    } else {
+      indices[base] = i * 2;
+      indices[base + 1] = i * 2 + 1;
+      indices[base + 2] = next * 2;
+      indices[base + 3] = i * 2 + 1;
+      indices[base + 4] = next * 2 + 1;
+      indices[base + 5] = next * 2;
+    }
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -448,7 +457,9 @@ export class MountainRoad {
         
         // Solid steel post anchored into shoulder
         const post = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.08, 1.1, 8), postMaterial);
+        post.name = 'GuardrailPost';
         post.position.copy(start).addScaledVector(sample.normal, 0.52);
+        post.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), sample.normal);
         post.castShadow = true;
         post.receiveShadow = true;
         this.guardrails.add(post);
@@ -530,6 +541,8 @@ export class MountainRoad {
         const postRight = postLeft.clone();
         postLeft.position.copy(left).addScaledVector(sample.normal, archHeight * 0.5);
         postRight.position.copy(right).addScaledVector(sample.normal, archHeight * 0.5);
+        postLeft.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), sample.normal);
+        postRight.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), sample.normal);
         postLeft.castShadow = true;
         postRight.castShadow = true;
         this.checkpointGroup.add(postLeft, postRight);
@@ -570,22 +583,16 @@ export class MountainRoad {
     if (this.spatialGrid && this.spatialCellSize) {
       const cx = Math.floor(x / this.spatialCellSize);
       const cz = Math.floor(z / this.spatialCellSize);
-      const bucket = this.spatialGrid.get(`${cx},${cz}`);
-      if (bucket && bucket.length > 0) {
-        candidateIndices = bucket;
-      } else {
-        // Sample 3x3 neighborhood if right on cell boundary
-        const set = new Set();
-        for (let ox = -1; ox <= 1; ox += 1) {
-          for (let oz = -1; oz <= 1; oz += 1) {
-            const b = this.spatialGrid.get(`${cx + ox},${cz + oz}`);
-            if (b) {
-              for (let k = 0; k < b.length; k += 1) set.add(b[k]);
-            }
+      const set = new Set();
+      for (let ox = -1; ox <= 1; ox += 1) {
+        for (let oz = -1; oz <= 1; oz += 1) {
+          const b = this.spatialGrid.get(`${cx + ox},${cz + oz}`);
+          if (b) {
+            for (let k = 0; k < b.length; k += 1) set.add(b[k]);
           }
         }
-        if (set.size > 0) candidateIndices = Array.from(set);
       }
+      if (set.size > 0) candidateIndices = Array.from(set);
     }
 
     const indices = candidateIndices;
@@ -625,8 +632,8 @@ export class MountainRoad {
       }
     }
 
-    // Fallback coarse search if point is far outside regular grid cells
-    if (bestIndex === -1) {
+    // Fallback search if point is outside neighborhood grid cells
+    if (bestIndex === -1 || bestDistSq > 35 * 35) {
       for (let i = 0; i < this.samples.length; i += 1) {
         const a = this.samples[i];
         const b = this.samples[(i + 1) % this.samples.length];

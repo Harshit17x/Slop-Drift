@@ -171,6 +171,14 @@ export class MountainAudio {
     osc.stop(now + 0.1);
   }
 
+  silence() {
+    if (!this.context || !this.started) return;
+    const now = this.context.currentTime;
+    if (this.engineGain) this.engineGain.gain.setTargetAtTime(0.0001, now, 0.04);
+    if (this.tireGain) this.tireGain.gain.setTargetAtTime(0.0001, now, 0.04);
+    if (this.windGain) this.windGain.gain.setTargetAtTime(0.0001, now, 0.04);
+  }
+
   setMuted(value) {
     this.muted = Boolean(value);
     if (!this.context || !this.master) return this.muted;

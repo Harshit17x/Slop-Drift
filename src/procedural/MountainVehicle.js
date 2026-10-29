@@ -506,7 +506,7 @@ export class MountainVehicle {
     this.yawRate = clamp(this.yawRate + ((yawTorque + casterTorque) / Math.max(1, this.yawInertia) - yawDamping) * dt, -this.maxYawRate, this.maxYawRate);
     this.yaw += this.yawRate * dt;
     this.prevLongitudinalSpeed = longitudinal;
-    const targetPitch = clamp(longAcceleration * -0.0034, -0.075, 0.065);
+    const targetPitch = clamp(longAcceleration * 0.0034, -0.075, 0.065);
     const targetRoll = clamp((totalLateralForce / this.mass) * 0.007, -0.095, 0.095);
     this.bodyPitch = THREE.MathUtils.lerp(this.bodyPitch, targetPitch, clamp(dt * 10, 0, 1));
     this.bodyRoll = THREE.MathUtils.lerp(this.bodyRoll, targetRoll, clamp(dt * 12, 0, 1));
@@ -655,7 +655,7 @@ export class MountainVehicle {
     this.yawRate = 0;
     this.state = 'active';
     this.respawnCount += 1;
-    this.driftModel.reset();
+    this.driftModel.reset({ preserveBank: true });
     this.wheelContacts = [];
     const sample = this.sampleSurface(this.position.x, this.position.z);
     this.surfaceSample = sample || null;

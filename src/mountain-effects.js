@@ -18,7 +18,7 @@ export class MountainEffects {
     this.root.name = 'MountainEffects';
     this.scene.add(this.root);
     this.particleGeometry = new THREE.SphereGeometry(1, 6, 4);
-    this.skidGeometry = new THREE.PlaneGeometry(0.22, 1.14);
+    this.skidGeometry = new THREE.PlaneGeometry(0.22, 1.14).rotateX(-Math.PI * 0.5);
     this.particles = [];
     this.activeParticles = [];
     this.skids = [];
@@ -83,7 +83,7 @@ export class MountainEffects {
     item.mesh.position.copy(position).addScaledVector(normal, 0.025);
     item.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal.clone().normalize());
     item.mesh.rotateOnAxis(normal.clone().normalize(), Math.atan2(forward.x, -forward.z));
-    item.mesh.scale.set(0.65 + Math.min(1.5, intensity), 0.5 + Math.min(0.9, intensity), 1);
+    item.mesh.scale.set(0.65 + Math.min(1.5, intensity), 1, 0.5 + Math.min(0.9, intensity));
     item.mesh.material.opacity = Math.min(0.62, 0.14 + intensity * 0.28);
     item.life = 5.5;
     item.maxLife = item.life;
@@ -119,7 +119,8 @@ export class MountainEffects {
 
   emitBoost(vehicle, pose) {
     if (!vehicle || !pose) return;
-    const point = this.wheelWorldPosition(vehicle, { local: new THREE.Vector3(0, 0.35, 1.55) });
+    const side = Math.random() > 0.5 ? 0.68 : -0.68;
+    const point = this.wheelWorldPosition(vehicle, { local: new THREE.Vector3(side, 0.44, 2.48) });
     this.spawn('boost', point, pose.velocity.clone().multiplyScalar(-0.1), 1.1);
   }
 

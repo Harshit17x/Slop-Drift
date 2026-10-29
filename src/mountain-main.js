@@ -76,7 +76,16 @@ export class MountainGame {
     this.setMenuState();
     this.resize();
     window.addEventListener('resize', this.onResize);
-    document.addEventListener('fullscreenchange', () => this.hud?.setStateLabel(document.fullscreenElement ? 'FULLSCREEN' : 'READY'));
+    this.onFullscreenChange = () => {
+      if (this.state === 'running') {
+        this.hud?.setStateLabel(this.mode === 'roam' ? 'EXPLORE' : 'RUNNING');
+      } else if (this.state === 'countdown') {
+        this.hud?.setStateLabel('STAGED');
+      } else {
+        this.hud?.setStateLabel('READY');
+      }
+    };
+    document.addEventListener('fullscreenchange', this.onFullscreenChange);
     const unlockAudio = () => {
       this.audio.unlock().catch(() => {});
       window.removeEventListener('pointerdown', unlockAudio);
@@ -273,7 +282,7 @@ export class MountainGame {
     this.hud.onResume = () => this.resume();
     this.hud.onRestart = () => this.beginRun(this.mode);
     this.hud.onMenu = () => this.setMenuState();
-    this.hud.onOpenSettings = () => this.openSettings();
+    this.hud.onOpenSettings = (source) => this.openSettings(source);
     this.hud.onCloseSettings = () => this.restoreAfterSettings();
     this.hud.onApplySettings = (settings) => { this.applySettings(settings); this.restoreAfterSettings(); };
     this.hud.onFullscreen = () => this.toggleFullscreen();
@@ -335,6 +344,7 @@ export class MountainGame {
   setMenuState() {
     this.state = 'menu';
     this.session = null;
+    this.audio?.silence();
     this.input?.setDrivingVisible(false);
     this.hud?.showMenu();
     this.hud?.setCountdown('');
@@ -362,6 +372,7 @@ export class MountainGame {
       checkpoint: 0,
       completed: false,
     };
+    this.vehicle.driftModel.reset({ preserveBank: false });
     this.vehicle.respawn(this.world.getSpawnTransform(0));
     this.camera.setMode('chase');
     this.countdownClock = 0;
@@ -385,7 +396,8 @@ export class MountainGame {
     this.state = 'paused';
     this.input.setDrivingVisible(false);
     this.hud.showPause(this.mode === 'drift' ? 'Drift score is frozen.' : 'Take a breath. The ridge will wait.');
-    this.audio.updateEngine({ rpm: 900, speedMps: 0 });
+    this.audio.updateTire({ intensity: 0, speedMps: 0 });
+    this.audio.updateEngine({ rpm: 900, speedMps: 0, throttle: 0, boost: false });
   }
 
   resume() {
@@ -395,23 +407,23 @@ export class MountainGame {
     this.input.setDrivingVisible(this.state === 'running');
   }
 
-  openSettings() {
-    this.settingsReturnState = this.state;
+  openSettings(source = 'menu') {
+    this.settingsReturnState = this.state !== 'settings' ? this.state : (source === 'pause' ? 'paused' : 'menu');
     this.state = 'settings';
     this.input.setDrivingVisible(false);
     this.hud.openSettings(this.settingsReturnState === 'paused' ? 'pause' : 'menu');
   }
 
   restoreAfterSettings() {
-    if (this.state !== 'settings') return;
-    if (this.settingsReturnState === 'paused') {
+    const returnTarget = this.settingsReturnState || 'menu';
+    if (returnTarget === 'paused') {
       this.state = 'paused';
       this.hud.showPause(this.mode === 'drift' ? 'Drift score is frozen.' : 'Take a breath. The ridge will wait.');
-    } else if (this.settingsReturnState === 'running' || this.settingsReturnState === 'countdown') {
-      this.state = this.settingsReturnState;
+    } else if (returnTarget === 'running' || returnTarget === 'countdown') {
+      this.state = returnTarget;
       this.hud.showRace();
       this.input.setDrivingVisible(this.state === 'running');
-    } else if (this.settingsReturnState === 'finished') {
+    } else if (returnTarget === 'finished') {
       this.state = 'finished';
     } else {
       this.state = 'menu';
@@ -441,6 +453,7 @@ export class MountainGame {
       this.audio.ui();
     }
     if (input.respawn && this.state === 'running') {
+      if (this.session) this.session.respawns += 1;
       this.vehicle.respawn();
       this.audio.respawn();
     }
@@ -483,7 +496,9 @@ export class MountainGame {
 
   getControls(input, pose) {
     let brake = input.brake;
-    if (this.settings.abs && pose.speedKmh > 28) brake *= 0.82 + Math.min(0.18, pose.speedKmh / 230);
+    if (this.settings.abs && pose.speedKmh > 18) {
+      brake = Math.min(brake, 0.82);
+    }
     return { throttle: input.throttle, brake, steer: input.steer, handbrake: input.handbrake, driftAssist: this.settings.driftAssist };
   }
 
@@ -623,11 +638,26 @@ export class MountainGame {
   dispose() {
     cancelAnimationFrame(this.frameHandle);
     window.removeEventListener('resize', this.onResize);
+    if (this.onFullscreenChange) document.removeEventListener('fullscreenchange', this.onFullscreenChange);
     this.input?.destroy();
     this.effects?.dispose();
     this.audio.dispose();
     this.vehicle?.dispose();
     this.world?.dispose();
+    if (this.decorations) {
+      this.decorations.traverse((child) => {
+        if (child.isMesh) {
+          child.geometry?.dispose?.();
+          child.material?.dispose?.();
+        }
+      });
+      this.scene?.remove(this.decorations);
+    }
+    if (this.stars) {
+      this.stars.geometry?.dispose?.();
+      this.stars.material?.dispose?.();
+      this.scene?.remove(this.stars);
+    }
     this.renderer?.dispose();
     this.hud?.destroy();
   }

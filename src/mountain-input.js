@@ -1,23 +1,23 @@
 import { CONFIG } from './mountain-config.js';
 
 const DEFAULT_BINDINGS = Object.freeze({
-  throttle: ['KeyW', 'ArrowUp', 'w', 'W'],
-  brake: ['KeyS', 'ArrowDown', 's', 'S'],
-  steerLeft: ['KeyA', 'ArrowLeft', 'a', 'A'],
-  steerRight: ['KeyD', 'ArrowRight', 'd', 'D'],
-  handbrake: ['Space', ' ', 'Spacebar'],
-  boost: ['ShiftLeft', 'ShiftRight', 'Shift'],
-  camera: ['KeyC', 'c', 'C'],
-  respawn: ['KeyR', 'r', 'R'],
-  manualUp: ['KeyE', 'e', 'E'],
-  manualDown: ['KeyQ', 'q', 'Q'],
-  transmission: ['KeyT', 't', 'T'],
-  headlights: ['KeyH', 'h', 'H'],
-  mute: ['KeyM', 'm', 'M'],
-  pause: ['KeyP', 'p', 'P', 'Escape'],
+  throttle: ['KeyW', 'ArrowUp'],
+  brake: ['KeyS', 'ArrowDown'],
+  steerLeft: ['KeyA', 'ArrowLeft'],
+  steerRight: ['KeyD', 'ArrowRight'],
+  handbrake: ['Space'],
+  boost: ['ShiftLeft', 'ShiftRight'],
+  camera: ['KeyC'],
+  respawn: ['KeyR'],
+  manualUp: ['KeyE'],
+  manualDown: ['KeyQ'],
+  transmission: ['KeyT'],
+  headlights: ['KeyH'],
+  mute: ['KeyM'],
+  pause: ['KeyP', 'Escape'],
   debug: ['F1'],
-  lookBack: ['KeyB', 'b', 'B'],
-  fullscreen: ['KeyF', 'f', 'F'],
+  lookBack: ['KeyB'],
+  fullscreen: ['KeyF'],
 });
 
 function clamp(value, min, max) {
@@ -101,7 +101,7 @@ export class MountainInput {
     element.innerHTML = `
       <div class="touch-cluster touch-steer"><button data-touch="steerLeft" aria-label="Steer left">◀</button><button data-touch="steerRight" aria-label="Steer right">▶</button></div>
       <div class="touch-cluster touch-drive"><button data-touch="brake" aria-label="Brake">BRAKE</button><button data-touch="throttle" aria-label="Throttle">GO</button><button data-touch="handbrake" aria-label="Handbrake">DRIFT</button><button data-touch="boost" aria-label="Boost">BOOST</button></div>
-      <div class="touch-cluster touch-actions"><button data-touch="camera" aria-label="Camera">CAM</button><button data-touch="pause" aria-label="Pause">Ⅱ</button></div>
+      <div class="touch-cluster touch-actions"><button data-touch="camera" aria-label="Camera">CAM</button><button data-touch="respawn" aria-label="Respawn">R</button><button data-touch="pause" aria-label="Pause">Ⅱ</button></div>
     `;
     this.root.appendChild(element);
     return element;
@@ -110,14 +110,12 @@ export class MountainInput {
   installKeyboard() {
     this.onKeyDown = (event) => {
       this.keys.add(event.code);
-      if (event.key) this.keys.add(event.key);
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code) || [' ', 'Spacebar'].includes(event.key)) {
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) {
         event.preventDefault();
       }
     };
     this.onKeyUp = (event) => {
       this.keys.delete(event.code);
-      if (event.key) this.keys.delete(event.key);
     };
     this.onBlur = () => {
       this.keys.clear();

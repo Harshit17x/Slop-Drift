@@ -87,14 +87,14 @@ export class MountainHUD {
 
   bindEvents() {
     this.el.querySelectorAll('[data-start]').forEach((button) => button.addEventListener('click', () => { this.onStart(button.dataset.start); }));
-    this.el.querySelector('[data-settings]').addEventListener('click', () => this.openSettings('menu'));
+    this.el.querySelector('[data-settings]').addEventListener('click', () => this.onOpenSettings('menu'));
     this.el.querySelector('[data-menu-fullscreen]').addEventListener('click', () => this.onFullscreen());
     this.el.querySelector('[data-camera]').addEventListener('click', () => this.onCamera?.());
     this.el.querySelector('[data-fullscreen]').addEventListener('click', () => this.onFullscreen());
     this.el.querySelector('[data-pause]').addEventListener('click', () => this.onPause());
     this.el.querySelector('[data-resume]').addEventListener('click', () => this.onResume());
     this.el.querySelector('[data-restart]').addEventListener('click', () => this.onRestart());
-    this.el.querySelector('[data-pause-settings]').addEventListener('click', () => this.openSettings('pause'));
+    this.el.querySelector('[data-pause-settings]').addEventListener('click', () => this.onOpenSettings('pause'));
     this.el.querySelector('[data-pause-menu]').addEventListener('click', () => this.onMenu());
     this.el.querySelector('[data-finish-restart]').addEventListener('click', () => this.onRestart());
     this.el.querySelector('[data-finish-menu]').addEventListener('click', () => this.onMenu());
@@ -258,7 +258,7 @@ export class MountainHUD {
     if (!this.trackBounds) return { x: width * 0.5, y: height * 0.5 };
     const padding = 16;
     const x = Math.max(padding, Math.min(width - padding, (point.x - this.trackBounds.minX) / Math.max(1, this.trackBounds.maxX - this.trackBounds.minX) * (width - padding * 2) + padding));
-    const y = Math.max(padding, Math.min(height - padding, (1 - (point.z - this.trackBounds.minZ) / Math.max(1, this.trackBounds.maxZ - this.trackBounds.minZ)) * (height - padding * 2) + padding));
+    const y = Math.max(padding, Math.min(height - padding, padding + ((point.z - this.trackBounds.minZ) / Math.max(1, this.trackBounds.maxZ - this.trackBounds.minZ)) * (height - padding * 2)));
     return { x, y };
   }
 
@@ -296,7 +296,7 @@ export class MountainHUD {
     const speedKmh = pose.speedKmh || 0;
     const shownSpeed = this.settings.units === 'mph' ? speedKmh * 0.621371 : speedKmh;
     this.refs.runMode.textContent = mode.toUpperCase();
-    this.refs.lap.textContent = `${session.lap || 1}/${session.laps || 1}`;
+    this.refs.lap.textContent = mode === 'roam' ? 'OPEN' : mode === 'drift' ? `${Math.max(0, Math.ceil(90 - (session.elapsed || 0)))}s` : `${session.lap || 1}/${session.laps || 1}`;
     this.refs.time.textContent = formatTime(session.elapsed || 0);
     this.refs.camera.textContent = camera;
     this.refs.surface.textContent = String(pose.surface || 'asphalt').toUpperCase();

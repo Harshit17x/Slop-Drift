@@ -142,7 +142,6 @@ export class TerrainChunk {
   dispose() {
     this.meshes.forEach((mesh) => mesh.geometry.dispose());
     this.meshes.clear();
-    if (this.material?.dispose) this.material.dispose();
     this.mesh = null;
   }
 }
