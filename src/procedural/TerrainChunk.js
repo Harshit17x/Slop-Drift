@@ -8,14 +8,14 @@ function terrainColor(sample, minHeight, maxHeight) {
   const normalizedHeight = clamp((sample.height - minHeight) / Math.max(0.001, maxHeight - minHeight), 0, 1);
   const slope = clamp(sample.slopeAngle / (Math.PI * 0.5), 0, 1);
   const color = new THREE.Color();
-  if (slope > 0.58 || normalizedHeight > 0.84) {
-    color.setRGB(0.24 + normalizedHeight * 0.14, 0.25 + normalizedHeight * 0.13, 0.2 + normalizedHeight * 0.1);
-  } else if (slope > 0.38) {
-    color.setRGB(0.2 + normalizedHeight * 0.1, 0.31 + normalizedHeight * 0.12, 0.14 + normalizedHeight * 0.07);
+  if (slope > 0.52 || normalizedHeight > 0.82) {
+    color.setRGB(0.26 + normalizedHeight * 0.12, 0.27 + normalizedHeight * 0.11, 0.23 + normalizedHeight * 0.09);
+  } else if (slope > 0.32) {
+    color.setRGB(0.22 + normalizedHeight * 0.08, 0.28 + normalizedHeight * 0.1, 0.18 + normalizedHeight * 0.06);
   } else if (normalizedHeight > 0.55) {
-    color.setRGB(0.28 + normalizedHeight * 0.1, 0.42 + normalizedHeight * 0.13, 0.18 + normalizedHeight * 0.08);
+    color.setRGB(0.24 + normalizedHeight * 0.08, 0.38 + normalizedHeight * 0.12, 0.16 + normalizedHeight * 0.06);
   } else {
-    color.setRGB(0.08 + normalizedHeight * 0.07, 0.22 + normalizedHeight * 0.13, 0.1 + normalizedHeight * 0.06);
+    color.setRGB(0.1 + normalizedHeight * 0.06, 0.25 + normalizedHeight * 0.12, 0.11 + normalizedHeight * 0.05);
   }
   return color;
 }
@@ -53,6 +53,8 @@ export class TerrainChunk {
   buildGeometry(resolution) {
     const vertexCount = (resolution + 1) * (resolution + 1);
     const positions = new Float32Array(vertexCount * 3);
+    const normals = new Float32Array(vertexCount * 3);
+    const uvs = new Float32Array(vertexCount * 2);
     const colors = new Float32Array(vertexCount * 3);
     const indices = new Uint32Array(resolution * resolution * 6);
     let vertexIndex = 0;
@@ -61,13 +63,23 @@ export class TerrainChunk {
       for (let ix = 0; ix <= resolution; ix += 1) {
         const x = this.origin.x + (ix / resolution) * this.size;
         const terrain = this.heightfield.sample(x, z);
-        positions[vertexIndex * 3] = x;
-        positions[vertexIndex * 3 + 1] = terrain.height;
-        positions[vertexIndex * 3 + 2] = z;
+        const idx3 = vertexIndex * 3;
+        const idx2 = vertexIndex * 2;
+        positions[idx3] = x;
+        positions[idx3 + 1] = terrain.height;
+        positions[idx3 + 2] = z;
+
+        normals[idx3] = terrain.normal.x;
+        normals[idx3 + 1] = terrain.normal.y;
+        normals[idx3 + 2] = terrain.normal.z;
+
+        uvs[idx2] = ix / resolution;
+        uvs[idx2 + 1] = iz / resolution;
+
         const color = terrainColor(terrain, this.minHeight, this.maxHeight);
-        colors[vertexIndex * 3] = color.r;
-        colors[vertexIndex * 3 + 1] = color.g;
-        colors[vertexIndex * 3 + 2] = color.b;
+        colors[idx3] = color.r;
+        colors[idx3 + 1] = color.g;
+        colors[idx3 + 2] = color.b;
         vertexIndex += 1;
       }
     }
@@ -89,9 +101,10 @@ export class TerrainChunk {
     }
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+    geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-    geometry.computeVertexNormals();
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
     return geometry;

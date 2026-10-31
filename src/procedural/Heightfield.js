@@ -26,12 +26,18 @@ export class Heightfield {
     this.ridgeFrequency = options.ridgeFrequency ?? 0.008;
     this.octaves = options.octaves ?? 5;
     this.normalStep = options.normalStep ?? 0.35;
+    this.road = options.road || null;
     this.bounds = {
       minX: -this.sizeX * 0.5,
       maxX: this.sizeX * 0.5,
       minZ: -this.sizeZ * 0.5,
       maxZ: this.sizeZ * 0.5,
     };
+  }
+
+  attachRoad(road) {
+    this.road = road;
+    return this;
   }
 
   contains(x, z, padding = 0) {
@@ -45,7 +51,7 @@ export class Heightfield {
     return clamp((edge - 0.72) / 0.28, 0, 1);
   }
 
-  sampleHeight(x, z) {
+  sampleRawHeight(x, z) {
     const warp = this.noise.domainWarp2D(x * this.frequency, z * this.frequency, {
       frequency: 0.9,
       octaves: 3,
@@ -87,6 +93,12 @@ export class Heightfield {
     const edge = this.edgeFactor(x, z);
     const edgeDrop = Math.pow(edge, this.edgePower) * this.edgeDrop;
     return this.baseHeight + macro * this.amplitude + (ridge - 0.5) * this.ridgeAmplitude + detail * this.detailAmplitude + basin + rim + shoulder - edgeDrop;
+  }
+
+  sampleHeight(x, z) {
+    const raw = this.sampleRawHeight(x, z);
+    if (!this.road?.getCarvedRoadbedHeight) return raw;
+    return this.road.getCarvedRoadbedHeight(x, z, raw);
   }
 
   sampleNormal(x, z, step = this.normalStep) {

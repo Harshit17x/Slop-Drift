@@ -54,6 +54,7 @@ export class MountainWorld {
   build() {
     if (this.built) return this;
     this.road.build();
+    this.heightfield.attachRoad?.(this.road);
     this.buildTerrain();
     this.buildRidgeBackdrop();
     this.root.add(this.terrainRoot, this.ridgeBackdrop, this.road.root);

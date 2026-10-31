@@ -66,6 +66,7 @@ function arcPathPoints(centerX, centerZ, radius, startAngle, endAngle, steps) {
 
 function makeRibbonGeometry(samples, leftWidth, rightWidth, normalOffset = 0) {
   const positions = new Float32Array(samples.length * 6);
+  const uvs = new Float32Array(samples.length * 4);
   const indices = new Uint32Array(samples.length * 6);
   const baseRoadWidth = Math.max(0.001, leftWidth + rightWidth);
   for (let i = 0; i < samples.length; i += 1) {
@@ -79,6 +80,10 @@ function makeRibbonGeometry(samples, leftWidth, rightWidth, normalOffset = 0) {
     positions[i * 6 + 3] = right.x;
     positions[i * 6 + 4] = right.y;
     positions[i * 6 + 5] = right.z;
+    uvs[i * 4] = 0;
+    uvs[i * 4 + 1] = sample.distance / 4.0;
+    uvs[i * 4 + 2] = 1;
+    uvs[i * 4 + 3] = sample.distance / 4.0;
     const next = (i + 1) % samples.length;
     const a = i * 2;
     const b = next * 2;
@@ -92,11 +97,92 @@ function makeRibbonGeometry(samples, leftWidth, rightWidth, normalOffset = 0) {
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
   return geometry;
+}
+
+function makeCenterlineGeometry(samples, width = 0.16, normalOffset = 0.026) {
+  const half = width * 0.5;
+  const positions = [];
+  const colors = [];
+  const indices = [];
+  const yellow = new THREE.Color(0xffb703);
+
+  for (let i = 0; i < samples.length; i += 1) {
+    const s = samples[i];
+    const nextIdx = (i + 1) % samples.length;
+    const next = samples[nextIdx];
+
+    const isCurved = Math.abs(s.curvature) > 0.004 || (s.hairpinFactor || 0) > 0.25;
+    const isDashVisible = isCurved || (Math.floor(s.distance / 3.2) % 2 === 0);
+
+    if (!isDashVisible) continue;
+
+    const baseV = positions.length / 3;
+
+    const p0 = s.position.clone().addScaledVector(s.right, -half).addScaledVector(s.normal, normalOffset);
+    const p1 = s.position.clone().addScaledVector(s.right, half).addScaledVector(s.normal, normalOffset);
+    const p2 = next.position.clone().addScaledVector(next.right, -half).addScaledVector(next.normal, normalOffset);
+    const p3 = next.position.clone().addScaledVector(next.right, half).addScaledVector(next.normal, normalOffset);
+
+    positions.push(p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
+    for (let c = 0; c < 4; c += 1) colors.push(yellow.r, yellow.g, yellow.b);
+
+    indices.push(baseV, baseV + 1, baseV + 2, baseV + 1, baseV + 3, baseV + 2);
+  }
+
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+  geom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(colors), 3));
+  geom.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
+  geom.computeVertexNormals();
+  return geom;
+}
+
+function makeEdgeLinesGeometry(samples, defaultHalfWidth, lineWidth = 0.12, normalOffset = 0.022) {
+  const positions = [];
+  const colors = [];
+  const indices = [];
+  const white = new THREE.Color(0xf0f3f6);
+
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < samples.length; i += 1) {
+      const s = samples[i];
+      const nextIdx = (i + 1) % samples.length;
+      const next = samples[nextIdx];
+
+      const halfW_s = s.halfWidth || (defaultHalfWidth);
+      const halfW_n = next.halfWidth || (defaultHalfWidth);
+
+      const offsetInner_s = side * (halfW_s - lineWidth);
+      const offsetOuter_s = side * halfW_s;
+      const offsetInner_n = side * (halfW_n - lineWidth);
+      const offsetOuter_n = side * halfW_n;
+
+      const baseV = positions.length / 3;
+
+      const p0 = s.position.clone().addScaledVector(s.right, Math.min(offsetInner_s, offsetOuter_s)).addScaledVector(s.normal, normalOffset);
+      const p1 = s.position.clone().addScaledVector(s.right, Math.max(offsetInner_s, offsetOuter_s)).addScaledVector(s.normal, normalOffset);
+      const p2 = next.position.clone().addScaledVector(next.right, Math.min(offsetInner_n, offsetOuter_n)).addScaledVector(next.normal, normalOffset);
+      const p3 = next.position.clone().addScaledVector(next.right, Math.max(offsetInner_n, offsetOuter_n)).addScaledVector(next.normal, normalOffset);
+
+      positions.push(p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
+      for (let c = 0; c < 4; c += 1) colors.push(white.r, white.g, white.b);
+
+      indices.push(baseV, baseV + 1, baseV + 2, baseV + 1, baseV + 3, baseV + 2);
+    }
+  }
+
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+  geom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(colors), 3));
+  geom.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
+  geom.computeVertexNormals();
+  return geom;
 }
 
 function makeColoredRibbonGeometry(samples, width, colors, normalOffset = 0) {
@@ -218,7 +304,7 @@ export class MountainRoad {
   }
 
   heightAt(x, z) {
-    return this.heightfield?.sampleHeight ? this.heightfield.sampleHeight(x, z) : 0;
+    return this.heightfield?.sampleRawHeight ? this.heightfield.sampleRawHeight(x, z) : (this.heightfield?.sampleHeight ? this.heightfield.sampleHeight(x, z) : 0);
   }
 
   createControlPoints() {
@@ -285,6 +371,8 @@ export class MountainRoad {
   clearRenderables() {
     while (this.root.children.length) this.root.remove(this.root.children[0]);
     this.roadMesh = null;
+    this.centerlineMesh = null;
+    this.edgeLinesMesh = null;
     this.shoulderMesh = null;
     this.guardrails = null;
     this.curbs = null;
@@ -304,6 +392,25 @@ export class MountainRoad {
       point.y = this.heightAt(point.x, point.z) + this.roadElevation;
       rawPoints.push(point);
     }
+
+    // Smooth vertical road grade to eliminate noise spikes and instantaneous slope jerks
+    const smoothedY = new Float32Array(this.segmentCount);
+    const radius = 6;
+    for (let i = 0; i < this.segmentCount; i += 1) {
+      let sum = 0;
+      let weightSum = 0;
+      for (let r = -radius; r <= radius; r += 1) {
+        const idx = (i + r + this.segmentCount) % this.segmentCount;
+        const w = Math.exp(-(r * r) / (2 * 3 * 3));
+        sum += rawPoints[idx].y * w;
+        weightSum += w;
+      }
+      smoothedY[i] = sum / weightSum;
+    }
+    for (let i = 0; i < this.segmentCount; i += 1) {
+      rawPoints[i].y = smoothedY[i];
+    }
+
     let previousRight = null;
     this.samples = rawPoints.map((position, index) => {
       const previous = rawPoints[(index - 1 + rawPoints.length) % rawPoints.length];
@@ -408,7 +515,7 @@ export class MountainRoad {
   }
 
   buildRoadMeshes() {
-    const roadGeometry = makeColoredRibbonGeometry(this.samples, this.roadWidth * 0.5, { left: 0x34383d, right: 0x34383d }, 0.015);
+    const roadGeometry = makeColoredRibbonGeometry(this.samples, this.roadWidth * 0.5, { left: 0x2e3236, right: 0x2e3236 }, 0.015);
     const roadMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0.02, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
     this.roadMesh = new THREE.Mesh(roadGeometry, roadMaterial);
     this.roadMesh.name = 'MountainRoadSurface';
@@ -416,6 +523,24 @@ export class MountainRoad {
     this.roadMesh.castShadow = true;
     this.roadMesh.userData = { surface: 'asphalt', type: 'mountain-road' };
     this.root.add(this.roadMesh);
+
+    // Centerline markings (vibrant safety yellow, dashed on straights and continuous on curves)
+    const centerlineGeometry = makeCenterlineGeometry(this.samples, 0.16, 0.026);
+    const centerlineMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.1, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+    this.centerlineMesh = new THREE.Mesh(centerlineGeometry, centerlineMaterial);
+    this.centerlineMesh.name = 'MountainRoadCenterline';
+    this.centerlineMesh.receiveShadow = true;
+    this.centerlineMesh.userData = { surface: 'asphalt', type: 'road-marking' };
+    this.root.add(this.centerlineMesh);
+
+    // Edge lines (clean white boundaries framing the asphalt)
+    const edgeLinesGeometry = makeEdgeLinesGeometry(this.samples, this.roadWidth * 0.5, 0.14, 0.022);
+    const edgeLinesMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.1, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2.5, polygonOffsetUnits: -2.5 });
+    this.edgeLinesMesh = new THREE.Mesh(edgeLinesGeometry, edgeLinesMaterial);
+    this.edgeLinesMesh.name = 'MountainRoadEdgeLines';
+    this.edgeLinesMesh.receiveShadow = true;
+    this.edgeLinesMesh.userData = { surface: 'asphalt', type: 'road-marking' };
+    this.root.add(this.edgeLinesMesh);
 
     this.curbs = new THREE.Group();
     this.curbs.name = 'MountainRoadRacingCurbs';
@@ -671,6 +796,40 @@ export class MountainRoad {
     return { ...sample, distanceSq: bestDistSq, distance: Math.sqrt(bestDistSq), signedDistance, index: bestIndex, amount: bestAmount };
   }
 
+  getCarvedRoadbedHeight(x, z, rawHeight) {
+    if (!this.samples || this.samples.length === 0) return rawHeight;
+    const nearest = this.getNearestPoint(x, z);
+    if (!nearest) return rawHeight;
+
+    const halfWidth = nearest.halfWidth || (roadWidthForSample(nearest, this.roadWidth) * 0.5);
+    const bedWidth = halfWidth + this.shoulderWidth;
+    const blendWidth = 10.0;
+    const dist = nearest.distance;
+
+    if (dist > bedWidth + blendWidth) return rawHeight;
+
+    const nx = nearest.normal.x;
+    const ny = Math.max(0.25, nearest.normal.y);
+    const nz = nearest.normal.z;
+    const roadPlaneY = nearest.position.y - (nx * (x - nearest.position.x) + nz * (z - nearest.position.z)) / ny;
+
+    let bedTargetY;
+    if (dist <= halfWidth) {
+      bedTargetY = roadPlaneY - 0.45;
+    } else {
+      const shoulderT = (dist - halfWidth) / this.shoulderWidth;
+      bedTargetY = THREE.MathUtils.lerp(roadPlaneY - 0.45, roadPlaneY - 0.12, shoulderT);
+    }
+
+    if (dist <= bedWidth) {
+      return bedTargetY;
+    }
+
+    const blendT = (dist - bedWidth) / blendWidth;
+    const smooth = blendT * blendT * (3 - 2 * blendT);
+    return (1 - smooth) * (roadPlaneY - 0.12) + smooth * rawHeight;
+  }
+
   sampleSurface(x, z, expectedY = null) {
     const nearest = this.getNearestPoint(x, z, expectedY);
     if (!nearest) return null;
@@ -743,6 +902,7 @@ export class MountainRoad {
 function makeShoulderGeometry(samples, halfWidth, shoulderWidth) {
   const verticesPerSample = 4;
   const positions = new Float32Array(samples.length * verticesPerSample * 3);
+  const uvs = new Float32Array(samples.length * verticesPerSample * 2);
   const colors = new Float32Array(samples.length * verticesPerSample * 3);
   const indices = new Uint32Array(samples.length * 12);
   const baseRoadWidth = Math.max(0.001, halfWidth * 2);
@@ -760,9 +920,12 @@ function makeShoulderGeometry(samples, halfWidth, shoulderWidth) {
     for (let pointIndex = 0; pointIndex < points.length; pointIndex += 1) {
       const point = points[pointIndex];
       const offset = (i * verticesPerSample + pointIndex) * 3;
+      const uvOffset = (i * verticesPerSample + pointIndex) * 2;
       positions[offset] = point.x;
       positions[offset + 1] = point.y;
       positions[offset + 2] = point.z;
+      uvs[uvOffset] = pointIndex === 0 || pointIndex === 1 ? 0 : 1;
+      uvs[uvOffset + 1] = sample.distance / 4.0;
       const color = pointIndex === 0 || pointIndex === 2 ? innerColor : outerColor;
       colors[offset] = color.r;
       colors[offset + 1] = color.g;
@@ -787,6 +950,7 @@ function makeShoulderGeometry(samples, halfWidth, shoulderWidth) {
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.computeVertexNormals();
