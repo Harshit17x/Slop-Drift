@@ -30,7 +30,7 @@ export class MountainWorld {
     });
     this.chunkSize = options.chunkSize ?? 64;
     this.chunkResolution = options.chunkResolution ?? 24;
-    this.terrainLods = options.terrainLods || [this.chunkResolution, Math.max(4, Math.floor(this.chunkResolution / 2)), Math.max(2, Math.floor(this.chunkResolution / 4))];
+    this.terrainLods = options.terrainLods || [this.chunkResolution, Math.max(14, Math.floor(this.chunkResolution * 0.75)), Math.max(10, Math.floor(this.chunkResolution * 0.5))];
     this.terrainRoot = new THREE.Group();
     this.terrainRoot.name = 'MountainTerrain';
     this.ridgeBackdrop = null;

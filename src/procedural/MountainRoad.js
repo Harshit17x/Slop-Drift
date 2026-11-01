@@ -488,7 +488,7 @@ export class MountainRoad {
   buildSpatialGrid(cellSize = 28) {
     this.spatialCellSize = cellSize;
     this.spatialGrid = new Map();
-    const pad = (this.roadWidth + this.shoulderWidth) * 1.5;
+    const pad = (this.roadWidth * 0.5 + this.shoulderWidth + 3.5 + 14.0 + 2.0);
     for (let i = 0; i < this.samples.length; i += 1) {
       const a = this.samples[i];
       const b = this.samples[(i + 1) % this.samples.length];
@@ -516,7 +516,7 @@ export class MountainRoad {
 
   buildRoadMeshes() {
     const roadGeometry = makeColoredRibbonGeometry(this.samples, this.roadWidth * 0.5, { left: 0x2e3236, right: 0x2e3236 }, 0.015);
-    const roadMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0.02, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    const roadMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0.02, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     this.roadMesh = new THREE.Mesh(roadGeometry, roadMaterial);
     this.roadMesh.name = 'MountainRoadSurface';
     this.roadMesh.receiveShadow = true;
@@ -526,7 +526,7 @@ export class MountainRoad {
 
     // Centerline markings (vibrant safety yellow, dashed on straights and continuous on curves)
     const centerlineGeometry = makeCenterlineGeometry(this.samples, 0.16, 0.026);
-    const centerlineMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.1, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+    const centerlineMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.1, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
     this.centerlineMesh = new THREE.Mesh(centerlineGeometry, centerlineMaterial);
     this.centerlineMesh.name = 'MountainRoadCenterline';
     this.centerlineMesh.receiveShadow = true;
@@ -535,7 +535,7 @@ export class MountainRoad {
 
     // Edge lines (clean white boundaries framing the asphalt)
     const edgeLinesGeometry = makeEdgeLinesGeometry(this.samples, this.roadWidth * 0.5, 0.14, 0.022);
-    const edgeLinesMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.1, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2.5, polygonOffsetUnits: -2.5 });
+    const edgeLinesMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.1, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
     this.edgeLinesMesh = new THREE.Mesh(edgeLinesGeometry, edgeLinesMaterial);
     this.edgeLinesMesh.name = 'MountainRoadEdgeLines';
     this.edgeLinesMesh.receiveShadow = true;
@@ -544,7 +544,7 @@ export class MountainRoad {
 
     this.curbs = new THREE.Group();
     this.curbs.name = 'MountainRoadRacingCurbs';
-    const curbMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0.04, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const curbMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0.04, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
     for (const side of [-1, 1]) {
       const curb = new THREE.Mesh(makeCurbGeometry(this.samples, side, 0.48), curbMaterial);
       curb.name = side < 0 ? 'MountainRoadCurbLeft' : 'MountainRoadCurbRight';
@@ -557,7 +557,7 @@ export class MountainRoad {
 
     const shoulderSamples = this.samples.map((sample) => ({ ...sample, right: sample.right.clone(), position: sample.position.clone() }));
     const shoulderGeometry = makeShoulderGeometry(shoulderSamples, this.roadWidth * 0.5, this.shoulderWidth);
-    const shoulderMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -0.5, polygonOffsetUnits: -0.5 });
+    const shoulderMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
     this.shoulderMesh = new THREE.Mesh(shoulderGeometry, shoulderMaterial);
     this.shoulderMesh.name = 'MountainRoadShoulders';
     this.shoulderMesh.receiveShadow = true;
@@ -798,12 +798,18 @@ export class MountainRoad {
 
   getCarvedRoadbedHeight(x, z, rawHeight) {
     if (!this.samples || this.samples.length === 0) return rawHeight;
+
     const nearest = this.getNearestPoint(x, z);
     if (!nearest) return rawHeight;
 
     const halfWidth = nearest.halfWidth || (roadWidthForSample(nearest, this.roadWidth) * 0.5);
-    const bedWidth = halfWidth + this.shoulderWidth;
-    const blendWidth = 10.0;
+    const shoulderW = this.shoulderWidth;
+    const curvature = Math.abs(nearest.curvature || 0);
+    const hairpinFactor = nearest.hairpinFactor || 0;
+
+    const benchMargin = 3.5 + Math.min(3.0, curvature * 40.0) + hairpinFactor * 2.0;
+    const bedWidth = halfWidth + shoulderW + benchMargin;
+    const blendWidth = 14.0;
     const dist = nearest.distance;
 
     if (dist > bedWidth + blendWidth) return rawHeight;
@@ -812,14 +818,7 @@ export class MountainRoad {
     const ny = Math.max(0.25, nearest.normal.y);
     const nz = nearest.normal.z;
     const roadPlaneY = nearest.position.y - (nx * (x - nearest.position.x) + nz * (z - nearest.position.z)) / ny;
-
-    let bedTargetY;
-    if (dist <= halfWidth) {
-      bedTargetY = roadPlaneY - 0.45;
-    } else {
-      const shoulderT = (dist - halfWidth) / this.shoulderWidth;
-      bedTargetY = THREE.MathUtils.lerp(roadPlaneY - 0.45, roadPlaneY - 0.12, shoulderT);
-    }
+    const bedTargetY = roadPlaneY - 0.55;
 
     if (dist <= bedWidth) {
       return bedTargetY;
@@ -827,7 +826,7 @@ export class MountainRoad {
 
     const blendT = (dist - bedWidth) / blendWidth;
     const smooth = blendT * blendT * (3 - 2 * blendT);
-    return (1 - smooth) * (roadPlaneY - 0.12) + smooth * rawHeight;
+    return (1 - smooth) * bedTargetY + smooth * rawHeight;
   }
 
   sampleSurface(x, z, expectedY = null) {
@@ -900,23 +899,34 @@ export class MountainRoad {
 }
 
 function makeShoulderGeometry(samples, halfWidth, shoulderWidth) {
-  const verticesPerSample = 4;
+  const verticesPerSample = 6;
   const positions = new Float32Array(samples.length * verticesPerSample * 3);
   const uvs = new Float32Array(samples.length * verticesPerSample * 2);
   const colors = new Float32Array(samples.length * verticesPerSample * 3);
-  const indices = new Uint32Array(samples.length * 12);
+  const indices = new Uint32Array(samples.length * 24);
   const baseRoadWidth = Math.max(0.001, halfWidth * 2);
   const innerColor = new THREE.Color(0x7f7560);
   const outerColor = new THREE.Color(0x5f594e);
+  const skirtColor = new THREE.Color(0x3a352d);
+  const skirtDrop = 0.75;
+  const skirtFlare = 0.45;
+
   for (let i = 0; i < samples.length; i += 1) {
     const sample = samples[i];
     const widthScale = roadWidthForSample(sample, baseRoadWidth) / baseRoadWidth;
     const sampleHalfWidth = halfWidth * widthScale;
+
     const leftInner = sample.position.clone().addScaledVector(sample.right, -sampleHalfWidth).addScaledVector(sample.normal, 0.022);
     const leftOuter = sample.position.clone().addScaledVector(sample.right, -(sampleHalfWidth + shoulderWidth)).addScaledVector(sample.normal, 0.012);
+    const leftSkirt = leftOuter.clone().addScaledVector(sample.right, -skirtFlare).addScaledVector(sample.normal, -skirtDrop);
+
     const rightInner = sample.position.clone().addScaledVector(sample.right, sampleHalfWidth).addScaledVector(sample.normal, 0.022);
     const rightOuter = sample.position.clone().addScaledVector(sample.right, sampleHalfWidth + shoulderWidth).addScaledVector(sample.normal, 0.012);
-    const points = [leftInner, leftOuter, rightInner, rightOuter];
+    const rightSkirt = rightOuter.clone().addScaledVector(sample.right, skirtFlare).addScaledVector(sample.normal, -skirtDrop);
+
+    const points = [leftSkirt, leftOuter, leftInner, rightInner, rightOuter, rightSkirt];
+    const pointColors = [skirtColor, outerColor, innerColor, innerColor, outerColor, skirtColor];
+
     for (let pointIndex = 0; pointIndex < points.length; pointIndex += 1) {
       const point = points[pointIndex];
       const offset = (i * verticesPerSample + pointIndex) * 3;
@@ -924,29 +934,50 @@ function makeShoulderGeometry(samples, halfWidth, shoulderWidth) {
       positions[offset] = point.x;
       positions[offset + 1] = point.y;
       positions[offset + 2] = point.z;
-      uvs[uvOffset] = pointIndex === 0 || pointIndex === 1 ? 0 : 1;
+      uvs[uvOffset] = pointIndex < 3 ? (pointIndex / 2) : ((pointIndex - 3) / 2);
       uvs[uvOffset + 1] = sample.distance / 4.0;
-      const color = pointIndex === 0 || pointIndex === 2 ? innerColor : outerColor;
+      const color = pointColors[pointIndex];
       colors[offset] = color.r;
       colors[offset + 1] = color.g;
       colors[offset + 2] = color.b;
     }
+
     const next = (i + 1) % samples.length;
     const current = i * verticesPerSample;
     const following = next * verticesPerSample;
-    const base = i * 12;
-    indices[base] = current;
-    indices[base + 1] = following;
+    const base = i * 24;
+
+    // Quad 1: Left Skirt (0 -> 1)
+    indices[base] = current + 0;
+    indices[base + 1] = following + 0;
     indices[base + 2] = current + 1;
-    indices[base + 3] = following;
+    indices[base + 3] = following + 0;
     indices[base + 4] = following + 1;
     indices[base + 5] = current + 1;
-    indices[base + 6] = current + 2;
-    indices[base + 7] = current + 3;
-    indices[base + 8] = following + 2;
-    indices[base + 9] = following + 2;
-    indices[base + 10] = current + 3;
-    indices[base + 11] = following + 3;
+
+    // Quad 2: Left Shoulder (1 -> 2)
+    indices[base + 6] = current + 1;
+    indices[base + 7] = following + 1;
+    indices[base + 8] = current + 2;
+    indices[base + 9] = following + 1;
+    indices[base + 10] = following + 2;
+    indices[base + 11] = current + 2;
+
+    // Quad 3: Right Shoulder (3 -> 4)
+    indices[base + 12] = current + 3;
+    indices[base + 13] = current + 4;
+    indices[base + 14] = following + 3;
+    indices[base + 15] = following + 3;
+    indices[base + 16] = current + 4;
+    indices[base + 17] = following + 4;
+
+    // Quad 4: Right Skirt (4 -> 5)
+    indices[base + 18] = current + 4;
+    indices[base + 19] = current + 5;
+    indices[base + 20] = following + 4;
+    indices[base + 21] = following + 4;
+    indices[base + 22] = current + 5;
+    indices[base + 23] = following + 5;
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));

@@ -36,7 +36,7 @@ export class TerrainChunk {
     this.origin = origin.clone ? origin.clone() : new THREE.Vector3(origin.x || 0, origin.y || 0, origin.z || 0);
     this.size = size;
     this.resolution = resolution;
-    this.lodResolutions = lodResolutions || [resolution, Math.max(4, Math.floor(resolution / 2)), Math.max(2, Math.floor(resolution / 4))];
+    this.lodResolutions = lodResolutions || [resolution, Math.max(14, Math.floor(resolution * 0.75)), Math.max(10, Math.floor(resolution * 0.5))];
     this.material = material || new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, flatShading: false });
     this.minHeight = minHeight;
     this.maxHeight = maxHeight;
