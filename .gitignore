@@ -11,4 +11,5 @@ Thumbs.db
 
 # Large model assets exceeding GitHub's 100MB file limit
 public/models/track.glb
-.claude
+
+.claude/

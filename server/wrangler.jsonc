@@ -1,29 +1,39 @@
 // Slop Drift backend. Local: `npx wrangler dev` (no account needed). Deploy: see README.md.
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "slop-drift-api",
-  "main": "src/index.js",
-  "compatibility_date": "2026-10-01",
-  "observability": { "enabled": true },
-
-  "vars": {
-    // Comma-separated; one '*' wildcard per entry is allowed (Vercel preview deployments).
-    "ALLOWED_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173,https://slop-drift.vercel.app,https://slop-drift-*.vercel.app"
-  },
-
-  // TOKEN_SECRET is a secret: `npx wrangler secret put TOKEN_SECRET` (production), `.dev.vars` (local).
-
-  "durable_objects": {
-    "bindings": [{ "name": "Room", "class_name": "Room" }]
-  },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
-
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "slop-drift",
-      // Replace with the id printed by `npx wrangler d1 create slop-drift`. Local dev ignores it.
-      "database_id": "00000000-0000-0000-0000-000000000000"
-    }
-  ]
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "slop-drift-api",
+	"main": "src/index.js",
+	"compatibility_date": "2026-10-01",
+	"observability": {
+		"enabled": true
+	},
+	"vars": {
+		// Comma-separated; one '*' wildcard per entry is allowed (Vercel preview deployments).
+		"ALLOWED_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173,https://slop-drift.vercel.app,https://slop-drift-*.vercel.app"
+	},
+	// TOKEN_SECRET is a secret: `npx wrangler secret put TOKEN_SECRET` (production), `.dev.vars` (local).
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "Room",
+				"class_name": "Room"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": [
+				"Room"
+			]
+		}
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "slop-drift",
+			// Replace with the id printed by `npx wrangler d1 create slop-drift`. Local dev ignores it.
+			"database_id": "224bbbc2-0d90-44c7-9bbe-a80883de951f"
+		}
+	]
 }
