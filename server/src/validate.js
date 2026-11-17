@@ -6,7 +6,7 @@ import { MODES } from '../../src/config.js';
 import { MEDAL_TARGETS } from '../../src/meta/catalog.js';
 
 /** Every event id; each one gets a realtime room. */
-export const ROOM_MODES = Object.freeze(MODES.map((mode) => mode.id));
+export const ROOM_MODES = Object.freeze(['mountain', ...MODES.map((mode) => mode.id)]);
 /** Events with a leaderboard (all but free roam). */
 export const RANKED_MODES = Object.freeze(Object.keys(MEDAL_TARGETS));
 
@@ -231,6 +231,7 @@ export function parseJoinParams(searchParams) {
     paint: sanitizeCosmetic(get('paint')),
     rim: sanitizeCosmetic(get('rim')),
     number: sanitizeCosmetic(get('number'), 'number'),
+    modeId: get('modeId') || 'menu',
     token: get('token') || '',
   };
 }

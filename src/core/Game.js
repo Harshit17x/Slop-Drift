@@ -67,8 +67,6 @@ export class Game {
     this.onVisibility = () => {
       if (!document.hidden) return;
       this.pause();
-      // Leave the online room so other players are not left looking at a frozen car.
-      this.meta?.leaveRoom();
     };
   }
 

@@ -26,7 +26,7 @@ const RATE_PER_SECOND = 15;
 const RATE_BURST = 30;
 
 function peerOf(state) {
-  return { i: state.i, id: state.id, name: state.name, level: state.level, paint: state.paint, rim: state.rim, number: state.number };
+  return { i: state.i, id: state.id, name: state.name, level: state.level, paint: state.paint, rim: state.rim, number: state.number, modeId: state.modeId || 'menu' };
 }
 
 export class Room extends Server {
@@ -74,6 +74,7 @@ export class Room extends Server {
       paint: params.paint,
       rim: params.rim,
       number: params.number,
+      modeId: params.modeId || 'menu',
       joined: Date.now(),
     };
     connection.setState(state);
@@ -138,6 +139,7 @@ export class Room extends Server {
           paint: data.paint == null ? state.paint : sanitizeCosmetic(data.paint) || state.paint,
           rim: data.rim == null ? state.rim : sanitizeCosmetic(data.rim) || state.rim,
           number: data.number == null ? state.number : sanitizeCosmetic(data.number, 'number'),
+          modeId: typeof data.modeId === 'string' ? data.modeId : state.modeId,
         };
         connection.setState(next);
         this.broadcast(JSON.stringify({ t: 'update', peer: peerOf(next) }), [connection.id]);

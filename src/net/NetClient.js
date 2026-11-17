@@ -289,6 +289,7 @@ class SocketTransport {
       paint: cosmetics.paint || '',
       rim: cosmetics.rim || '',
       number: cosmetics.number || '',
+      modeId: client.currentMode || this.modeId || 'menu',
       token,
     });
     let socket;
@@ -404,7 +405,15 @@ class SocketTransport {
     if (!socket || socket.readyState !== 1) return;
     const client = this.client;
     const cosmetics = client.profile.cosmetics || {};
-    socket.send(JSON.stringify({ t: 'profile', name: client.profile.name, level: client.level, paint: cosmetics.paint, rim: cosmetics.rim, number: cosmetics.number }));
+    socket.send(JSON.stringify({
+      t: 'profile',
+      name: client.profile.name,
+      level: client.level,
+      paint: cosmetics.paint,
+      rim: cosmetics.rim,
+      number: cosmetics.number,
+      modeId: client.currentMode || 'menu',
+    }));
   }
 
   stop() {
@@ -537,6 +546,7 @@ export class NetClient {
     /** Last problem, for UI hints: 'unreachable' | 'identity-claimed' | 'room-full' | 'rate-limited' | 'rejected' | 'closed' | null. */
     this.error = null;
     this.modeId = null;
+    this.currentMode = 'menu';
     /** @type {Map<string, import('../core/contracts.js').RemotePeer & {playerId:string}>} */
     this.peers = new Map();
     this.tracks = new Map();
@@ -605,6 +615,13 @@ export class NetClient {
       this.announcePresence();
     } catch (error) {
       this.fail(error);
+    }
+  }
+
+  setMode(modeId) {
+    this.currentMode = modeId || 'menu';
+    if (this.transport && typeof this.transport.sendProfile === 'function') {
+      this.transport.sendProfile();
     }
   }
 
@@ -766,6 +783,7 @@ export class NetClient {
       paint: cosmetics.paint || '',
       rim: cosmetics.rim || '',
       number: cosmetics.number || '',
+      modeId: this.currentMode || 'menu',
     };
   }
 
@@ -793,20 +811,20 @@ export class NetClient {
 
   _upsertPeer(key, info, emit = true) {
     const existing = this.peers.get(key);
-    const peer = existing || { id: key, playerId: '', name: '', level: 1, paint: '', rim: '', number: '', modeId: this.modeId, lastSeen: 0 };
-    const before = existing ? `${peer.name}|${peer.level}|${peer.paint}|${peer.rim}|${peer.number}` : null;
+    const peer = existing || { id: key, playerId: '', name: '', level: 1, paint: '', rim: '', number: '', modeId: 'menu', lastSeen: 0 };
+    const before = existing ? `${peer.name}|${peer.level}|${peer.paint}|${peer.rim}|${peer.number}|${peer.modeId}` : null;
     peer.playerId = String(info.id ?? peer.playerId);
     peer.name = String(info.name ?? peer.name).slice(0, 24);
     peer.level = Number(info.level) || 1;
     peer.paint = String(info.paint ?? '');
     peer.rim = String(info.rim ?? '');
     peer.number = String(info.number ?? '');
-    peer.modeId = this.modeId;
+    peer.modeId = info.modeId || peer.modeId || 'menu';
     if (!existing) {
       this.peers.set(key, peer);
       this.tracks.set(key, new Track());
     }
-    const changed = before !== `${peer.name}|${peer.level}|${peer.paint}|${peer.rim}|${peer.number}`;
+    const changed = before !== `${peer.name}|${peer.level}|${peer.paint}|${peer.rim}|${peer.number}|${peer.modeId}`;
     if (emit && changed) this._emitRoster();
     return peer;
   }

@@ -53,6 +53,7 @@ export class MetaLayer {
     if (net) {
       net.onStatus(() => this.updateConnection());
       net.onRoster((peers) => this.updateRoster(peers));
+      net.join('mountain');
     }
     this.pollOnline();
     this.onlineTimer = setInterval(() => this.pollOnline(), 30000);
@@ -70,9 +71,13 @@ export class MetaLayer {
   updateRoster(peers) {
     const list = [{ id: this.career.profile.id, name: this.career.profile.name, level: this.career.level, modeLabel: this.roomLabel(), isMe: true }];
     for (const [id, peer] of peers || []) {
-      list.push({ id, name: peer.name, level: peer.level, modeLabel: getMode(peer.modeId || this.room || 'roam').label, isMe: false });
+      const modeId = peer.modeId;
+      const label = (!modeId || modeId === 'menu') ? 'Menu' : (getMode(modeId)?.label || 'Driving');
+      list.push({ id, name: peer.name, level: peer.level, modeLabel: label, isMe: false });
     }
     this.hud.setPlayers(list);
+    this.online = list.length;
+    this.refreshProfile();
     if (list.length > 1 && this.career.run) this.career.onMultiplayer();
   }
 
@@ -82,6 +87,11 @@ export class MetaLayer {
 
   /** How many people are online across all rooms (menus only; it costs server requests). */
   async pollOnline() {
+    if (this.net?.status === 'connected') {
+      this.online = (this.net.peers?.size ?? 0) + 1;
+      this.refreshProfile();
+      return;
+    }
     if (!this.net || this.game.state === 'running' || this.game.state === 'countdown') return;
     try {
       const { total } = await this.net.online();
@@ -94,14 +104,17 @@ export class MetaLayer {
 
   joinRoom(modeId) {
     this.room = modeId;
-    this.net?.join(modeId);
+    if (this.net && this.net.modeId !== 'mountain') {
+      this.net.join('mountain');
+    }
+    this.net?.setMode(modeId);
     this.updateRoster(this.net?.peers);
   }
 
   leaveRoom() {
     this.room = null;
-    this.net?.leave();
-    this.updateRoster(null);
+    this.net?.setMode('menu');
+    this.updateRoster(this.net?.peers);
   }
 
   // ------------------------------------------------------------------ HUD
