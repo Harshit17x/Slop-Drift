@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  CONFIG, MODES, SURFACE_PROPS, getMode, getPaint, getQualityPreset,
+  CONFIG, MODES, SURFACE_PROPS, getMode, getQualityPreset,
   loadRecords, loadSettings, normalizeSettings, saveRecords, saveSettings,
 } from '../config.js';
 import { clamp } from './math.js';
@@ -20,6 +20,11 @@ import { Atmosphere } from '../render/Atmosphere.js';
 import { CarVisual } from '../render/CarVisual.js';
 import { CameraRig } from '../render/CameraRig.js';
 import { Effects } from '../render/Effects.js';
+import { Career } from '../meta/Career.js';
+import { MetaLayer } from '../game/MetaLayer.js';
+import { NetClient } from '../net/NetClient.js';
+import { Leaderboard } from '../net/Leaderboard.js';
+import { RemotePlayers } from '../render/RemotePlayers.js';
 
 // Parks the car (menu, countdown). Handbrake only: holding the brake pedal at a standstill would
 // select reverse, and the race would then start in R.
@@ -60,7 +65,10 @@ export class Game {
     this.onResize = this.onResize.bind(this);
     // Frames stop in a background tab; pause the race rather than let the clock jump on return.
     this.onVisibility = () => {
-      if (document.hidden) this.pause();
+      if (!document.hidden) return;
+      this.pause();
+      // Leave the online room so other players are not left looking at a frozen car.
+      this.meta?.leaveRoom();
     };
   }
 
@@ -68,6 +76,7 @@ export class Game {
 
   async init() {
     this.createRenderer();
+    this.career = new Career();
     this.hud = new Hud(this.root, { settings: this.settings, modes: MODES, records: this.records });
     this.hud.showLoading(0, 'Starting up');
     this.input = new Input({ root: this.root, touchRoot: this.hud.touchRoot });
@@ -114,7 +123,10 @@ export class Game {
     mark('Ready');
 
     this.hud.setTrack(this.world.getMapData());
+    this.meta = new MetaLayer({ career: this.career, hud: this.hud, scene: this.scene, wheelLayout: this.vehicle.wheelLayout, game: this });
+    this.createNetwork();
     this.applySettings(this.settings, { save: false });
+    this.meta.refreshAll();
     this.enterMenu();
     this.onResize();
     window.addEventListener('resize', this.onResize);
@@ -122,6 +134,7 @@ export class Game {
     this.hud.showLoading(1, 'Ready');
     await nextFrame();
     this.hud.hideLoading();
+    this.meta.welcome();
     this.lastTime = performance.now();
     this.frameHandle = requestAnimationFrame(this.onFrame);
     return this;
@@ -142,10 +155,24 @@ export class Game {
   createVehicle() {
     this.vehicle = new Vehicle({ world: this.world, handling: this.settings.handling });
     this.drift = new DriftScorer();
-    this.car = new CarVisual({ color: getPaint(this.settings.paint).color, wheelLayout: this.vehicle.wheelLayout });
+    this.car = new CarVisual({ wheelLayout: this.vehicle.wheelLayout });
     this.scene.add(this.car.group);
     this.cameraRig = new CameraRig({ world: this.world });
     this.effects = new Effects(this.scene);
+  }
+
+  /**
+   * Multiplayer and leaderboards. With VITE_API_HOST set (see server/README.md) they go through the
+   * Cloudflare Worker; without it, tabs of this browser see each other and leaderboards are local.
+   */
+  createNetwork() {
+    const host = import.meta.env?.VITE_API_HOST || '';
+    const profile = this.meta.publicProfile();
+    this.net = new NetClient({ host, profile });
+    this.leaderboard = new Leaderboard({ host, profile });
+    this.remotePlayers = new RemotePlayers({ scene: this.scene, net: this.net, wheelLayout: this.vehicle.wheelLayout });
+    this.meta.attachNetwork({ net: this.net, leaderboard: this.leaderboard });
+    this.netExtras = { braking: false, boosting: false, drifting: false };
   }
 
   bindHud() {
@@ -201,7 +228,7 @@ export class Game {
     this.effects.setQuality(quality);
     this.roads.setNight?.(this.atmosphere.isNight);
     this.terrain.setSun?.(this.atmosphere.sunDirection, this.atmosphere.sunColor, this.atmosphere.ambientColor);
-    this.car.setColor(getPaint(this.settings.paint).color);
+    this.meta?.applyLook(this.car);
     this.car.setHeadlights(this.atmosphere.isNight || this.headlightsWanted);
     this.vehicle.setHandling(this.settings.handling);
     this.vehicle.setAssists({ driftAssist: this.settings.driftAssist, abs: this.settings.abs, transmission: this.settings.transmission });
@@ -212,9 +239,16 @@ export class Game {
     this.onResize();
   }
 
+  /** Switch time of day and remember it (the daily challenge can ask for night). */
+  applyTimeOfDay(name) {
+    if (this.settings.timeOfDay !== name) this.applySettings({ ...this.settings, timeOfDay: name });
+  }
+
   // ---------------------------------------------------------------- state changes
 
   enterMenu() {
+    this.meta?.leaveRun();
+    this.meta?.leaveRoom();
     this.state = 'menu';
     this.session = null;
     this.audio.silence();
@@ -236,6 +270,8 @@ export class Game {
     const route = this.world.routes[this.mode.route];
     this.session = new RaceSession({ world: this.world, mode: this.mode, records: this.records });
     this.vehicle.teleport(this.session.getStartPose(this.pose));
+    this.meta.beginRun(this.mode.id, this.settings.timeOfDay);
+    this.meta.joinRoom(this.mode.id);
     this.drift.reset();
     this.effects.clear();
     this.nitro = CONFIG.nitro.capacity;
@@ -263,6 +299,7 @@ export class Game {
   resume() {
     if (this.state !== 'paused') return;
     this.state = this.pausedFrom || 'running';
+    if (this.session && !this.meta.room) this.meta.joinRoom(this.mode.id);
     this.hud.showRace();
     this.input.setDrivingEnabled(this.state === 'running');
   }
@@ -274,7 +311,8 @@ export class Game {
     saveRecords(this.records);
     this.hud.setRecords(this.records);
     this.hud.setCountdown('');
-    this.hud.showFinish(result);
+    const rewards = this.meta.finish(result);
+    this.hud.showFinish(result, rewards);
     this.cameraRig.startBlend();
   }
 
@@ -282,6 +320,7 @@ export class Game {
     if (!this.session || this.state !== 'running') return;
     this.vehicle.teleport(this.session.getRespawnPose(this.pose));
     this.session.addRespawn();
+    this.meta.respawn(this.session.hud.elapsed, this.vehicle.getState());
     this.drift.reset({ preserveBank: true });
     this.cameraRig.snap();
     this.audio.respawn();
@@ -335,7 +374,18 @@ export class Game {
       this.goTimer = 0.9;
       this.input.setDrivingEnabled(true);
     }
-    return this.vehicle.step(dt, HOLD);
+    const state = this.vehicle.step(dt, HOLD);
+    this.sendNetState(state, false, false);
+    return state;
+  }
+
+  /** Tell other players where we are (the client rate-limits itself to ~6 Hz, 1 Hz when parked). */
+  sendNetState(state, boosting, drifting) {
+    const extras = this.netExtras;
+    extras.braking = state.brake > 0.05;
+    extras.boosting = boosting;
+    extras.drifting = drifting;
+    this.net.sendState(state, extras, performance.now());
   }
 
   updateRunning(dt, input) {
@@ -360,8 +410,10 @@ export class Game {
 
     const events = this.session.update(dt, state, drift);
     for (let i = 0; i < events.length; i += 1) this.handleSessionEvent(events[i]);
+    if (this.state === 'running') this.meta.frame(dt, state, drift, this.session.hud.elapsed, this.cameraRig.camera);
 
     this.effects.emit(dt, state);
+    this.sendNetState(state, boosting, drift.active);
     this.audioFlags.drifting = drift.active;
     this.audioFlags.boosting = boosting;
     this.audio.update(dt, state, this.audioFlags);
@@ -371,6 +423,7 @@ export class Game {
   }
 
   handleSessionEvent(event) {
+    this.meta.sessionEvent(event);
     if (event.type === 'checkpoint') {
       this.audio.checkpoint();
       const split = event.split === null || event.split === undefined ? '' : `  ${formatDelta(event.split)}`;
@@ -456,6 +509,8 @@ export class Game {
     else if (!paused) this.cameraRig.follow(dt, state, input);
 
     const camera = this.cameraRig.camera;
+    if (this.state !== 'running') this.meta.idle(camera, state.position);
+    if (!paused) this.remotePlayers.update(dt, camera, performance.now());
     if (!paused) {
       this.effects.update(dt);
       this.water.update(dt, camera);
@@ -481,6 +536,9 @@ export class Game {
     window.removeEventListener('resize', this.onResize);
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.input?.destroy();
+    this.meta?.dispose();
+    this.remotePlayers?.dispose();
+    this.net?.dispose();
     this.audio?.dispose();
     this.effects?.dispose();
     this.car?.dispose();

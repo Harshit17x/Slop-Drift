@@ -50,6 +50,26 @@ Laps only count when every checkpoint is passed in order. Best times, splits and
 
 Touch controls appear on touch devices.
 
+## Progression
+
+- **Driver level.** XP for distance, banked drifts, checkpoints, finishes, personal bests, medals, achievements and the daily challenge. Levels come up mid-run, so free roam counts too.
+- **Medals.** Bronze, silver, gold and author targets on every event (`MEDAL_TARGETS` in `src/meta/catalog.js`), calibrated against scripted runs. Each event card shows your medal and the next target.
+- **Daily challenge.** One seeded rule per UTC day (for example a time on the Touge Descent with no resets) with a streak counter.
+- **Achievements and unlocks.** 20 achievements; paints, rim colours and a custom door number unlock by level, medal count or achievement. Everything earnable is cosmetic: no event, car or handling is ever locked.
+- **Ghosts.** Your best run on each event is saved and replayed as a translucent car; you can also race any leaderboard entry's ghost.
+
+The profile lives in `localStorage` (`src/meta/Career.js`); clearing site data resets it.
+
+## Multiplayer and leaderboards
+
+Players in the same event see each other's cars live, with name tags, and leaderboards are global, once the free Cloudflare backend in `server/` is deployed and the site is built with `VITE_API_HOST` pointing at it. Setup takes about ten minutes; the steps are in [server/README.md](server/README.md).
+
+Without a backend the game still works: separate tabs of the same browser see each other (handy for testing), and leaderboards show this browser's runs, labelled as local.
+
+**Why Cloudflare.** Workers + Durable Objects + D1 on the free plan: WebSocket messages to other players are free (only incoming messages count, 20 per billed request), projects never pause, and going over the limit fails rather than charging. Supabase's free realtime caps a whole project at 100 messages a second, which one 8-player room would exceed. The free limit of 100,000 requests a day is roughly 90 player-hours of driving per day; cars send about 6 updates a second while moving and 1 when parked, and other clients interpolate between them.
+
+**Cheating.** Score submissions are checked on the server (signed player token, plausible time or score, a ghost whose length matches the time, one submission per 10 s, best per player only). That stops casual forgery, not a determined cheater: the game runs in the browser, so the server cannot re-simulate a run.
+
 ## How it is built
 
 ```
@@ -59,10 +79,14 @@ src/
   core/                Game (state machine and frame loop), shared math, data contracts
   world/               mountain shape, road layout, terrain grid, world queries (no rendering; runs in Node)
   vehicle/             rigid-body raycast vehicle, drivetrain, tyre curve, drift scoring
-  game/                RaceSession: laps, checkpoints, splits, records
+  game/                RaceSession (laps, checkpoints, splits), MetaLayer (career, ghosts, online)
+  meta/                career: XP, levels, medals, achievements, daily challenge, unlocks
+  ghost/               ghost recording, encoding and playback
+  net/                 multiplayer client, leaderboard client (Cloudflare or local fallback)
   render/              terrain, roads, scenery, sky, car, camera, effects
   ui/  input/  audio/  HUD and menus, keyboard/gamepad/touch, synthesized sound
 tests/                 headless tests (npm test) and browser test pages
+server/                Cloudflare Worker: rooms, presence, leaderboards, ghost storage
 ```
 
 **World.** The mountain is an analytic star-shaped cone, so every (bearing, altitude) pair maps to one point. Roads are described as legs in that space and laid on the matching contour, which is why they hug the slope; hairpins join legs, and each leg climbs at an even grade. The terrain is then baked into a 1281 x 1281 height grid (2 m cells), eroded with a droplet simulation, and cut and filled around the roads with rock-cut and embankment slopes. Rendering and physics read the same grid, and on the road the physics uses the analytic road surface, so the ride is smooth.

@@ -43,6 +43,11 @@ export const PAINT_OPTIONS = Object.freeze([
   Object.freeze({ id: 'acid', label: 'Acid', color: 0xb8ff47 }),
   Object.freeze({ id: 'violet', label: 'Violet', color: 0x9a6bff }),
   Object.freeze({ id: 'midnight', label: 'Midnight', color: 0x1b2330 }),
+  // Unlockable (see UNLOCKS in src/meta/catalog.js). metalness/roughness override the default paint finish.
+  Object.freeze({ id: 'racing-green', label: 'Racing Green', color: 0x0f4d32 }),
+  Object.freeze({ id: 'sunburst', label: 'Sunburst', color: 0xffb21a, metalness: 0.55, roughness: 0.25 }),
+  Object.freeze({ id: 'summit', label: 'Summit Chrome', color: 0xdfe4ea, metalness: 1, roughness: 0.12 }),
+  Object.freeze({ id: 'obsidian', label: 'Obsidian', color: 0x0b0b0e, metalness: 0.7, roughness: 0.18 }),
 ]);
 
 /**
