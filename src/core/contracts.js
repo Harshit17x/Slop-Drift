@@ -148,4 +148,133 @@
  * @property {string} debug       Multi-line debug text (shown only when the debug panel is open).
  */
 
+// ===================================================================== meta game (src/meta)
+
+/**
+ * Result of a finished run, produced by RaceSession (session.result).
+ * @typedef {Object} RunResult
+ * @property {string} modeId
+ * @property {string} modeLabel
+ * @property {number} time          Seconds (the time limit for drift).
+ * @property {number|null} bestTime Best time after this run.
+ * @property {boolean} isRecord     Personal best.
+ * @property {number} score         Drift bank + live score at the end.
+ * @property {number|null} bestScore
+ * @property {number} topSpeedKmh
+ * @property {number} respawns
+ * @property {number[]} laps
+ */
+
+/**
+ * The player's persistent career, saved in localStorage by src/meta/Career.js.
+ * @typedef {Object} Profile
+ * @property {number} version
+ * @property {string} id              Random UUID, generated on first launch. Also the online player id.
+ * @property {string} name            Display name, 2-16 characters.
+ * @property {number} xp              Total XP ever earned.
+ * @property {{distanceKm:number, driveSeconds:number, runs:number, finishes:number, driftsBanked:number,
+ *   bestCombo:number, topSpeedKmh:number, respawns:number, dailyStreak:number, dailyStreakBest:number,
+ *   dailyCompleted:number}} stats
+ * @property {Object<string, 'bronze'|'silver'|'gold'|'author'>} medals  Best medal per mode id.
+ * @property {Object<string, number>} achievements  Achievement id -> unlock time (ms since epoch).
+ * @property {{paint:string, rim:string, number:string}} cosmetics  Selected cosmetics; number is 1-2 digits.
+ * @property {{date:string, done:boolean, lastDoneDate:(string|null), streak:number}} daily
+ */
+
+/**
+ * Level progress for the player bar.
+ * @typedef {Object} LevelInfo
+ * @property {number} level
+ * @property {number} xp            Total XP.
+ * @property {number} into          XP earned since the current level began.
+ * @property {number} span          XP between this level and the next.
+ * @property {number} fraction      into / span, 0..1.
+ */
+
+/**
+ * Today's challenge (Career.daily()).
+ * @typedef {Object} DailyChallenge
+ * @property {string} date          UTC date 'YYYY-MM-DD'.
+ * @property {string} modeId
+ * @property {string} modeLabel
+ * @property {string} text          e.g. "Finish under 1:52.0 with no resets".
+ * @property {'time'|'score'} kind
+ * @property {number} target
+ * @property {string|null} timeOfDay Required time of day, or null.
+ * @property {boolean} clean        No resets allowed.
+ * @property {boolean} done         Completed today.
+ * @property {number} streak        Consecutive days completed, including today if done.
+ * @property {number} xp            XP it awards.
+ */
+
+/**
+ * A mid-run or end-of-run notification from Career, for toasts. Drained with Career.drainEvents().
+ * @typedef {Object} CareerEvent
+ * @property {'achievement'|'levelUp'|'unlock'|'medal'|'daily'} type
+ * @property {string} title
+ * @property {string} [detail]
+ * @property {number} [xp]
+ */
+
+/**
+ * What a finished run earned (Career.finishRun()). Shown on the results screen.
+ * @typedef {Object} RewardSummary
+ * @property {{label:string, xp:number}[]} lines   XP breakdown; sum is xpGained.
+ * @property {number} xpGained
+ * @property {LevelInfo} before
+ * @property {LevelInfo} after
+ * @property {{tier:string, isNew:boolean, next:({tier:string, target:number}|null)}|null} medal
+ * @property {{id:string, title:string, description:string, xp:number}[]} achievements  Newly unlocked.
+ * @property {{id:string, label:string, slot:string}[]} unlocks                         Newly unlocked cosmetics.
+ * @property {{completed:boolean, streak:number}|null} daily   Set when this run completed the daily challenge.
+ */
+
+// ===================================================================== ghosts (src/ghost)
+
+/**
+ * A recorded run that can be replayed as a translucent car. Encoded to a base64 string for
+ * localStorage and for upload (encodeGhost / decodeGhost in src/ghost/ghostCodec.js).
+ * @typedef {Object} GhostData
+ * @property {number} version
+ * @property {string} modeId
+ * @property {string} name          Driver name.
+ * @property {number} time          Run time in seconds (or the time limit for drift).
+ * @property {number} score         Drift score, 0 for timed events.
+ * @property {number} rate          Samples per second.
+ * @property {number} count         Number of samples.
+ * @property {Float32Array} positions   count * 3
+ * @property {Int16Array} rotations     count * 4, quaternion components * 32767
+ * @property {Int8Array} steer          count, steer angle * 127 / 0.6 rad
+ * @property {string} paint         Paint id, so the ghost looks like its owner's car.
+ */
+
+// ===================================================================== network (src/net)
+
+/**
+ * Another player in the same online room, as seen by the renderer.
+ * @typedef {Object} RemotePeer
+ * @property {string} id
+ * @property {string} name
+ * @property {number} level
+ * @property {string} paint
+ * @property {string} rim
+ * @property {string} number
+ * @property {string} modeId        The event they are in.
+ * @property {number} lastSeen      performance.now() of the latest packet.
+ */
+
+/**
+ * One row of a leaderboard.
+ * @typedef {Object} LeaderboardEntry
+ * @property {number} rank
+ * @property {string} playerId
+ * @property {string} name
+ * @property {number} level
+ * @property {number|null} time     Seconds, for timed events.
+ * @property {number|null} score    Points, for drift.
+ * @property {boolean} hasGhost
+ * @property {number} at            When it was set (ms since epoch).
+ * @property {boolean} isMe
+ */
+
 export {};

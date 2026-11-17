@@ -1,0 +1,661 @@
+// Tests for src/net/* (protocol, NetClient, Leaderboard) and server/src/validate.js.
+// Run: node tests/net.test.mjs   (exit code 1 on failure)
+// Live server checks (optional): start `npx wrangler dev` in server/, then
+//   NET_LIVE=http://127.0.0.1:8787 node tests/net.test.mjs
+
+// In-memory localStorage before any module touches it.
+const memoryStore = new Map();
+globalThis.localStorage = {
+  getItem: (key) => (memoryStore.has(key) ? memoryStore.get(key) : null),
+  setItem: (key, value) => memoryStore.set(key, String(value)),
+  removeItem: (key) => memoryStore.delete(key),
+  clear: () => memoryStore.clear(),
+};
+
+const {
+  PACKET_SIZE, RELAY_SIZE, FLAG_BRAKING, FLAG_DRIFTING, createSnapshot, decodeState, encodeState, packFlags,
+} = await import('../src/net/protocol.js');
+const { NetClient, PEER_STALE, EXTRAPOLATE_MAX } = await import('../src/net/NetClient.js');
+const { Leaderboard, rankEntries } = await import('../src/net/Leaderboard.js');
+const validate = await import('../server/src/validate.js');
+const { encodeGhost } = await import('../src/ghost/ghostCodec.js');
+const { MEDAL_TARGETS } = await import('../src/meta/catalog.js');
+
+let failures = 0;
+let passes = 0;
+const pending = [];
+function test(name, fn) {
+  pending.push([name, fn]);
+}
+function assert(cond, message) {
+  if (!cond) throw new Error(message || 'assertion failed');
+}
+function near(a, b, eps, message) {
+  if (!(Math.abs(a - b) <= eps)) throw new Error(`${message || 'not near'}: ${a} vs ${b} (eps ${eps})`);
+}
+
+// Deterministic random.
+let seed = 12345;
+function random() {
+  seed = (seed * 1664525 + 1013904223) >>> 0;
+  return seed / 4294967296;
+}
+
+/** A car driving a circle of radius 80 m at 30 m/s, as a VehicleState-like object at time t (s). */
+function carAt(t, out = makeState()) {
+  const R = 80;
+  const w = 30 / R;
+  const a = t * w;
+  out.position.x = R * Math.cos(a);
+  out.position.y = 5 + Math.sin(t);
+  out.position.z = R * Math.sin(a);
+  out.velocity.x = -R * w * Math.sin(a);
+  out.velocity.y = Math.cos(t);
+  out.velocity.z = R * w * Math.cos(a);
+  const yaw = -a; // any smooth rotation
+  out.quaternion.x = 0;
+  out.quaternion.y = Math.sin(yaw / 2);
+  out.quaternion.z = 0;
+  out.quaternion.w = Math.cos(yaw / 2);
+  out.speed = 30;
+  out.forwardSpeed = 30;
+  out.steerAngle = 0.2;
+  return out;
+}
+function makeState() {
+  return { position: { x: 0, y: 0, z: 0 }, quaternion: { x: 0, y: 0, z: 0, w: 1 }, velocity: { x: 0, y: 0, z: 0 }, speed: 0, forwardSpeed: 0, steerAngle: 0 };
+}
+function packet(state, flags, timeMs) {
+  const bytes = new Uint8Array(PACKET_SIZE);
+  encodeState(new DataView(bytes.buffer), state, flags, timeMs);
+  return bytes;
+}
+
+/** A NetClient whose transport is a recorder instead of a socket/channel. */
+function fakeClient(now) {
+  const client = new NetClient({ host: '', profile: { id: 'test-player-0001', name: 'Tester', level: 4 }, now });
+  const sent = [];
+  client.transport = {
+    start() { client._setStatus('connected'); },
+    stop() {},
+    send(bytes) { sent.push(bytes.slice()); return true; },
+    sendProfile() {},
+  };
+  client.join('sprint');
+  return { client, sent };
+}
+
+// ------------------------------------------------------------------ protocol
+
+test('protocol: packet sizes', () => {
+  assert(PACKET_SIZE === 35, `packet ${PACKET_SIZE}`);
+  assert(RELAY_SIZE === 36, `relay ${RELAY_SIZE}`);
+});
+
+test('protocol: round trip keeps pose, speed, steer and flags', () => {
+  const state = carAt(2.3);
+  state.quaternion = { x: 0.1, y: -0.7, z: 0.05, w: -0.7 }; // unnormalised, w < 0
+  state.forwardSpeed = -4.56;
+  state.steerAngle = -0.33;
+  const bytes = packet(state, FLAG_BRAKING | FLAG_DRIFTING, 123456789.7);
+  const out = createSnapshot();
+  assert(decodeState(new DataView(bytes.buffer), 0, out), 'decodes');
+  near(out.x, state.position.x, 1e-4, 'x');
+  near(out.y, state.position.y, 1e-4, 'y');
+  near(out.z, state.position.z, 1e-4, 'z');
+  const len = Math.hypot(0.1, 0.7, 0.05, 0.7);
+  // Sign flipped so w >= 0: same rotation.
+  near(out.qx, -0.1 / len, 1e-4, 'qx');
+  near(out.qy, 0.7 / len, 1e-4, 'qy');
+  near(out.qw, 0.7 / len, 1e-4, 'qw');
+  near(out.vx, state.velocity.x, 0.006, 'vx');
+  near(out.speed, -4.56, 0.006, 'speed');
+  near(out.steer, -0.33, 0.6 / 127, 'steer');
+  assert(out.time === 123456789, 'time');
+  assert(out.braking && out.drifting && !out.boosting, 'flags');
+});
+
+test('protocol: rejects garbage and NaN without touching the output', () => {
+  const out = createSnapshot();
+  out.x = 42;
+  assert(!decodeState(new DataView(new ArrayBuffer(10)), 0, out), 'short');
+  const bytes = packet(carAt(1), 0, 1);
+  const view = new DataView(bytes.buffer);
+  view.setFloat32(6, NaN, true);
+  assert(!decodeState(view, 0, out), 'nan');
+  view.setUint8(0, 99);
+  assert(!decodeState(view, 0, out), 'type');
+  assert(out.x === 42, 'untouched');
+  const flags = packFlags({ braking: true }, { gear: 'R', boosting: true });
+  assert(flags & FLAG_BRAKING && flags & 2 && flags & 8, 'packFlags');
+});
+
+// ------------------------------------------------------------------ interpolation
+
+test('interpolation: smooth and accurate under jitter, clock offset and loss', () => {
+  let now = 0;
+  const client = new NetClient({ host: '', profile: { id: 'viewer-000001', name: 'Viewer' }, now: () => now });
+  client.transport = null;
+  client._upsertPeer('peer-a', { id: 'peer-a', name: 'Alpha', level: 2 }, false);
+  const senderOffset = 987654; // sender's clock is unrelated to ours
+  const latency = 40;
+  const arrivals = [];
+  const state = makeState();
+  for (let t = 0; t < 12; t += 1 / 6) {
+    if (random() < 0.05) continue; // 5% loss
+    carAt(t, state);
+    arrivals.push({ at: t * 1000 + latency + random() * 70, bytes: packet(state, 0, t * 1000 + senderOffset) });
+  }
+  arrivals.sort((a, b) => a.at - b.at);
+  const pos = { x: 0, y: 0, z: 0 };
+  const quat = { x: 0, y: 0, z: 0, w: 1 };
+  const truth = makeState();
+  let next = 0;
+  let maxError = 0;
+  let maxJump = 0;
+  let last = null;
+  let frames = 0;
+  for (now = 0; now < 12000; now += 1000 / 60) {
+    while (next < arrivals.length && arrivals[next].at <= now) {
+      client._ingest('peer-a', new DataView(arrivals[next].bytes.buffer), 0, arrivals[next].at);
+      next += 1;
+    }
+    const sample = client.samplePeer('peer-a', now, pos, quat);
+    if (!sample || now < 3000) continue;
+    frames += 1;
+    const track = client.tracks.get('peer-a');
+    const senderTime = (now - track.renderDelay - track.offset - senderOffset) / 1000;
+    carAt(senderTime, truth);
+    maxError = Math.max(maxError, Math.hypot(pos.x - truth.position.x, pos.z - truth.position.z));
+    if (last) maxJump = Math.max(maxJump, Math.hypot(pos.x - last.x, pos.z - last.z));
+    last = { x: pos.x, z: pos.z };
+    near(Math.hypot(quat.x, quat.y, quat.z, quat.w), 1, 1e-6, 'unit quaternion');
+    near(sample.steer, 0.2, 0.01, 'steer');
+  }
+  const delay = client.peerDelay('peer-a');
+  assert(frames > 400, `frames ${frames}`);
+  assert(delay >= 150 && delay <= 320, `adaptive delay ${delay}`);
+  assert(maxError < 0.6, `max position error ${maxError.toFixed(3)} m`);
+  // 30 m/s at 60 fps is 0.5 m per frame; allow modest unevenness.
+  assert(maxJump < 0.65, `max frame step ${maxJump.toFixed(3)} m`);
+  console.log(`    delay ${delay.toFixed(0)} ms, max error ${maxError.toFixed(3)} m, max frame step ${maxJump.toFixed(3)} m`);
+  client.dispose();
+});
+
+test('interpolation: dead reckoning when packets stop, capped, then stale', () => {
+  let now = 0;
+  const client = new NetClient({ host: '', profile: { id: 'viewer-000002', name: 'Viewer' }, now: () => now });
+  client.transport = null;
+  client._upsertPeer('peer-b', { id: 'peer-b', name: 'Bravo' }, false);
+  const state = makeState();
+  // Straight line along +x at 20 m/s, 6 Hz, then silence after t = 2 s.
+  for (let t = 0; t <= 2.0001; t += 1 / 6) {
+    state.position.x = 20 * t;
+    state.velocity.x = 20;
+    state.speed = 20;
+    client._ingest('peer-b', new DataView(packet(state, 0, t * 1000).buffer), 0, t * 1000 + 30);
+  }
+  const lastX = state.position.x;
+  const track = client.tracks.get('peer-b');
+  const lastT = track.newest.t;
+  const pos = { x: 0, y: 0, z: 0 };
+  // 100 ms past the newest sample: extrapolated along the velocity.
+  client.samplePeer('peer-b', lastT + track.delay + 100, pos, null);
+  near(pos.x, lastX + 2, 0.05, 'extrapolated 100 ms');
+  // Far past: capped at EXTRAPOLATE_MAX.
+  client.samplePeer('peer-b', lastT + track.delay + 2000, pos, null);
+  near(pos.x, lastX + 20 * EXTRAPOLATE_MAX / 1000, 0.05, 'capped');
+  // Silent for longer than PEER_STALE: hidden.
+  assert(client.samplePeer('peer-b', 2030 + PEER_STALE + 10, pos, null) === null, 'stale -> null');
+  assert(client.samplePeer('nobody', 0, pos, null) === null, 'unknown -> null');
+  client.dispose();
+});
+
+test('interpolation: respawn teleports instead of sliding', () => {
+  let now = 0;
+  const client = new NetClient({ host: '', profile: { id: 'viewer-000003', name: 'Viewer' }, now: () => now });
+  client.transport = null;
+  client._upsertPeer('peer-c', { id: 'peer-c', name: 'Charlie' }, false);
+  const state = makeState();
+  client._ingest('peer-c', new DataView(packet(state, 0, 0).buffer), 0, 0);
+  state.position.x = 500;
+  client._ingest('peer-c', new DataView(packet(state, 0, 166).buffer), 0, 166);
+  const pos = { x: 0, y: 0, z: 0 };
+  const track = client.tracks.get('peer-c');
+  client.samplePeer('peer-c', 83 + track.delay, pos, null);
+  assert(pos.x === 0 || pos.x === 500, `no slide (${pos.x})`);
+  client.dispose();
+});
+
+// ------------------------------------------------------------------ send rate
+
+test('sendState: 6 Hz moving, 1 Hz stationary, extra packet on stop, never above 15 Hz', () => {
+  let now = 0;
+  const { client, sent } = fakeClient(() => now);
+  const state = carAt(0);
+  const frame = 1000 / 60;
+  for (now = 0; now < 3000; now += frame) client.sendState(carAt(now / 1000, state), {}, now);
+  const moving = sent.length;
+  assert(moving >= 17 && moving <= 19, `moving packets in 3 s: ${moving}`);
+  sent.length = 0;
+  state.speed = 0.1;
+  state.forwardSpeed = 0.1;
+  for (; now < 8000; now += frame) client.sendState(state, {}, now);
+  // One immediate "stopped" packet, then 1 Hz.
+  assert(sent.length >= 5 && sent.length <= 7, `stationary packets in 5 s: ${sent.length}`);
+  // 240 Hz frame rate still sends ~6 Hz.
+  sent.length = 0;
+  state.speed = 25;
+  for (; now < 10000; now += 1000 / 240) client.sendState(state, {}, now);
+  assert(sent.length >= 12 && sent.length <= 14, `moving at 240 fps for 2 s: ${sent.length}`);
+  // Every packet is exactly PACKET_SIZE bytes.
+  assert(sent.every((bytes) => bytes.length === PACKET_SIZE), 'packet size');
+  // Nothing goes out when not connected.
+  client.leave();
+  assert(client.sendState(state, {}, now + 5000) === false, 'not connected');
+  client.dispose();
+});
+
+test('NetClient: never throws on bad input', () => {
+  const { client } = fakeClient(() => 0);
+  assert(client.sendState(null) === false, 'null state');
+  assert(client.sendState({ position: {} , quaternion: {} }, null, 99999) !== undefined, 'partial state');
+  client.join(undefined);
+  client.updateProfile(null);
+  assert(client.samplePeer(undefined, NaN, null, null) === null, 'sample');
+  client.dispose();
+});
+
+test('local mode: two clients over BroadcastChannel see each other', async () => {
+  if (typeof BroadcastChannel === 'undefined') return;
+  const a = new NetClient({ profile: { id: 'same-profile-id', name: 'Tab A', level: 3, cosmetics: { paint: 'ember' } } });
+  const b = new NetClient({ profile: { id: 'same-profile-id', name: 'Tab B', level: 5 } });
+  assert(a.mode === 'local' && b.mode === 'local', `mode ${a.mode}`);
+  a.join('climb');
+  b.join('climb');
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert(a.status === 'connected', 'status');
+  assert(a.peers.size === 1 && b.peers.size === 1, `peers ${a.peers.size}/${b.peers.size}`);
+  const peerOfA = [...b.peers.values()][0];
+  assert(peerOfA.name === 'Tab A' && peerOfA.paint === 'ember' && peerOfA.level === 3, 'roster info');
+  const state = carAt(1);
+  a.sendState(state, { drifting: true });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const pos = { x: 0, y: 0, z: 0 };
+  const sample = b.samplePeer(peerOfA.id, performance.now(), pos, { x: 0, y: 0, z: 0, w: 1 });
+  assert(sample && sample.drifting, 'state arrives');
+  near(pos.x, state.position.x, 1, 'position');
+  const online = await b.online();
+  assert(online.rooms.climb === 2 && online.total === 2, `online ${JSON.stringify(online)}`);
+  a.leave();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert(b.peers.size === 0, 'leave propagates');
+  a.dispose();
+  b.dispose();
+});
+
+// ------------------------------------------------------------------ leaderboard (local)
+
+test('Leaderboard local: time ascending, score descending, best per player', async () => {
+  memoryStore.clear();
+  const runs = [
+    ['p-aaaaaaaa1', 'Alice', 170.5], ['p-bbbbbbbb2', 'Bob', 165.25], ['p-aaaaaaaa1', 'Alice', 160.0],
+    ['p-cccccccc3', 'Cara', 199], ['p-bbbbbbbb2', 'Bob', 180], ['p-aaaaaaaa1', 'Alice', 175],
+  ];
+  let last;
+  for (const [id, name, time] of runs) {
+    const board = new Leaderboard({ host: '', profile: { id, name, level: 2 } });
+    last = await board.submit('sprint', { modeId: 'sprint', time, score: 0 }, 'ghost-for-' + id);
+  }
+  assert(last.status === 'local' && last.accepted && !last.improved && last.rank === 1, `last ${JSON.stringify(last)}`);
+  const alice = new Leaderboard({ host: '', profile: { id: 'p-aaaaaaaa1', name: 'Alice' } });
+  const { status, entries } = await alice.top('sprint', 50);
+  assert(status === 'local', status);
+  assert(entries.map((e) => e.name).join(',') === 'Alice,Bob,Cara', entries.map((e) => e.name).join(','));
+  assert(entries[0].time === 160 && entries[1].time === 165.25, 'best per player');
+  assert(entries[0].isMe && !entries[1].isMe && entries[0].rank === 1 && entries[2].rank === 3, 'rank / isMe');
+  assert(entries.every((e) => e.score === null && e.hasGhost), 'timed rows');
+  assert((await alice.ghost('sprint', 'p-aaaaaaaa1')) === 'ghost-for-p-aaaaaaaa1', 'local ghost');
+
+  for (const [id, score] of [['p-aaaaaaaa1', 4000], ['p-bbbbbbbb2', 9000], ['p-aaaaaaaa1', 12000], ['p-bbbbbbbb2', 100]]) {
+    await new Leaderboard({ profile: { id, name: id.slice(2, 6) } }).submit('drift', { modeId: 'drift', time: 120, score });
+  }
+  const drift = (await alice.top('drift')).entries;
+  assert(drift.map((e) => e.score).join(',') === '12000,9000', drift.map((e) => e.score).join(','));
+  assert(drift.every((e) => e.time === null), 'score rows');
+  const roam = await alice.submit('roam', { time: 10 });
+  assert(!roam.accepted && roam.reason === 'unranked-mode', 'roam unranked');
+  // Pure ranking helper: ties broken by who set it first.
+  const ranked = rankEntries([{ playerId: 'x', time: 10, at: 2 }, { playerId: 'y', time: 10, at: 1 }], 'time');
+  assert(ranked[0].playerId === 'y', 'tie break');
+});
+
+test('Leaderboard: unreachable host falls back to local', async () => {
+  const board = new Leaderboard({ host: 'http://127.0.0.1:9', profile: { id: 'p-aaaaaaaa1', name: 'Alice' } });
+  const top = await board.top('sprint', 10);
+  assert(top.status === 'local' && top.entries.length === 3, `fallback ${top.status} ${top.entries.length}`);
+  const result = await board.submit('sprint', { time: 150 }, null);
+  assert(result.status === 'local' && result.accepted && result.reason === 'offline', JSON.stringify(result));
+});
+
+// ------------------------------------------------------------------ server validation
+
+function makeGhost(modeId, seconds, rate = 10) {
+  const count = Math.round(seconds * rate) + 1;
+  const positions = new Float32Array(count * 3);
+  const rotations = new Int16Array(count * 4);
+  const steer = new Int8Array(count);
+  for (let i = 0; i < count; i += 1) {
+    positions[i * 3] = i * 2;
+    rotations[i * 4 + 3] = 32767;
+  }
+  return encodeGhost({ version: 1, modeId, name: 'Tester', time: seconds, score: 0, rate, count, positions, rotations, steer, paint: 'pearl' });
+}
+
+test('validate: limits from medal targets', () => {
+  near(validate.limitsFor('sprint').minTime, MEDAL_TARGETS.sprint.author * 0.85, 1e-9, 'sprint min');
+  near(validate.limitsFor('drift').maxScore, MEDAL_TARGETS.drift.author * 1.6, 1e-9, 'drift max');
+  assert(validate.limitsFor('roam') === null && validate.limitsFor('__proto__') === null, 'unranked');
+  assert(validate.ROOM_MODES.includes('roam') && !validate.RANKED_MODES.includes('roam'), 'mode lists');
+});
+
+test('validate: names, ids, cosmetics, origins', () => {
+  assert(validate.sanitizeName('  Harsh ') === 'Harsh', 'trim');
+  assert(validate.sanitizeName('Zoë_99') === 'Zoë_99', 'unicode');
+  for (const bad of ['a', 'x'.repeat(17), '<script>', 'two  spaces', '', null, 42, 'drop;table']) {
+    assert(validate.sanitizeName(bad) === null, `bad name ${bad}`);
+  }
+  assert(validate.isValidPlayerId(crypto.randomUUID()) && !validate.isValidPlayerId('short') && !validate.isValidPlayerId('a b c d e f g h'), 'ids');
+  assert(validate.sanitizeCosmetic('racing-green') === 'racing-green' && validate.sanitizeCosmetic('<b>') === '', 'paint');
+  assert(validate.sanitizeCosmetic('27', 'number') === '27' && validate.sanitizeCosmetic('123', 'number') === '', 'number');
+  const list = 'http://localhost:5173,https://slop-drift.vercel.app,https://slop-drift-*.vercel.app';
+  assert(validate.originAllowed('http://localhost:5173', list), 'dev');
+  assert(validate.originAllowed('https://slop-drift-git-main-abc.vercel.app', list), 'preview wildcard');
+  assert(!validate.originAllowed('https://slop-drift-x.vercel.app.evil.com', list), 'suffix attack');
+  assert(!validate.originAllowed('https://evil.vercel.app', list) && !validate.originAllowed(null, list), 'others');
+});
+
+test('validate: HMAC tokens', async () => {
+  const secret = 'test-secret-0123456789abcdef';
+  const id = 'player-12345678';
+  const token = await validate.signToken(secret, id);
+  assert(/^[A-Za-z0-9_-]{43}$/.test(token), `token shape ${token}`);
+  assert(await validate.verifyToken(secret, id, token), 'valid');
+  assert(!(await validate.verifyToken(secret, 'player-87654321', token)), 'other id');
+  assert(!(await validate.verifyToken('another-secret-0123456789', id, token)), 'other secret');
+  assert(!(await validate.verifyToken(secret, id, token.slice(0, -1) + (token.endsWith('A') ? 'B' : 'A'))), 'tampered');
+});
+
+test('validate: ghost header agrees with src/ghost/ghostCodec.js', () => {
+  const ghost = makeGhost('climb', 100.4);
+  const header = validate.decodeGhostHeader(ghost);
+  assert(header && header.modeId === 'climb' && header.rate === 10 && header.count === 1005, JSON.stringify(header));
+  near(header.duration, 100.4, 1e-9, 'duration');
+  near(header.time, 100.4, 1e-9, 'time');
+  assert(validate.decodeGhostHeader('not a ghost at all, just some text here') === null, 'garbage');
+  assert(validate.decodeGhostHeader(btoa('XX' + 'a'.repeat(60))) === null, 'magic');
+  console.log(`    ghost for a 100 s run at 10 Hz: ${ghost.length} chars`);
+});
+
+test('validate: submissions', () => {
+  const base = { modeId: 'sprint', playerId: 'player-12345678', name: 'Tester', level: 7 };
+  const min = validate.limitsFor('sprint').minTime;
+  const ok = validate.validateSubmission({ ...base, time: 160.2, ghost: makeGhost('sprint', 160.2) });
+  assert(ok.ok && ok.entry.time === 160.2 && ok.entry.score === null && ok.entry.level === 7, JSON.stringify(ok));
+  const reasons = [
+    [{ ...base, modeId: 'roam', time: 160 }, 'unknown-mode'],
+    [{ ...base, name: 'x', time: 160, ghost: makeGhost('sprint', 160) }, 'bad-name'],
+    [{ ...base, time: min - 1, ghost: makeGhost('sprint', min - 1) }, 'implausible-time'],
+    [{ ...base, time: Infinity }, 'bad-time'],
+    [{ ...base, time: '160' }, 'bad-time'],
+    [{ ...base, time: 160 }, 'ghost-required'],
+    [{ ...base, time: 160, ghost: makeGhost('sprint', 158) }, 'ghost-time-mismatch'],
+    [{ ...base, time: 160, ghost: makeGhost('climb', 160) }, 'ghost-mode-mismatch'],
+    [{ ...base, time: 160, ghost: 'A'.repeat(validate.MAX_GHOST_CHARS + 1) }, 'ghost-too-large'],
+    [{ ...base, time: 160, ghost: 'A'.repeat(200) }, 'bad-ghost'],
+    [{ ...base, modeId: 'drift', score: MEDAL_TARGETS.drift.author * 1.6 + 1 }, 'implausible-score'],
+    [{ ...base, modeId: 'drift', score: -5 }, 'bad-score'],
+    [{ ...base, playerId: '../etc' , time: 160 }, 'bad-player'],
+  ];
+  for (const [body, reason] of reasons) {
+    const result = validate.validateSubmission(body);
+    assert(!result.ok && result.reason === reason, `${reason}: got ${JSON.stringify(result)}`);
+  }
+  const inside = validate.validateSubmission({ ...base, time: 160, ghost: makeGhost('sprint', 161.4) });
+  assert(inside.ok, 'within 1.5 s tolerance');
+  const drift = validate.validateSubmission({ ...base, modeId: 'drift', score: 8123.6 });
+  assert(drift.ok && drift.entry.score === 8124 && drift.entry.time === null, 'drift without ghost');
+});
+
+// ------------------------------------------------------------------ live server (optional)
+
+const LIVE = process.env.NET_LIVE;
+const ORIGIN = 'http://localhost:5173';
+
+async function api(path, body, origin = ORIGIN) {
+  const response = await fetch(`${LIVE}${path}`, {
+    method: body ? 'POST' : 'GET',
+    headers: { 'Content-Type': 'application/json', ...(origin ? { Origin: origin } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return { status: response.status, data: await response.json().catch(() => null), headers: response.headers };
+}
+
+function openSocket(modeId, params, origin = ORIGIN) {
+  return new Promise((resolve) => {
+    const query = new URLSearchParams(params).toString();
+    const ws = new WebSocket(`${LIVE.replace(/^http/, 'ws')}/parties/room/${modeId}?${query}`, origin ? { headers: { Origin: origin } } : undefined);
+    ws.binaryType = 'arraybuffer';
+    const socket = { ws, text: [], binary: [], closed: null, opened: false };
+    ws.onopen = () => { socket.opened = true; resolve(socket); };
+    ws.onmessage = (event) => (typeof event.data === 'string' ? socket.text.push(JSON.parse(event.data)) : socket.binary.push(new Uint8Array(event.data)));
+    ws.onclose = (event) => { socket.closed = event.code; resolve(socket); };
+    ws.onerror = () => {};
+  });
+}
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+if (LIVE) {
+  const run = Date.now().toString(36);
+  const idA = `live-a-${run}`;
+  const idB = `live-b-${run}`;
+  const idC = `live-c-${run}`;
+  let tokenA;
+  let tokenB;
+
+  test('live: register, duplicate claim, CORS', async () => {
+    const a = await api('/api/register', { playerId: idA, name: 'Live A' });
+    assert(a.status === 200 && a.data.token, `register ${a.status}`);
+    tokenA = a.data.token;
+    tokenB = (await api('/api/register', { playerId: idB, name: 'Live B' })).data.token;
+    const again = await api('/api/register', { playerId: idA, name: 'Thief' });
+    assert(again.status === 409, `second claim ${again.status}`);
+    assert(a.headers.get('access-control-allow-origin') === ORIGIN, 'cors header');
+    const evil = await api('/api/register', { playerId: idC, name: 'Evil' }, 'https://evil.example');
+    assert(evil.status === 403, `foreign origin ${evil.status}`);
+  });
+
+  test('live: room roster, relay with sender index, join/leave deltas, rejections', async () => {
+    const params = (id, token, name) => ({ playerId: id, name, level: '4', paint: 'ember', rim: 'gold', number: '27', token });
+    const noOrigin = await openSocket('roam', params(idA, tokenA, 'Live A'), null);
+    assert(!noOrigin.opened, 'socket without Origin refused');
+    const badToken = await openSocket('roam', params(idA, tokenB, 'Live A'));
+    assert(!badToken.opened, 'socket with wrong token refused');
+    const badRoom = await openSocket('nowhere', params(idA, tokenA, 'Live A'));
+    assert(!badRoom.opened, 'unknown room refused');
+
+    const a = await openSocket('roam', params(idA, tokenA, 'Live A'));
+    assert(a.opened, 'A connects');
+    await wait(150);
+    const rosterA = a.text.find((m) => m.t === 'roster');
+    assert(rosterA && rosterA.peers.length === 0, `A roster ${JSON.stringify(a.text)}`);
+    const b = await openSocket('roam', params(idB, tokenB, 'Live B'));
+    await wait(200);
+    const rosterB = b.text.find((m) => m.t === 'roster');
+    assert(rosterB && rosterB.peers.length === 1 && rosterB.peers[0].id === idA && rosterB.peers[0].paint === 'ember', `B roster ${JSON.stringify(rosterB)}`);
+    const join = a.text.find((m) => m.t === 'join');
+    assert(join && join.peer.id === idB && join.peer.i === rosterB.you, `A saw join ${JSON.stringify(a.text)}`);
+
+    // A sends 3 packets; B receives them prefixed with A's index.
+    for (let i = 0; i < 3; i += 1) {
+      a.ws.send(packet(carAt(i), FLAG_DRIFTING, i * 166));
+      await wait(70);
+    }
+    await wait(200);
+    assert(b.binary.length === 3 && a.binary.length === 0, `relay counts B=${b.binary.length} A=${a.binary.length}`);
+    assert(b.binary[0].length === RELAY_SIZE && b.binary[0][0] === rosterA.you, 'sender index prefix');
+    const out = createSnapshot();
+    decodeState(new DataView(b.binary[2].buffer), 1, out);
+    near(out.x, carAt(2).position.x, 1e-3, 'relayed x');
+
+    // Profile update reaches B.
+    a.ws.send(JSON.stringify({ t: 'profile', name: 'Live A2', level: 9 }));
+    await wait(150);
+    const update = b.text.find((m) => m.t === 'update');
+    assert(update && update.peer.name === 'Live A2' && update.peer.level === 9, 'profile update');
+
+    // Presence count.
+    const online = await api('/api/online');
+    assert(online.status === 200 && typeof online.data.rooms.roam === 'number', `online ${JSON.stringify(online.data)}`);
+
+    // Oversize packet closes the sender; B sees A leave.
+    a.ws.send(new Uint8Array(200));
+    await wait(300);
+    assert(a.closed === 1009, `oversize close ${a.closed}`);
+    const leave = b.text.find((m) => m.t === 'leave');
+    assert(leave && leave.i === rosterA.you, `leave ${JSON.stringify(b.text)}`);
+
+    // Flooding (> 15 Hz sustained) gets B dropped.
+    const flood = b.ws;
+    for (let i = 0; i < 80 && b.closed === null; i += 1) {
+      flood.send(packet(carAt(i), 0, i * 10));
+      await wait(10);
+    }
+    await wait(300);
+    assert(b.closed === 4008, `flood close ${b.closed}`);
+  });
+
+  test('live: room cap of 16', async () => {
+    const sockets = [];
+    for (let i = 0; i < 17; i += 1) {
+      const id = `live-cap-${run}-${i}`;
+      const token = (await api('/api/register', { playerId: id, name: `Cap ${i}` })).data.token;
+      sockets.push(await openSocket('descent', { playerId: id, name: `Cap ${i}`, level: '1', token }));
+      await wait(30);
+    }
+    await wait(800);
+    // The 17th is told the room is full (the room's own close frame follows 500 ms later; wrangler dev
+    // does not always deliver it, which is why clients close themselves on 'full').
+    assert(sockets.slice(0, 16).every((s) => s.text[0]?.t === 'roster' && s.closed === null), 'first 16 admitted');
+    assert(sockets[16].text[0]?.t === 'full' && !sockets[16].text.some((m) => m.t === 'roster'), 'the 17th is refused');
+    // A NetClient arriving at a full room reports it and backs off instead of hammering.
+    const NativeWebSocket = globalThis.WebSocket;
+    globalThis.WebSocket = class extends NativeWebSocket {
+      constructor(url) {
+        super(url, { headers: { Origin: ORIGIN } });
+      }
+    };
+    const late = new NetClient({ host: LIVE, profile: { id: `live-cap-late-${run}`, name: 'Late' } });
+    late.join('descent');
+    for (let i = 0; i < 40 && late.error !== 'room-full'; i += 1) await wait(50);
+    globalThis.WebSocket = NativeWebSocket;
+    assert(late.error === 'room-full' && late.status === 'disconnected', `late client ${late.status} ${late.error}`);
+    late.dispose();
+    for (const s of sockets) s.ws.close();
+  });
+
+  test('live: score submission, validation, rate limit, best only, top, ghost', async () => {
+    const min = validate.limitsFor('climb').minTime;
+    const submit = (extra) => api('/api/score', { modeId: 'climb', playerId: idA, token: tokenA, name: 'Live A', level: 4, ...extra });
+    const forged = await api('/api/score', { modeId: 'climb', playerId: idA, token: tokenB, name: 'Live A', time: 120, ghost: makeGhost('climb', 120) });
+    assert(forged.status === 401 && forged.data.reason === 'bad-token', `forged ${JSON.stringify(forged.data)}`);
+    const tooFast = await submit({ time: min - 2, ghost: makeGhost('climb', min - 2) });
+    assert(tooFast.status === 400 && tooFast.data.reason === 'implausible-time', 'too fast');
+    const noGhost = await submit({ time: 120 });
+    assert(noGhost.data.reason === 'ghost-required', 'ghost required');
+    const mismatch = await submit({ time: 120, ghost: makeGhost('climb', 110) });
+    assert(mismatch.data.reason === 'ghost-time-mismatch', 'ghost mismatch');
+    const first = await submit({ time: 120.5, ghost: makeGhost('climb', 120.5) });
+    assert(first.status === 200 && first.data.accepted && first.data.improved && first.data.rank >= 1, `first ${JSON.stringify(first.data)}`);
+    const tooSoon = await submit({ time: 119, ghost: makeGhost('climb', 119) });
+    assert(tooSoon.status === 429 && tooSoon.data.reason === 'rate-limited', `rate ${tooSoon.status}`);
+    const b = await api('/api/score', { modeId: 'climb', playerId: idB, token: tokenB, name: 'Live B', level: 2, time: 118, ghost: makeGhost('climb', 118) });
+    assert(b.data.accepted && b.data.improved, 'B accepted');
+    const top = await api('/api/top?mode=climb&limit=50');
+    const mine = top.data.entries.filter((e) => e.playerId === idA || e.playerId === idB);
+    assert(mine.length === 2 && mine[0].playerId === idB && mine[0].time === 118 && mine[1].time === 120.5 && mine[0].hasGhost, `top ${JSON.stringify(mine)}`);
+    const ghost = await api(`/api/ghost?mode=climb&player=${idB}`);
+    assert(ghost.data.ghost === makeGhost('climb', 118), 'ghost download');
+    const drift = await api('/api/score', { modeId: 'drift', playerId: idB, token: tokenB, name: 'Live B', score: 99999 });
+    assert(drift.data.reason === 'implausible-score', 'drift ceiling');
+  });
+
+  test('live: Leaderboard client online (register, submit, top, ghost)', async () => {
+    const board = new Leaderboard({ host: LIVE, profile: { id: `live-lb-${run}`, name: 'Board', level: 5 } });
+    const ghost = makeGhost('descent', 95.25);
+    const result = await board.submit('descent', { modeId: 'descent', time: 95.25, score: 0 }, ghost);
+    assert(result.status === 'online' && result.accepted && result.rank >= 1, `submit ${JSON.stringify(result)}`);
+    const again = await board.submit('descent', { modeId: 'descent', time: 99 }, makeGhost('descent', 99));
+    assert(again.status === 'online' && !again.accepted && again.reason === 'rate-limited', `again ${JSON.stringify(again)}`);
+    const top = await board.top('descent', 50);
+    const me = top.entries.find((e) => e.isMe);
+    assert(top.status === 'online' && me && me.time === 95.25 && me.hasGhost && me.level === 5, `top ${JSON.stringify(me)}`);
+    assert((await board.ghost('descent', `live-lb-${run}`)) === ghost, 'ghost');
+  });
+
+  test('live: NetClient over a real socket (two clients)', async () => {
+    const NativeWebSocket = globalThis.WebSocket;
+    globalThis.WebSocket = class extends NativeWebSocket {
+      constructor(url) {
+        super(url, { headers: { Origin: ORIGIN } });
+      }
+    };
+    try {
+      const a = new NetClient({ host: LIVE, profile: { id: `live-nc-a-${run}`, name: 'Net A', level: 3, cosmetics: { paint: 'acid' } } });
+      const b = new NetClient({ host: LIVE, profile: { id: `live-nc-b-${run}`, name: 'Net B', level: 6 } });
+      assert(a.mode === 'online', a.mode);
+      a.join('circuit');
+      b.join('circuit');
+      for (let i = 0; i < 40 && (a.status !== 'connected' || b.status !== 'connected' || a.peers.size < 1); i += 1) await wait(50);
+      assert(a.status === 'connected' && b.status === 'connected', `status ${a.status}/${b.status} ${a.error}/${b.error}`);
+      assert(a.peers.size === 1 && b.peers.size === 1, `peers ${a.peers.size}/${b.peers.size}`);
+      const peerA = b.peers.get(`live-nc-a-${run}`);
+      assert(peerA && peerA.paint === 'acid' && peerA.level === 3, 'peer info');
+      const start = performance.now();
+      let sent = 0;
+      while (performance.now() - start < 2000) {
+        if (a.sendState(carAt((performance.now() - start) / 1000), { braking: true })) sent += 1;
+        await wait(16);
+      }
+      await wait(300);
+      const pos = { x: 0, y: 0, z: 0 };
+      const sample = b.samplePeer(peerA.id, performance.now(), pos, { x: 0, y: 0, z: 0, w: 1 });
+      assert(sample && sample.braking, 'sample from live packets');
+      console.log(`    live: ${sent} packets in 2 s (${(sent / 2).toFixed(1)} Hz), ${a.stats.bytesSent} bytes sent, B received ${b.stats.received}, delay ${b.peerDelay(peerA.id).toFixed(0)} ms`);
+      assert(b.stats.received >= sent - 1, 'all relayed');
+      const online = await b.online(); // server-cached for 15 s, so only the shape is checked
+      assert(Number.isFinite(online.total) && typeof online.rooms.circuit === 'number', `online ${JSON.stringify(online)}`);
+      a.dispose();
+      await wait(300);
+      assert(b.peers.size === 0, 'leave reached B');
+      b.dispose();
+    } finally {
+      globalThis.WebSocket = NativeWebSocket;
+    }
+  });
+}
+
+// ------------------------------------------------------------------ run
+
+for (const [name, fn] of pending) {
+  try {
+    await fn();
+    passes += 1;
+    console.log(`ok   ${name}`);
+  } catch (error) {
+    failures += 1;
+    console.log(`FAIL ${name}\n     ${error.stack || error.message}`);
+  }
+}
+console.log(`\n${passes} passed, ${failures} failed${LIVE ? '' : ' (set NET_LIVE=http://127.0.0.1:8787 to include live server tests)'}`);
+process.exit(failures ? 1 : 0);

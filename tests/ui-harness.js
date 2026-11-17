@@ -4,7 +4,8 @@
 
 import { Hud } from '../src/ui/Hud.js';
 import { Input } from '../src/input/Input.js';
-import { DEFAULT_SETTINGS, MODES, normalizeSettings } from '../src/config.js';
+import { DEFAULT_SETTINGS, MODES, PAINT_OPTIONS, normalizeSettings } from '../src/config.js';
+import { ACHIEVEMENTS, RIM_OPTIONS, UNLOCKS, MEDAL_TARGETS } from '../src/meta/catalog.js';
 
 const params = new URLSearchParams(location.search);
 const TAU = Math.PI * 2;
@@ -221,11 +222,11 @@ function finish(kind = 'time') {
   input.setDrivingEnabled(false);
   hud.setCountdown('');
   if (kind === 'drift') {
-    hud.showFinish({ modeId: 'drift', modeLabel: 'Drift Session', time: 120, score: 53480, bestScore: 48210, isRecord: true, topSpeedKmh: 167.4, respawns: 1, laps: [] });
+    hud.showFinish({ modeId: 'drift', modeLabel: 'Drift Session', time: 120, score: 8480, bestScore: 6210, isRecord: true, topSpeedKmh: 167.4, respawns: 1, laps: [] }, DRIFT_REWARDS);
   } else {
-    const laps = sim.laps.length > 1 ? sim.laps : [221.43, 214.87, 218.02];
+    const laps = sim.laps.length > 1 ? sim.laps : [166.31, 162.94];
     const time = laps.reduce((a, b) => a + b, 0);
-    hud.showFinish({ modeId: 'circuit', modeLabel: 'Ridge Circuit', time, bestTime: 441.02, isRecord: false, score: 12840, topSpeedKmh: Math.max(sim.topSpeed, 212.6), respawns: 2, laps });
+    hud.showFinish({ modeId: 'circuit', modeLabel: 'Ridge Circuit', time, bestTime: 341.02, isRecord: true, score: 12840, topSpeedKmh: Math.max(sim.topSpeed, 212.6), respawns: 0, laps }, TIME_REWARDS);
   }
 }
 
@@ -487,13 +488,16 @@ const go = {
   'finish-drift': () => finish('drift'),
   settings: () => { hud.showMenu(); hud.openSettings('menu'); },
 };
-(go[initial] || go.loading)();
-if (initial === 'race' || initial === 'pause') { sim.state = initial === 'pause' ? 'pause' : 'race'; input.setDrivingEnabled(initial === 'race'); }
+// Deferred so the fake career data defined further down exists before the first screen shows.
+queueMicrotask(() => {
+  (go[initial] || go.loading)();
+  if (initial === 'race' || initial === 'pause') { sim.state = initial === 'pause' ? 'pause' : 'race'; input.setDrivingEnabled(initial === 'race'); }
+});
 
 // ------------------------------------------------------------------ layout check: window.layoutCheck()
 // Reports HUD blocks that leave the viewport or overlap each other, plus horizontal page scroll.
 window.layoutCheck = () => {
-  const sel = ['.sdh-tl', '.sdh-tc', '.sdh-iconbar', '.sdh-map', '.sdh-elev', '.sdh-drift', '.sdh-speedo', '.sdt-steer', '.sdt-pedals', '.sdt-actions', '.sdh-panel.is-open'];
+  const sel = ['.sdh-tl', '.sdh-tc', '.sdh-iconbar', '.sdh-map', '.sdh-elev', '.sdh-drift', '.sdh-speedo', '.sdt-steer', '.sdt-pedals', '.sdt-actions', '.sdh-race-chips', '.sdh-panel.is-open'];
   const W = innerWidth;
   const H = innerHeight;
   const boxes = [];
@@ -522,3 +526,127 @@ window.layoutCheck = () => {
   if (panel && panel.getBoundingClientRect().right > W + 0.5) issues.push('panel clipped');
   return { W, H, issues };
 };
+
+// ------------------------------------------------------------------ progression / online fake data
+
+const lvInfo = (level, fraction) => {
+  const span = Math.round(150 * Math.pow(level, 1.5) - 150 * Math.pow(level - 1, 1.5));
+  return { level, xp: Math.round(150 * Math.pow(level - 1, 1.5) + span * fraction), into: Math.round(span * fraction), span, fraction };
+};
+const TIME_REWARDS = {
+  lines: [
+    { label: 'Finish', xp: 40 }, { label: 'Distance · 12.4 km', xp: 149 }, { label: 'Personal best', xp: 60 },
+    { label: 'Gold medal (first time)', xp: 240 }, { label: 'Daily challenge', xp: 300 },
+  ],
+  xpGained: 789,
+  before: lvInfo(7, 0.62),
+  after: lvInfo(8, 0.31),
+  medal: { tier: 'gold', isNew: true, next: { tier: 'author', target: MEDAL_TARGETS.circuit.author } },
+  achievements: [{ id: 'first-gold', title: 'Gold Standard', description: 'Earn a gold medal.', xp: 150 }],
+  unlocks: [{ id: 'paint:midnight', label: 'Midnight', slot: 'paint' }, { id: 'rim:bronze', label: 'Bronze rims', slot: 'rim' }],
+  daily: { completed: true, streak: 5 },
+};
+const DRIFT_REWARDS = {
+  lines: [{ label: 'Drift points', xp: 212 }, { label: 'Personal best', xp: 60 }],
+  xpGained: 272,
+  before: lvInfo(8, 0.31),
+  after: lvInfo(8, 0.58),
+  medal: { tier: 'gold', isNew: false, next: { tier: 'author', target: MEDAL_TARGETS.drift.author } },
+  achievements: [],
+  unlocks: [],
+  daily: null,
+};
+
+const profile = { name: 'Ridge Runner', level: lvInfo(7, 0.45), connection: 'online', online: 23 };
+hud.setProfile(profile);
+hud.setMedals({
+  sprint: { medal: 'gold', next: { tier: 'author', target: MEDAL_TARGETS.sprint.author } },
+  circuit: { medal: 'silver', next: { tier: 'gold', target: MEDAL_TARGETS.circuit.gold } },
+  climb: { medal: null, next: { tier: 'bronze', target: MEDAL_TARGETS.climb.bronze } },
+  descent: { medal: 'author', next: null },
+  drift: { medal: 'bronze', next: { tier: 'silver', target: MEDAL_TARGETS.drift.silver } },
+});
+const daily = { date: '2026-11-17', modeId: 'climb', modeLabel: 'Summit Climb', text: 'Finish under 1:54.4 with no resets', kind: 'time', target: 114.4, timeOfDay: null, clean: true, done: false, streak: 4, xp: 300 };
+hud.setDaily(daily);
+const unlockedAch = new Set(['first-finish', 'first-drift', 'summit', 'combo-1k', 'speed-200', 'distance-25', 'daily-1']);
+hud.setAchievements(ACHIEVEMENTS.map((a, i) => ({ id: a.id, title: a.title, description: a.description, xp: a.xp, unlocked: unlockedAch.has(a.id), at: unlockedAch.has(a.id) ? Date.UTC(2026, 10, 1 + i) : null })));
+const garageSel = { paint: 'ember', rim: 'graphite', number: '27' };
+const paintColor = (id) => PAINT_OPTIONS.find((p) => p.id === id)?.color ?? ({ 'racing-green': 0x0f5b3a, sunburst: 0xffb21f, summit: 0xd8dde3, obsidian: 0x0b0b10 }[id] ?? null);
+function pushGarage() {
+  const items = [
+    { id: 'rim:silver', slot: 'rim', value: 'silver', label: 'Silver rims', requires: { level: 1 } },
+    ...UNLOCKS,
+  ].map((u) => {
+    const req = u.requires || {};
+    const unlocked = req.level ? req.level <= profile.level.level : false;
+    const requirement = req.level ? `Level ${req.level}` : req.medalCount ? `Earn ${req.medalCount.count} ${req.medalCount.tier} medal${req.medalCount.count > 1 ? 's' : ''}` : 'Achievement: Mountain Master';
+    const color = u.slot === 'paint' ? paintColor(u.value) : u.slot === 'rim' ? RIM_OPTIONS.find((r) => r.id === u.value)?.color ?? null : null;
+    return { id: u.id, slot: u.slot, value: u.value, label: u.label, color, unlocked, requirement };
+  });
+  hud.setGarage({ items, selected: { ...garageSel } });
+}
+pushGarage();
+const PLAYERS = [
+  { id: 'me', name: profile.name, level: 7, modeLabel: 'Main menu', isMe: true },
+  { id: 'p2', name: 'Touge_Kid', level: 14, modeLabel: 'Touge Descent', isMe: false },
+  { id: 'p3', name: 'snowplough', level: 3, modeLabel: 'Free Roam', isMe: false },
+  { id: 'p4', name: 'Apex-Hunter', level: 22, modeLabel: 'Ridge Circuit', isMe: false },
+];
+hud.setPlayers(PLAYERS);
+
+const NAMES = ['Apex-Hunter', 'Touge_Kid', 'Ridge Runner', 'Night Owl', 'snowplough', 'K1ngOfHill', 'drift_mum', 'Gravel Gus', 'LateApex', 'Sidewinder'];
+let lbStatus = 'online';
+function fakeEntries(modeId) {
+  const t = MEDAL_TARGETS[modeId];
+  return NAMES.map((name, i) => {
+    const v = t.kind === 'score' ? Math.round(t.author * 1.1 - i * 1300) : +(t.author * 0.97 + i * 7.3).toFixed(2);
+    return { rank: i + 1, playerId: `id-${i}`, name, level: 30 - i * 2, time: t.kind === 'time' ? v : null, score: t.kind === 'score' ? v : null, hasGhost: i % 3 !== 2, at: Date.now() - i * 3.6e6, isMe: name === profile.name };
+  });
+}
+hud.onLeaderboardRequest = (modeId) => {
+  hud.setLeaderboard(modeId, { status: 'loading', entries: [] });
+  setTimeout(() => {
+    if (lbStatus === 'error') hud.setLeaderboard(modeId, { status: 'error', entries: [] });
+    else if (lbStatus === 'local') hud.setLeaderboard(modeId, { status: 'local', entries: fakeEntries(modeId).slice(0, 3).map((e, i) => ({ ...e, name: profile.name, playerId: 'me', isMe: true, rank: i + 1, level: 7 })) });
+    else hud.setLeaderboard(modeId, { status: 'online', entries: fakeEntries(modeId) });
+  }, 400);
+};
+hud.onOpenLeaderboard = (modeId) => log(`onOpenLeaderboard(${modeId})`);
+hud.onRaceLeaderboardGhost = (modeId, playerId) => {
+  const e = fakeEntries(modeId).find((x) => x.playerId === playerId);
+  hud.setGhost({ name: e?.name || playerId, kind: 'leaderboard' });
+  startRace(modeId);
+};
+hud.onRaceGhost = () => { hud.setGhost({ name: profile.name, kind: 'pb' }); startRace(); };
+let ghostVisible = true;
+hud.onToggleGhost = () => { ghostVisible = !ghostVisible; if (hud.ghost) hud.setGhost({ ...hud.ghost, visible: ghostVisible }); };
+hud.onRename = (name) => { profile.name = name; PLAYERS[0].name = name; hud.setProfile({ name }); hud.setPlayers(PLAYERS); log(`onRename(${name})`); };
+hud.onStartDaily = () => startRace(daily.modeId);
+hud.onCosmetic = (slot, value) => { garageSel[slot] = value; pushGarage(); log(`onCosmetic(${slot}, ${value})`); };
+
+const CONNS = ['online', 'connecting', 'local', 'offline'];
+const extraButtons = {
+  'name-prompt': () => hud.promptName('Driver 4821'),
+  notify: () => {
+    hud.notify({ type: 'achievement', title: 'Two Hundred', detail: 'Reach 200 km/h.', xp: 150 });
+    hud.notify({ type: 'medal', title: 'Gold medal', detail: 'Ridge Circuit', xp: 240 });
+    hud.notify({ type: 'levelUp', title: 'Level 8', detail: '2 new cosmetics in the garage' });
+    hud.notify({ type: 'unlock', title: 'Bronze rims', detail: 'Equip them in the garage' });
+    hud.notify({ type: 'daily', title: 'Daily challenge complete', detail: '5 day streak', xp: 300 });
+  },
+  conn: () => { profile.connection = CONNS[(CONNS.indexOf(profile.connection) + 1) % CONNS.length]; hud.setProfile({ connection: profile.connection }); log(`connection ${profile.connection}`); },
+  'daily-done': () => { daily.done = !daily.done; daily.streak = daily.done ? 5 : 4; hud.setDaily(daily); },
+  'lb-status': () => { lbStatus = { online: 'local', local: 'error', error: 'online' }[lbStatus]; log(`leaderboard status → ${lbStatus}`); if (hud.sub === 'leaderboard') hud.onLeaderboardRequest(hud.lbMode); },
+  ghost: () => hud.setGhost(hud.ghost ? null : { name: 'Apex-Hunter', kind: 'leaderboard' }),
+  leaderboard: () => hud.openLeaderboard('sprint'),
+  garage: () => hud.openSub('garage'),
+  achievements: () => hud.openSub('achievements'),
+};
+harnessPanel.addEventListener('click', (event) => {
+  const b = event.target.closest('[data-h]');
+  if (b && extraButtons[b.dataset.h]) extraButtons[b.dataset.h]();
+});
+queueMicrotask(() => {
+  if (params.get('name') === '1') hud.promptName('Driver 4821');
+  if (params.get('panel')) extraButtons[params.get('panel')]?.();
+});

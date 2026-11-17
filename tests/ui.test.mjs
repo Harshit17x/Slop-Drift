@@ -1,6 +1,6 @@
 // Headless logic tests for the UI layer: node tests/ui.test.mjs
 import assert from 'node:assert/strict';
-import { formatTime, formatDelta, formatInt, recordKind } from '../src/ui/Hud.js';
+import { formatTime, formatDelta, formatInt, recordKind, formatTarget, medalFor, validateName } from '../src/ui/Hud.js';
 import { applyDeadzone, isFormField, KEY_BINDINGS, PAD_BUTTONS } from '../src/input/Input.js';
 import { normalizeTrack } from '../src/ui/Minimap.js';
 import { MODES } from '../src/config.js';
@@ -67,6 +67,30 @@ test('normalizeTrack computes bounds when missing', () => {
   const t = normalizeTrack({ roads: [{ id: 0, closed: false, points: [-10, 5, 20, -7] }, { id: 1, points: [1] }] });
   assert.deepEqual(t.bounds, { minX: -10, maxX: 20, minZ: -7, maxZ: 5 });
   assert.equal(t.roads.length, 1);
+});
+
+test('formatTarget', () => {
+  assert.equal(formatTarget('time', 168), '2:48.0');
+  assert.equal(formatTarget('time', 92.96), '1:33.0');
+  assert.equal(formatTarget('score', 8000), '8,000');
+  assert.equal(formatTarget('time', NaN), '');
+});
+
+test('medalFor uses MEDAL_TARGETS direction', () => {
+  assert.equal(medalFor('sprint', 160), 'gold');
+  assert.equal(medalFor('sprint', 157), 'author');
+  assert.equal(medalFor('sprint', 300), null);
+  assert.equal(medalFor('drift', 4000), 'silver');
+  assert.equal(medalFor('drift', 100), null);
+  assert.equal(medalFor('roam', 1), null);
+});
+
+test('validateName', () => {
+  assert.equal(validateName('  Ridge   Runner '), 'Ridge Runner');
+  assert.equal(validateName('a'), null);
+  assert.equal(validateName('x'.repeat(17)), null);
+  assert.equal(validateName('drift_mum-2'), 'drift_mum-2');
+  assert.equal(validateName('bad!name'), null);
 });
 
 console.log(`\n${passed} passed`);

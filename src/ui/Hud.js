@@ -3,9 +3,10 @@
 // DOM when a displayed (quantised) value actually changed; it never reads layout.
 
 import {
-  DEFAULT_SETTINGS, HANDLING_PRESETS, PAINT_OPTIONS, QUALITY_PRESETS, TIME_OF_DAY, normalizeSettings,
+  DEFAULT_SETTINGS, HANDLING_PRESETS, QUALITY_PRESETS, TIME_OF_DAY, normalizeSettings,
 } from '../config.js';
 import { ElevationStrip, Minimap } from './Minimap.js';
+import { MEDAL_LABELS, MEDAL_TARGETS, MEDAL_TIERS } from '../meta/catalog.js';
 
 const KMH_TO_MPH = 0.621371;
 const M_TO_FT = 3.28084;
@@ -37,6 +38,37 @@ export function formatInt(value) {
   }
   return n < 0 ? `-${out}` : out;
 }
+
+/** Medal target text: 2:48.0 for times, 8,000 for scores. */
+export function formatTarget(kind, value) {
+  if (!Number.isFinite(value)) return '';
+  if (kind === 'score') return formatInt(value);
+  const ds = Math.round(value * 10);
+  const m = Math.floor(ds / 600);
+  const sec = (ds % 600) / 10;
+  return `${m}:${sec < 10 ? '0' : ''}${sec.toFixed(1)}`;
+}
+
+/** Best medal tier a time (lower is better) or score (higher is better) earns, or null. */
+export function medalFor(modeId, value) {
+  const t = MEDAL_TARGETS[modeId];
+  if (!t || !Number.isFinite(value)) return null;
+  let best = null;
+  for (const tier of MEDAL_TIERS) {
+    if (t.kind === 'score' ? value >= t[tier] : value <= t[tier]) best = tier;
+  }
+  return best;
+}
+
+/** Driver names: 2-16 characters of letters, digits, space, - and _. Returns the cleaned name or null. */
+export function validateName(raw) {
+  const name = String(raw ?? '').replace(/\s+/g, ' ').trim();
+  return /^[A-Za-z0-9 _-]{2,16}$/.test(name) ? name : null;
+}
+
+const medalBadge = (tier, extra = '') => (tier
+  ? `<span class="sdh-medal is-${esc(tier)}${extra}" title="${esc(MEDAL_LABELS[tier] || tier)} medal">${esc((MEDAL_LABELS[tier] || tier).charAt(0))}</span>`
+  : `<span class="sdh-medal is-none${extra}" aria-hidden="true"></span>`);
 
 /** 'time' | 'score' | 'none' — which record a mode keeps. */
 export function recordKind(mode) {
@@ -120,6 +152,14 @@ const ICON = {
   home: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.5 12 5l8 6.5M6.5 10v9h11v-9"/></svg>',
   back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6 8.5 12l6 6"/></svg>',
   check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
+  ghost: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 20V11a6.5 6.5 0 0 1 13 0v9l-2.2-1.6-2.1 1.6-2.2-1.6L9.8 20l-2.1-1.6z"/><circle cx="9.6" cy="11" r="1" fill="currentColor"/><circle cx="14.4" cy="11" r="1" fill="currentColor"/></svg>',
+  trophy: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H4.5a3 3 0 0 0 3.6 4M16 6h3.5a3 3 0 0 1-3.6 4M12 13v4M8.5 20h7M9.5 17h5"/></svg>',
+  medal: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 3 2.5 6M16 3l-2.5 6"/><circle cx="12" cy="15" r="5.5"/><path d="m12 12.3.9 1.8 2 .3-1.45 1.4.35 2-1.8-.95-1.8.95.35-2-1.45-1.4 2-.3z" fill="currentColor" stroke="none"/></svg>',
+  car: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 15.5v-3l2-4.5h13l2 4.5v3zM3.5 15.5V18h3v-2.5M17.5 15.5V18h3v-2.5"/><circle cx="7.5" cy="13" r=".9" fill="currentColor"/><circle cx="16.5" cy="13" r=".9" fill="currentColor"/></svg>',
+  pencil: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>',
+  flame: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21c-3.9 0-6.5-2.6-6.5-6.2 0-3.4 2.6-5.3 3.6-8.8 2.2 1.4 3 3.3 3.1 5 1-.7 1.6-1.9 1.7-3.3 2.4 2 4.6 4.6 4.6 7.6 0 3.3-2.7 5.7-6.5 5.7z" fill="currentColor" stroke="none"/></svg>',
+  lock: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5.5" y="10.5" width="13" height="9.5" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>',
+  user: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>',
 };
 
 // ------------------------------------------------------------------ gauge geometry
@@ -154,8 +194,23 @@ export class Hud {
     this.settings = normalizeSettings(settings);
     this.uid = `sdh${Math.random().toString(36).slice(2, 8)}`;
     this.screen = 'menu';
-    this.settingsOpen = false;
+    this.sub = null; // open sub-panel: 'settings' | 'leaderboard' | 'achievements' | 'garage'
+    this.subSource = 'menu';
     this.settingsSource = 'menu';
+    this.profile = null;
+    this.medals = {};
+    this.daily = null;
+    this.leaderboards = {};
+    this.lbMode = null;
+    this.lbRequested = { mode: null, at: 0 };
+    this.achievements = [];
+    this.garage = null;
+    this.players = [];
+    this.ghost = null;
+    this.notifyQueue = [];
+    this.notifyBusy = false;
+    this.renaming = false;
+    this.dialogOpen = false;
     this.debugVisible = false;
     this.countdownText = '';
     this.track = null;
@@ -177,6 +232,14 @@ export class Hud {
     this.onFullscreen = noop;
     this.onCamera = noop;
     this.onRespawn = noop;
+    this.onRename = noop;
+    this.onStartDaily = noop;
+    this.onRaceGhost = noop;
+    this.onOpenLeaderboard = noop;
+    this.onLeaderboardRequest = noop;
+    this.onRaceLeaderboardGhost = noop;
+    this.onCosmetic = noop;
+    this.onToggleGhost = noop;
 
     if (injectStyles) this.injectStyles();
     this.build();
@@ -185,8 +248,21 @@ export class Hud {
     this.setSettings(this.settings);
     this.minimap = new Minimap(this.q('.sdh-map canvas'), { radius: minimap.radius ?? 420, rotate: minimap.rotate ?? true });
     this.elevation = new ElevationStrip(this.q('.sdh-elev-strip'));
+    this.renderProfile();
+    this.renderDaily();
+    this.renderPlayers();
+    this.renderGhost();
     this.applyScreen();
     this.markReady();
+  }
+
+  get settingsOpen() {
+    return this.sub === 'settings';
+  }
+
+  set settingsOpen(open) {
+    if (open) this.sub = 'settings';
+    else if (this.sub === 'settings') this.sub = null;
   }
 
   injectStyles() {
@@ -247,6 +323,11 @@ export class Hud {
             <button type="button" class="sdh-icon sdh-fs" data-act="fullscreen" aria-label="Fullscreen" title="Fullscreen (F)">${ICON.expand}${ICON.shrink}</button>
           </div>
           <div class="sdh-cam-chip"><span></span></div>
+          <div class="sdh-race-chips">
+            <div class="sdh-mini-player"><span class="sdh-lv-badge sdh-lv-sm sdh-num" data-p="level"></span><span class="sdh-mini-name" data-p="name"></span><span class="sdh-mini-xp"><i data-p="xp"></i></span></div>
+            <div class="sdh-online-chip"><i class="sdh-dot"></i><span data-p="onlineChip"></span></div>
+            <button type="button" class="sdh-ghost-chip" data-act="ghost" tabindex="-1" title="Show or hide the ghost">${ICON.ghost}<span></span></button>
+          </div>
         </div>
         <section class="sdh-bl">
           <div class="sdh-map"><canvas aria-label="Minimap"></canvas></div>
@@ -301,8 +382,20 @@ export class Hud {
       <div class="sdh-veil"></div>
       ${this.menuMarkup()}
       ${this.pauseMarkup()}
-      <aside class="sdh-panel sdh-panel-finish" data-panel="finish" aria-label="Results"><div class="sdh-finish-body"></div></aside>
+      <aside class="sdh-panel sdh-panel-finish" data-panel="finish" aria-label="Results">
+        <div class="sdh-finish-body"></div>
+        <footer class="sdh-panel-foot sdh-finish-foot">
+          <button type="button" class="sdh-btn sdh-btn-primary" data-act="restart">${ICON.restart}<span>Race again</span></button>
+          <button type="button" class="sdh-btn" data-act="race-ghost">${ICON.ghost}<span>Race your ghost</span></button>
+          <button type="button" class="sdh-btn" data-act="finish-leaderboard">${ICON.trophy}<span>Leaderboard</span></button>
+          <button type="button" class="sdh-btn" data-act="menu">${ICON.home}<span>Main menu</span></button>
+        </footer>
+      </aside>
       ${this.settingsMarkup()}
+      ${this.leaderboardMarkup()}
+      ${this.achievementsMarkup()}
+      ${this.garageMarkup()}
+      ${this.nameDialogMarkup()}
       <div class="sdh-loading" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-label="Loading">
         <div class="sdh-loading-inner">
           <div class="sdh-brand sdh-brand-xl"><span>SLOP</span><b>DRIFT</b></div>
@@ -380,36 +473,49 @@ export class Hud {
           <span class="sdh-mode-card-label">${esc(mode.label)}</span>
           <span class="sdh-mode-card-tag">${esc(mode.tagline || '')}</span>
         </span>
-        <span class="sdh-mode-card-rec" data-rec="${esc(mode.id)}"></span>
+        <span class="sdh-mode-card-side">
+          <span class="sdh-mode-card-medal" data-medal="${esc(mode.id)}"></span>
+          <span class="sdh-mode-card-rec" data-rec="${esc(mode.id)}"></span>
+          <span class="sdh-mode-card-next" data-next="${esc(mode.id)}"></span>
+        </span>
         <span class="sdh-mode-card-go" aria-hidden="true">${ICON.play}</span>
       </button>`).join('');
     return `
       <aside class="sdh-panel sdh-panel-menu" data-panel="menu" aria-label="Main menu">
-        <header class="sdh-panel-head">
-          <div class="sdh-brand"><span>SLOP</span><b>DRIFT</b></div>
-          <div class="sdh-brand-sub">Mountain · 6 km loop + summit spur</div>
-        </header>
-        <div class="sdh-section-label">Choose an event</div>
-        <div class="sdh-mode-list" role="list">${cards}</div>
-        <div class="sdh-btn-row">
-          <button type="button" class="sdh-btn" data-act="settings">${ICON.sliders}<span>Settings</span></button>
-          <button type="button" class="sdh-btn sdh-fs" data-act="fullscreen">${ICON.expand}${ICON.shrink}<span>Fullscreen</span></button>
-        </div>
-        <canvas class="sdh-overview sdh-overview-menu" aria-label="Map of the mountain roads"></canvas>
-        <div class="sdh-legend">
-          <div class="sdh-legend-keys">
-            <span><kbd>W</kbd><kbd>S</kbd> Throttle / brake</span>
-            <span><kbd>A</kbd><kbd>D</kbd> Steer</span>
-            <span><kbd>Space</kbd> Handbrake</span>
-            <span><kbd>Shift</kbd> Nitro</span>
-            <span><kbd>Q</kbd><kbd>E</kbd> Shift gear</span>
-            <span><kbd>C</kbd> Camera · <kbd>B</kbd> Look back</span>
-            <span><kbd>R</kbd> Respawn</span>
-            <span><kbd>Esc</kbd> Pause</span>
+        <div class="sdh-playerbar">
+          <span class="sdh-lv-badge sdh-num" data-p="level" title="Driver level"></span>
+          <div class="sdh-pb-main">
+            <div class="sdh-pb-row">
+              <button type="button" class="sdh-pb-name" data-act="rename" title="Rename driver"><span data-p="name"></span>${ICON.pencil}</button>
+              <input class="sdh-pb-input" type="text" maxlength="16" autocomplete="off" spellcheck="false" aria-label="Driver name" hidden>
+              <span class="sdh-conn" data-p="conn"><i class="sdh-dot"></i><span data-p="connText"></span></span>
+            </div>
+            <div class="sdh-xp" title="Progress to the next level"><i data-p="xp"></i></div>
+            <div class="sdh-pb-sub" data-p="xpText"></div>
           </div>
-          <div class="sdh-legend-touch">Left pad: slide to steer · Right: gas, brake, drift, nitro</div>
-          <div class="sdh-legend-pad">Gamepad: RT/LT pedals · A handbrake · B nitro · LB/RB shift</div>
+          <button type="button" class="sdh-icon sdh-icon-plain sdh-fs" data-act="fullscreen" aria-label="Fullscreen" title="Fullscreen (F)">${ICON.expand}${ICON.shrink}</button>
         </div>
+        <div class="sdh-brand sdh-brand-menu"><span>SLOP</span><b>DRIFT</b></div>
+        <section class="sdh-daily" aria-label="Daily challenge">
+          <div class="sdh-daily-info">
+            <div class="sdh-daily-top"><span class="sdh-eyebrow">Daily challenge</span><span class="sdh-streak" title="Daily streak">${ICON.flame}<b class="sdh-num" data-d="streak">0</b></span></div>
+            <div class="sdh-daily-text" data-d="text">Loading today’s challenge…</div>
+            <div class="sdh-daily-meta"><span data-d="mode"></span><span class="sdh-daily-xp" data-d="xp"></span></div>
+          </div>
+          <button type="button" class="sdh-btn sdh-daily-go" data-act="daily">${ICON.play}<span data-d="btn">Start</span></button>
+        </section>
+        <div class="sdh-mode-list" role="list" aria-label="Events">${cards}</div>
+        <div class="sdh-menu-actions">
+          <button type="button" class="sdh-btn sdh-btn-tile" data-act="garage">${ICON.car}<span>Garage</span></button>
+          <button type="button" class="sdh-btn sdh-btn-tile" data-act="leaderboard">${ICON.trophy}<span>Leaderboard</span></button>
+          <button type="button" class="sdh-btn sdh-btn-tile" data-act="achievements">${ICON.medal}<span>Awards</span></button>
+          <button type="button" class="sdh-btn sdh-btn-tile" data-act="settings">${ICON.sliders}<span>Settings</span></button>
+        </div>
+        <details class="sdh-players">
+          <summary><i class="sdh-dot"></i><span data-p="playersTitle">Online players</span><span class="sdh-players-count sdh-num" data-p="playersCount"></span></summary>
+          <ul class="sdh-players-list"></ul>
+        </details>
+        <canvas class="sdh-overview sdh-overview-menu" aria-label="Map of the mountain roads"></canvas>
       </aside>`;
   }
 
@@ -462,12 +568,6 @@ export class Hud {
           <div class="sdh-group-label">Graphics</div>
           ${seg('quality', 'Quality', Object.keys(QUALITY_PRESETS).map((k) => ({ value: k, label: k })))}
           ${seg('timeOfDay', 'Time of day', TIME_OF_DAY.map((k) => ({ value: k, label: cap(k) })))}
-          <fieldset class="sdh-field">
-            <legend>Paint</legend>
-            <div class="sdh-swatches">
-              ${PAINT_OPTIONS.map((p) => `<label title="${esc(p.label)}"><input type="radio" name="${name('paint')}" value="${esc(p.id)}" aria-label="${esc(p.label)}"><span style="--c:${hex(p.color)}"></span></label>`).join('')}
-            </div>
-          </fieldset>
           <div class="sdh-group-label">Driving</div>
           ${seg('handling', 'Handling', HANDLING_PRESETS.map((k) => ({ value: k, label: k })))}
           ${seg('transmission', 'Transmission', [{ value: 'auto', label: 'Automatic' }, { value: 'manual', label: 'Manual' }])}
@@ -477,6 +577,21 @@ export class Hud {
           ${seg('units', 'Units', [{ value: 'kmh', label: 'km/h · m' }, { value: 'mph', label: 'mph · ft' }])}
           ${slider('volume', 'Master volume')}
           ${toggle('cameraShake', 'Camera shake', 'Speed and impact shake')}
+          <div class="sdh-group-label">Controls</div>
+        <div class="sdh-legend sdh-legend-settings">
+          <div class="sdh-legend-keys">
+            <span><kbd>W</kbd><kbd>S</kbd> Throttle / brake</span>
+            <span><kbd>A</kbd><kbd>D</kbd> Steer</span>
+            <span><kbd>Space</kbd> Handbrake</span>
+            <span><kbd>Shift</kbd> Nitro</span>
+            <span><kbd>Q</kbd><kbd>E</kbd> Shift gear</span>
+            <span><kbd>C</kbd> Camera · <kbd>B</kbd> Look back</span>
+            <span><kbd>R</kbd> Respawn</span>
+            <span><kbd>Esc</kbd> Pause</span>
+          </div>
+          <div class="sdh-legend-touch">Left pad: slide to steer · Right: gas, brake, drift, nitro</div>
+          <div class="sdh-legend-pad">Gamepad: RT/LT pedals · A handbrake · B nitro · LB/RB shift</div>
+        </div>
         </form>
         <footer class="sdh-panel-foot">
           <button type="button" class="sdh-btn" data-act="settings-back">${ICON.back}<span>Back</span></button>
@@ -493,11 +608,36 @@ export class Hud {
       if (!target || !this.el.contains(target)) return;
       // Race-HUD buttons must not keep focus, or Space/Enter would re-trigger them instead of driving.
       if (event.detail > 0 && target.closest('.sdh-race')) target.blur();
-      if (target.dataset.mode) {
+      if (target.dataset.mode && !target.dataset.act) {
         this.onStart(target.dataset.mode);
         return;
       }
       switch (target.dataset.act) {
+        case 'rename': this.startRename(); break;
+        case 'daily': this.onStartDaily(); break;
+        case 'ghost': this.onToggleGhost(); break;
+        case 'race-ghost': this.onRaceGhost(); break;
+        case 'finish-leaderboard': {
+          const id = this.finishModeId;
+          this.openLeaderboard(id, 'finish');
+          this.onOpenLeaderboard(id);
+          break;
+        }
+        case 'leaderboard': {
+          const id = this.lbMode || this.rankedModes()[0]?.id;
+          this.openLeaderboard(id, 'menu');
+          this.onOpenLeaderboard(id);
+          break;
+        }
+        case 'lb-tab': this.openLeaderboard(target.dataset.tab, this.subSource); break;
+        case 'lb-ghost': this.onRaceLeaderboardGhost(target.dataset.lbMode, target.dataset.player); break;
+        case 'achievements': this.openSub('achievements', 'menu'); break;
+        case 'garage': this.openSub('garage', 'menu'); break;
+        case 'cosmetic':
+          if (target.getAttribute('aria-disabled') !== 'true') this.onCosmetic(target.dataset.slot, target.dataset.value);
+          break;
+        case 'sub-back': this.closeSub(); break;
+        case 'name-skip': this.skipName(); break;
         case 'camera': this.onCamera(); break;
         case 'pause': this.onPause(); break;
         case 'fullscreen': this.onFullscreen(); break;
@@ -525,31 +665,72 @@ export class Hud {
     this.form.addEventListener('input', this.onFormInput);
     this.form.addEventListener('submit', (event) => event.preventDefault());
 
+    const renameInput = this.q('.sdh-pb-input');
+    renameInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') { event.preventDefault(); this.endRename(true); }
+    });
+    renameInput.addEventListener('blur', () => this.endRename(true));
+    this.q('.sdh-dialog-card').addEventListener('submit', (event) => {
+      event.preventDefault();
+      this.confirmName();
+    });
+    const numberInput = this.q('.sdh-number-input');
+    numberInput.addEventListener('change', () => this.commitNumber());
+    numberInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') { event.preventDefault(); numberInput.blur(); }
+    });
+
     // Capture-phase so the game's Input never sees an Escape that the overlays consumed.
     this.onKeyDown = (event) => {
       if (event.key === 'Escape' && !event.repeat) {
+        if (this.dialogOpen) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          this.skipName();
+          return;
+        }
+        if (this.renaming) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          this.endRename(false);
+          return;
+        }
+        if (this.sub && this.sub !== 'settings') {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          this.closeSub();
+          return;
+        }
         if (this.settingsOpen) {
           event.preventDefault();
-          event.stopPropagation();
+          event.stopImmediatePropagation();
           this.closeSettingsFromUi(false);
           return;
         }
         if (this.screen === 'pause') {
           event.preventDefault();
-          event.stopPropagation();
+          event.stopImmediatePropagation();
           this.onResume();
           return;
         }
       }
-      const panel = this.openPanel();
+      const panel = this.dialogOpen ? this.q('.sdh-dialog') : this.openPanel();
       if (!panel) return;
       if (event.key === 'Tab') this.trapTab(event, panel);
+      else if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && event.target.matches?.('[role="tab"]')) {
+        const tabs = [...event.target.parentElement.querySelectorAll('[role="tab"]')];
+        const next = tabs[(tabs.indexOf(event.target) + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        this.openLeaderboard(next.dataset.tab, this.subSource);
+        this.q(`[role="tab"][data-tab="${CSS.escape(next.dataset.tab)}"]`)?.focus();
+      }
       else if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && event.target.matches?.('.sdh-mode-card, .sdh-stack .sdh-btn')) {
         const list = [...event.target.parentElement.querySelectorAll('button')];
         const i = list.indexOf(event.target);
         const next = list[(i + (event.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length];
         event.preventDefault();
-        event.stopPropagation();
+        event.stopImmediatePropagation();
         next?.focus();
       }
     };
@@ -588,7 +769,7 @@ export class Hud {
   // ---------------------------------------------------------------- screens
 
   openPanel() {
-    if (this.settingsOpen) return this.q('[data-panel="settings"]');
+    if (this.sub) return this.q(`[data-panel="${this.sub}"]`);
     if (this.screen === 'menu' || this.screen === 'pause' || this.screen === 'finish') return this.q(`[data-panel="${this.screen}"]`);
     return null;
   }
@@ -596,7 +777,7 @@ export class Hud {
   applyScreen(focus = true) {
     const prev = this.currentPanel;
     this.el.dataset.screen = this.screen;
-    this.el.classList.toggle('is-settings', this.settingsOpen);
+    this.el.classList.toggle('is-settings', Boolean(this.sub));
     const panel = this.openPanel();
     this.el.querySelectorAll('.sdh-panel').forEach((p) => {
       const open = p === panel;
@@ -608,11 +789,18 @@ export class Hud {
     this.raceEl.toggleAttribute('inert', this.screen !== 'race');
     this.el.classList.toggle('is-racing', racing);
     this.currentPanel = panel;
+    if (this.dialogOpen) {
+      // The first-run name dialog stays modal over whatever screen the game shows underneath.
+      this.el.querySelectorAll('.sdh-panel').forEach((p) => p.setAttribute('inert', ''));
+      return;
+    }
     if (!panel) {
       // Leaving the overlays: drop focus so Space / Enter go to the car, not a hidden button.
       if (this.el.contains(document.activeElement)) document.activeElement.blur();
     } else if (focus && panel !== prev) {
-      const target = panel.querySelector('.sdh-btn-primary, .sdh-mode-card, [data-act="restart"], button');
+      // First match in priority order (querySelector with a list would return document order).
+      const target = ['[aria-selected="true"]', '.sdh-btn-primary:not([hidden])', '.sdh-mode-card', '.sdh-cos:not(.is-locked)', 'input:not([type="hidden"]):not(:disabled)', 'button:not([hidden])']
+        .reduce((found, sel) => found || panel.querySelector(sel), null);
       const active = document.activeElement;
       if (target && (!active || active === document.body || this.el.contains(active))) {
         target.focus({ preventScroll: true });
@@ -623,19 +811,20 @@ export class Hud {
 
   showMenu() {
     this.screen = 'menu';
-    this.settingsOpen = false;
+    this.sub = null;
     this.applyScreen();
   }
 
   showRace() {
     this.screen = 'race';
-    this.settingsOpen = false;
+    this.sub = null;
+    if (this.renaming) this.endRename(false);
     this.applyScreen();
   }
 
   showPause(copyText = '') {
     this.screen = 'pause';
-    this.settingsOpen = false;
+    this.sub = null;
     this.q('.sdh-pause-copy').textContent = copyText || 'Take a breath. The mountain will wait.';
     this.q('.sdh-pause-mode').textContent = this.v.modeLabel.raw || '';
     this.applyScreen();
@@ -645,7 +834,7 @@ export class Hud {
    * @param {{modeId:string, modeLabel?:string, time?:number, bestTime?:number, isRecord?:boolean, score?:number,
    *          bestScore?:number, topSpeedKmh?:number, respawns?:number, laps?:number[]}} result
    */
-  showFinish(result = {}) {
+  showFinish(result = {}, rewards = null) {
     const mode = this.modes.find((m) => m.id === result.modeId);
     const kind = recordKind(mode || { id: result.modeId });
     const label = result.modeLabel || mode?.label || 'Event';
@@ -686,16 +875,18 @@ export class Hud {
       </header>
       ${hero}${compare}
       ${stats.length ? `<dl class="sdh-stats">${stats.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd class="sdh-num">${esc(v)}</dd></div>`).join('')}</dl>` : ''}
-      ${lapRows}
-      <div class="sdh-stack">
-        <button type="button" class="sdh-btn sdh-btn-primary" data-act="restart">${ICON.restart}<span>Race again</span></button>
-        <button type="button" class="sdh-btn" data-act="menu">${ICON.home}<span>Main menu</span></button>
-      </div>`;
+      ${this.rewardsMarkup(rewards, result.modeId)}
+      ${lapRows}`;
+    this.finishModeId = result.modeId;
+    this.q('[data-act="race-ghost"]').hidden = kind === 'none';
+    this.q('[data-act="finish-leaderboard"]').hidden = kind === 'none';
     this.q('[data-panel="finish"]').classList.toggle('is-record', Boolean(result.isRecord));
     this.screen = 'finish';
-    this.settingsOpen = false;
+    this.sub = null;
     this.currentPanel = null; // force focus to the fresh content
     this.applyScreen();
+    this.q('[data-panel="finish"]').scrollTop = 0;
+    if (rewards) this.animateRewards(rewards);
   }
 
   openSettings(source = 'menu') {
@@ -736,7 +927,7 @@ export class Hud {
     const s = this.settings;
     const f = this.form || this.q('.sdh-form');
     const n = (k) => f.elements.namedItem(`${this.uid}-${k}`);
-    for (const key of ['quality', 'timeOfDay', 'paint', 'handling', 'transmission', 'units']) {
+    for (const key of ['quality', 'timeOfDay', 'handling', 'transmission', 'units']) {
       const group = n(key);
       if (group) group.value = String(s[key]);
     }
@@ -758,7 +949,7 @@ export class Hud {
     const f = this.form;
     const n = (k) => f.elements.namedItem(`${this.uid}-${k}`);
     const out = { ...this.settings };
-    for (const key of ['quality', 'timeOfDay', 'paint', 'handling', 'transmission', 'units']) {
+    for (const key of ['quality', 'timeOfDay', 'handling', 'transmission', 'units']) {
       const v = n(key)?.value;
       if (v) out[key] = v;
     }
@@ -781,8 +972,19 @@ export class Hud {
 
   setRecords(records) {
     this.records = records || {};
+    this.renderCards();
+  }
+
+  /** @param {Object<string, {medal:(string|null), next:({tier:string,target:number}|null)}>} medals */
+  setMedals(medals) {
+    this.medals = medals || {};
+    this.renderCards();
+  }
+
+  renderCards() {
     for (const mode of this.modes) {
-      const cell = this.q(`[data-rec="${CSS.escape(mode.id)}"]`);
+      const id = CSS.escape(mode.id);
+      const cell = this.q(`[data-rec="${id}"]`);
       if (!cell) continue;
       const rec = this.records[mode.id] || {};
       const kind = recordKind(mode);
@@ -791,8 +993,14 @@ export class Hud {
       else if (kind === 'score') text = Number.isFinite(rec.score) ? `${formatInt(rec.score)} pts` : '—';
       cell.textContent = text;
       cell.classList.toggle('is-empty', text === '—');
-      cell.classList.toggle('is-none', kind === 'none');
       cell.title = kind === 'none' ? '' : 'Personal best';
+      const m = kind === 'none' ? null : this.medals[mode.id];
+      this.q(`[data-medal="${id}"]`).innerHTML = kind === 'none' ? '' : medalBadge(m?.medal || null);
+      const next = this.q(`[data-next="${id}"]`);
+      const targetKind = MEDAL_TARGETS[mode.id]?.kind || (kind === 'score' ? 'score' : 'time');
+      next.textContent = m?.next ? `${MEDAL_LABELS[m.next.tier] || m.next.tier} ${formatTarget(targetKind, m.next.target)}` : '';
+      next.className = `sdh-mode-card-next${m?.next ? ` is-${m.next.tier}` : ''}`;
+      this.q(`[data-mode="${id}"]`).classList.toggle('is-roam', kind === 'none');
     }
   }
 
@@ -890,6 +1098,497 @@ export class Hud {
     }, ms);
     this.timers.add(id);
     return id;
+  }
+
+  // ---------------------------------------------------------------- progression & online: markup
+
+  leaderboardMarkup() {
+    const tabs = this.rankedModes().map((m) => `
+      <button type="button" role="tab" class="sdh-tab" data-act="lb-tab" data-tab="${esc(m.id)}" aria-selected="false" tabindex="-1" title="${esc(m.label)}">${esc(m.label.split(' ')[0])}</button>`).join('');
+    return `
+      <aside class="sdh-panel sdh-panel-sub" data-panel="leaderboard" aria-label="Leaderboard">
+        <header class="sdh-panel-head sdh-panel-head-row">
+          <button type="button" class="sdh-icon sdh-icon-plain" data-act="sub-back" aria-label="Back">${ICON.back}</button>
+          <h2 class="sdh-title">Leaderboard</h2>
+        </header>
+        <div class="sdh-tabs" role="tablist" aria-label="Event">${tabs}</div>
+        <div class="sdh-lb-status" role="status"></div>
+        <ol class="sdh-lb-list"></ol>
+      </aside>`;
+  }
+
+  achievementsMarkup() {
+    return `
+      <aside class="sdh-panel sdh-panel-sub" data-panel="achievements" aria-label="Achievements">
+        <header class="sdh-panel-head sdh-panel-head-row">
+          <button type="button" class="sdh-icon sdh-icon-plain" data-act="sub-back" aria-label="Back">${ICON.back}</button>
+          <h2 class="sdh-title">Achievements</h2>
+          <span class="sdh-ach-count sdh-num"></span>
+        </header>
+        <div class="sdh-xp sdh-ach-bar"><i></i></div>
+        <ul class="sdh-ach-list"></ul>
+      </aside>`;
+  }
+
+  garageMarkup() {
+    return `
+      <aside class="sdh-panel sdh-panel-sub" data-panel="garage" aria-label="Garage">
+        <header class="sdh-panel-head sdh-panel-head-row">
+          <button type="button" class="sdh-icon sdh-icon-plain" data-act="sub-back" aria-label="Back">${ICON.back}</button>
+          <h2 class="sdh-title">Garage</h2>
+        </header>
+        <div class="sdh-group-label">Paint</div>
+        <div class="sdh-cos-grid" data-slot-grid="paint"></div>
+        <div class="sdh-group-label">Rims</div>
+        <div class="sdh-cos-grid" data-slot-grid="rim"></div>
+        <div class="sdh-group-label">Door number</div>
+        <label class="sdh-number-field">
+          <input class="sdh-number-input sdh-num" type="text" inputmode="numeric" maxlength="2" pattern="[0-9]{1,2}" aria-label="Door number">
+          <span class="sdh-number-note"></span>
+        </label>
+      </aside>`;
+  }
+
+  nameDialogMarkup() {
+    return `
+      <div class="sdh-dialog" aria-hidden="true">
+        <form class="sdh-dialog-card" role="dialog" aria-modal="true" aria-labelledby="${this.uid}-name-title" novalidate>
+          <div class="sdh-brand sdh-brand-menu"><span>SLOP</span><b>DRIFT</b></div>
+          <h2 class="sdh-title" id="${this.uid}-name-title">Pick your driver name</h2>
+          <p class="sdh-copy">Shown on leaderboards and above your car online. 2–16 characters: letters, digits, space, - and _.</p>
+          <input class="sdh-name-input" type="text" maxlength="16" autocomplete="off" spellcheck="false" aria-label="Driver name">
+          <div class="sdh-name-error" role="alert"></div>
+          <div class="sdh-btn-row">
+            <button type="button" class="sdh-btn" data-act="name-skip"><span>Skip</span></button>
+            <button type="submit" class="sdh-btn sdh-btn-primary">${ICON.check}<span>Let’s drive</span></button>
+          </div>
+        </form>
+      </div>`;
+  }
+
+  /** @param {import('../core/contracts.js').RewardSummary|null} r */
+  rewardsMarkup(r, modeId) {
+    if (!r) return '';
+    const kind = MEDAL_TARGETS[modeId]?.kind || 'time';
+    let medal = '';
+    if (r.medal && r.medal.tier) {
+      const next = r.medal.next ? `Next: ${esc(MEDAL_LABELS[r.medal.next.tier] || r.medal.next.tier)} ${formatTarget(kind, r.medal.next.target)}` : 'Top tier reached';
+      medal = `
+        <div class="sdh-medal-big is-${esc(r.medal.tier)}">
+          ${medalBadge(r.medal.tier, ' sdh-medal-lg')}
+          <div><b>${esc(MEDAL_LABELS[r.medal.tier] || r.medal.tier)} medal</b>${r.medal.isNew ? '<span class="sdh-new">NEW</span>' : ''}<small>${next}</small></div>
+        </div>`;
+    }
+    const before = r.before || { level: 1, fraction: 0 };
+    const after = r.after || before;
+    const lines = (r.lines || []).map((l) => `<li><span>${esc(l.label)}</span><span class="sdh-num">+${formatInt(l.xp)}</span></li>`).join('');
+    const xp = `
+      <div class="sdh-xp-block${after.level > before.level ? ' has-levelup' : ''}">
+        <div class="sdh-xp-head">
+          <span class="sdh-lv-badge sdh-num" data-x="lv">${before.level}</span>
+          <span class="sdh-levelup">LEVEL UP</span>
+          <span class="sdh-xp-total sdh-num">+${formatInt(r.xpGained)} XP</span>
+        </div>
+        <div class="sdh-xp sdh-xp-lg"><i style="transform:scaleX(${Math.max(0, Math.min(1, before.fraction || 0))})"></i></div>
+        ${lines ? `<ul class="sdh-xp-lines">${lines}</ul>` : ''}
+      </div>`;
+    const unlocks = (r.unlocks || []).length ? `
+      <div class="sdh-section-label">Unlocked</div>
+      <div class="sdh-chips">${r.unlocks.map((u) => `<span class="sdh-chip is-unlock">${ICON.car}${esc(u.label)}</span>`).join('')}</div>` : '';
+    const ach = (r.achievements || []).length ? `
+      <div class="sdh-section-label">Achievements</div>
+      <ul class="sdh-ach-list sdh-ach-compact">${r.achievements.map((a) => `
+        <li class="is-unlocked"><span class="sdh-ach-icon">${ICON.medal}</span><span class="sdh-ach-main"><b>${esc(a.title)}</b><small>${esc(a.description)}</small></span><span class="sdh-ach-xp sdh-num">+${formatInt(a.xp)}</span></li>`).join('')}
+      </ul>` : '';
+    const daily = r.daily && r.daily.completed ? `
+      <div class="sdh-daily-done">${ICON.check}<span>Daily challenge complete</span><span class="sdh-streak">${ICON.flame}<b class="sdh-num">${r.daily.streak}</b></span></div>` : '';
+    return `<section class="sdh-rewards">${medal}${xp}${daily}${unlocks}${ach}</section>`;
+  }
+
+  animateRewards(r) {
+    const block = this.q('.sdh-panel-finish .sdh-xp-block');
+    const bar = block?.querySelector('.sdh-xp i');
+    const lv = block?.querySelector('[data-x="lv"]');
+    if (!bar || !lv) return;
+    const before = r.before || { level: 1, fraction: 0 };
+    const after = r.after || before;
+    const levelUp = after.level > before.level;
+    const to = Math.max(0, Math.min(1, after.fraction || 0));
+    const from = Math.max(0, Math.min(1, before.fraction || 0));
+    const finalState = () => {
+      bar.style.transform = `scaleX(${to})`;
+      lv.textContent = String(after.level);
+      if (levelUp) block.classList.add('is-levelup');
+    };
+    if (this.reducedMotion?.matches || !bar.animate) {
+      finalState();
+      return;
+    }
+    const easing = 'cubic-bezier(.3,.7,.2,1)';
+    const first = bar.animate([{ transform: `scaleX(${from})` }, { transform: `scaleX(${levelUp ? 1 : to})` }],
+      { duration: levelUp ? 900 : 1100, delay: 450, easing, fill: 'forwards' });
+    first.onfinish = () => {
+      if (!levelUp) { finalState(); first.cancel(); return; }
+      lv.textContent = String(after.level);
+      block.classList.add('is-levelup');
+      const second = bar.animate([{ transform: 'scaleX(0)' }, { transform: `scaleX(${to})` }], { duration: 800, delay: 250, easing, fill: 'forwards' });
+      second.onfinish = () => { finalState(); first.cancel(); second.cancel(); };
+    };
+  }
+
+  // ---------------------------------------------------------------- sub-panels
+
+  rankedModes() {
+    return this.modes.filter((m) => recordKind(m) !== 'none');
+  }
+
+  openSub(name, source = 'menu') {
+    if (name === 'settings') {
+      this.openSettings(source === 'pause' ? 'pause' : 'menu');
+      return;
+    }
+    this.subSource = source;
+    if (this.sub === name) return;
+    this.sub = name;
+    this.applyScreen();
+  }
+
+  closeSub() {
+    const was = this.sub;
+    if (!was) return;
+    if (was === 'settings') {
+      this.closeSettingsFromUi(false);
+      return;
+    }
+    this.sub = null;
+    this.applyScreen(false);
+    const opener = this.openPanel()?.querySelector(was === 'leaderboard'
+      ? '[data-act="leaderboard"], [data-act="finish-leaderboard"]' : `[data-act="${was}"]`);
+    opener?.focus({ preventScroll: true });
+  }
+
+  /** Shows the leaderboard on a tab and asks the game for its rows (onLeaderboardRequest). */
+  openLeaderboard(modeId, source) {
+    const ranked = this.rankedModes();
+    const id = ranked.some((m) => m.id === modeId) ? modeId : ranked[0]?.id;
+    if (!id) return;
+    const src = source || (this.sub === 'leaderboard' ? this.subSource : (this.screen === 'finish' ? 'finish' : 'menu'));
+    this.lbMode = id;
+    for (const tab of this.el.querySelectorAll('[data-panel="leaderboard"] [role="tab"]')) {
+      const on = tab.dataset.tab === id;
+      tab.setAttribute('aria-selected', String(on));
+      tab.tabIndex = on ? 0 : -1;
+    }
+    this.renderLeaderboard();
+    this.openSub('leaderboard', src);
+    const now = performance.now();
+    // openLeaderboard is often called twice for one click (by the button and by the game); ask once.
+    if (this.lbRequested.mode !== id || now - this.lbRequested.at > 800) {
+      this.lbRequested = { mode: id, at: now };
+      this.onLeaderboardRequest(id);
+    }
+  }
+
+  /** @param {{status:'loading'|'online'|'local'|'error', entries: import('../core/contracts.js').LeaderboardEntry[]}} data */
+  setLeaderboard(modeId, data) {
+    this.leaderboards[modeId] = data || { status: 'loading', entries: [] };
+    if (modeId === this.lbMode) this.renderLeaderboard();
+  }
+
+  renderLeaderboard() {
+    const id = this.lbMode;
+    const data = this.leaderboards[id] || { status: 'loading', entries: [] };
+    const status = this.q('.sdh-lb-status');
+    const list = this.q('.sdh-lb-list');
+    const kind = MEDAL_TARGETS[id]?.kind || (recordKind(this.modes.find((m) => m.id === id)) === 'score' ? 'score' : 'time');
+    const entries = Array.isArray(data.entries) ? data.entries : [];
+    const msg = {
+      loading: 'Loading…',
+      online: `Global leaderboard · ${entries.length} ${entries.length === 1 ? 'driver' : 'drivers'}`,
+      local: '<b>Local only.</b> These are this browser’s runs. Online leaderboards are not configured.',
+      error: '<b>Couldn’t reach the leaderboard.</b> Check your connection and try again.',
+    }[data.status] || '';
+    status.innerHTML = msg;
+    status.className = `sdh-lb-status is-${esc(data.status)}`;
+    if (!entries.length) {
+      list.innerHTML = data.status === 'loading' ? '' : '<li class="sdh-lb-empty">No runs yet. Set the first one.</li>';
+      return;
+    }
+    list.innerHTML = entries.map((e) => {
+      const value = kind === 'score' ? e.score : e.time;
+      const shown = kind === 'score' ? formatInt(value) : formatTime(value);
+      return `
+        <li class="sdh-lb-row${e.isMe ? ' is-me' : ''}">
+          <span class="sdh-lb-rank sdh-num">${esc(e.rank)}</span>
+          <span class="sdh-lb-name"><b>${esc(e.name)}</b>${e.isMe ? '<em>you</em>' : ''}<small>Lv ${esc(e.level)}</small></span>
+          ${medalBadge(medalFor(id, value))}
+          <span class="sdh-lb-value sdh-num">${shown}</span>
+          ${e.hasGhost ? `<button type="button" class="sdh-icon sdh-icon-sm" data-act="lb-ghost" data-lb-mode="${esc(id)}" data-player="${esc(e.playerId)}" aria-label="Race ${esc(e.name)}’s ghost" title="Race ghost">${ICON.ghost}</button>` : '<span class="sdh-icon-sm" aria-hidden="true"></span>'}
+        </li>`;
+    }).join('');
+  }
+
+  /** @param {{id:string,title:string,description:string,xp:number,unlocked:boolean,at:(number|null)}[]} list */
+  setAchievements(list) {
+    this.achievements = Array.isArray(list) ? list : [];
+    const done = this.achievements.filter((a) => a.unlocked).length;
+    const total = this.achievements.length;
+    this.q('.sdh-ach-count').textContent = `${done} / ${total}`;
+    this.q('.sdh-ach-bar i').style.transform = `scaleX(${total ? done / total : 0})`;
+    this.q('[data-panel="achievements"] .sdh-ach-list').innerHTML = this.achievements.map((a) => {
+      const when = a.unlocked && a.at ? new Date(a.at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '';
+      return `
+        <li class="${a.unlocked ? 'is-unlocked' : 'is-locked'}">
+          <span class="sdh-ach-icon">${a.unlocked ? ICON.medal : ICON.lock}</span>
+          <span class="sdh-ach-main"><b>${esc(a.title)}</b><small>${esc(a.description)}</small></span>
+          <span class="sdh-ach-xp sdh-num">${a.unlocked ? esc(when) : `+${formatInt(a.xp)} XP`}</span>
+        </li>`;
+    }).join('');
+  }
+
+  /** @param {{items:Array, selected:{paint:string, rim:string, number:string}}} garage */
+  setGarage(garage) {
+    this.garage = garage || { items: [], selected: {} };
+    const items = this.garage.items || [];
+    const sel = this.garage.selected || {};
+    for (const slot of ['paint', 'rim']) {
+      const grid = this.q(`[data-slot-grid="${slot}"]`);
+      grid.innerHTML = items.filter((it) => it.slot === slot).map((it) => {
+        const on = sel[slot] === it.value;
+        const locked = !it.unlocked;
+        const color = Number.isFinite(it.color) ? hex(it.color) : 'transparent';
+        return `
+          <button type="button" class="sdh-cos${on ? ' is-selected' : ''}${locked ? ' is-locked' : ''}" data-act="cosmetic" data-slot="${esc(slot)}" data-value="${esc(it.value)}"
+            aria-pressed="${on}" aria-disabled="${locked}" title="${esc(it.label)}${locked ? ` · ${esc(it.requirement || 'Locked')}` : ''}">
+            <span class="sdh-cos-swatch${slot === 'rim' ? ' is-rim' : ''}" style="--c:${color}">${locked ? ICON.lock : ''}</span>
+            <span class="sdh-cos-label">${esc(it.label)}</span>
+            <span class="sdh-cos-req">${locked ? esc(it.requirement || 'Locked') : on ? 'Equipped' : ''}</span>
+          </button>`;
+      }).join('');
+    }
+    const custom = items.find((it) => it.slot === 'number' && it.value === 'custom');
+    const input = this.q('.sdh-number-input');
+    const enabled = Boolean(custom?.unlocked);
+    input.disabled = !enabled;
+    if (document.activeElement !== input) input.value = sel.number ?? '';
+    this.q('.sdh-number-note').textContent = enabled ? 'Two digits, shown on the doors' : `Locked · ${custom?.requirement || 'not available'}`;
+    this.q('.sdh-number-field').classList.toggle('is-locked', !enabled);
+  }
+
+  commitNumber() {
+    const input = this.q('.sdh-number-input');
+    const v = input.value.trim();
+    if (!/^[0-9]{1,2}$/.test(v)) {
+      input.value = this.garage?.selected?.number ?? '';
+      this.toast('Door numbers are 1–2 digits', 'warn');
+      return;
+    }
+    if (v !== this.garage?.selected?.number) this.onCosmetic('number', v);
+  }
+
+  // ---------------------------------------------------------------- player bar, rename, first-run name
+
+  /** @param {{name:string, level: import('../core/contracts.js').LevelInfo, connection:string, online:(number|null)}} profile */
+  setProfile(profile) {
+    this.profile = { ...(this.profile || {}), ...(profile || {}) };
+    this.renderProfile();
+  }
+
+  renderProfile() {
+    const p = this.profile || { name: 'Driver', level: { level: 1, fraction: 0, into: 0, span: 150 }, connection: 'offline', online: null };
+    const lv = p.level || { level: 1, fraction: 0, into: 0, span: 0 };
+    const set = (key, fn) => this.el.querySelectorAll(`[data-p="${key}"]`).forEach(fn);
+    set('name', (n) => { n.textContent = p.name || 'Driver'; });
+    set('level', (n) => { n.textContent = String(lv.level ?? 1); });
+    set('xp', (n) => { n.style.transform = `scaleX(${Math.max(0, Math.min(1, lv.fraction || 0))})`; });
+    set('xpText', (n) => { n.textContent = lv.span ? `Level ${lv.level} · ${formatInt(lv.into)} / ${formatInt(lv.span)} XP` : `Level ${lv.level}`; });
+    const conn = ['online', 'connecting', 'local', 'offline'].includes(p.connection) ? p.connection : 'offline';
+    const count = Number.isFinite(p.online) ? p.online : null;
+    const text = {
+      online: count != null ? `Online · ${formatInt(count)}` : 'Online',
+      connecting: 'Connecting…',
+      local: 'Local only',
+      offline: 'Offline',
+    }[conn];
+    set('conn', (n) => { n.className = `sdh-conn is-${conn}`; n.title = text; });
+    set('connText', (n) => { n.textContent = text; });
+    this.renderOnlineChip();
+  }
+
+  renderOnlineChip() {
+    const conn = this.profile?.connection;
+    const chip = this.q('.sdh-online-chip');
+    const n = Number.isFinite(this.profile?.online) ? this.profile.online : this.players.length;
+    chip.classList.toggle('is-on', conn === 'online' || conn === 'connecting');
+    chip.className = `sdh-online-chip${conn === 'online' || conn === 'connecting' ? ' is-on' : ''} is-${conn || 'offline'}`;
+    chip.querySelector('span').textContent = conn === 'connecting' ? 'Connecting' : `${formatInt(n)} online`;
+  }
+
+  startRename() {
+    if (this.renaming) return;
+    const btn = this.q('.sdh-pb-name');
+    const input = this.q('.sdh-pb-input');
+    this.renaming = true;
+    input.value = this.profile?.name || '';
+    btn.hidden = true;
+    input.hidden = false;
+    input.focus();
+    input.select();
+  }
+
+  endRename(commit) {
+    if (!this.renaming) return;
+    this.renaming = false;
+    const btn = this.q('.sdh-pb-name');
+    const input = this.q('.sdh-pb-input');
+    const name = validateName(input.value);
+    input.hidden = true;
+    btn.hidden = false;
+    if (commit && name && name !== this.profile?.name) {
+      this.setProfile({ name });
+      this.onRename(name);
+    } else if (commit && !name && input.value.trim() !== (this.profile?.name || '')) {
+      this.toast('Names are 2–16 letters, digits, space, - or _', 'warn');
+    }
+    if (this.screen === 'menu' && !this.sub) btn.focus({ preventScroll: true });
+  }
+
+  /** First-run dialog. Confirm or Skip both end in onRename(name). */
+  promptName(currentName = '') {
+    const dialog = this.q('.sdh-dialog');
+    const input = this.q('.sdh-name-input');
+    this.dialogSuggested = String(currentName || '');
+    input.value = this.dialogSuggested;
+    this.q('.sdh-name-error').textContent = '';
+    this.dialogOpen = true;
+    this.dialogReturnFocus = document.activeElement;
+    dialog.classList.add('is-open');
+    dialog.setAttribute('aria-hidden', 'false');
+    this.el.querySelectorAll('.sdh-panel').forEach((p) => p.setAttribute('inert', ''));
+    input.focus();
+    input.select();
+  }
+
+  closeDialog() {
+    const dialog = this.q('.sdh-dialog');
+    this.dialogOpen = false;
+    dialog.classList.remove('is-open');
+    dialog.setAttribute('aria-hidden', 'true');
+    this.currentPanel = null;
+    this.applyScreen();
+  }
+
+  confirmName() {
+    const input = this.q('.sdh-name-input');
+    const name = validateName(input.value);
+    if (!name) {
+      this.q('.sdh-name-error').textContent = 'Use 2–16 characters: letters, digits, space, - or _.';
+      input.focus();
+      return;
+    }
+    this.closeDialog();
+    this.setProfile({ name });
+    this.onRename(name);
+  }
+
+  skipName() {
+    const name = validateName(this.dialogSuggested) || this.dialogSuggested || this.profile?.name || 'Driver';
+    this.closeDialog();
+    this.setProfile({ name });
+    this.onRename(name);
+  }
+
+  // ---------------------------------------------------------------- daily, players, ghost, notifications
+
+  /** @param {import('../core/contracts.js').DailyChallenge|null} daily */
+  setDaily(daily) {
+    this.daily = daily || null;
+    this.renderDaily();
+  }
+
+  renderDaily() {
+    const card = this.q('.sdh-daily');
+    const d = this.daily;
+    card.classList.toggle('is-empty', !d);
+    card.classList.toggle('is-done', Boolean(d?.done));
+    const set = (k, v) => { this.q(`[data-d="${k}"]`).textContent = v; };
+    if (!d) {
+      set('text', 'No challenge today');
+      set('mode', ''); set('xp', ''); set('streak', '0'); set('btn', 'Start');
+      this.q('[data-act="daily"]').disabled = true;
+      return;
+    }
+    const extra = [d.timeOfDay ? d.timeOfDay.charAt(0).toUpperCase() + d.timeOfDay.slice(1) : '', d.clean ? 'No resets' : ''].filter(Boolean).join(' · ');
+    set('text', d.text || '');
+    set('mode', `${d.modeLabel || d.modeId}${extra ? ` · ${extra}` : ''}`);
+    set('xp', d.done ? 'Completed' : `+${formatInt(d.xp)} XP`);
+    set('streak', String(d.streak || 0));
+    set('btn', d.done ? 'Replay' : 'Start');
+    this.q('[data-act="daily"]').disabled = false;
+    this.q('.sdh-daily .sdh-streak').classList.toggle('is-hot', (d.streak || 0) > 0);
+  }
+
+  /** @param {{id:string, name:string, level:number, modeLabel:string, isMe:boolean}[]} players */
+  setPlayers(players) {
+    this.players = Array.isArray(players) ? players : [];
+    this.renderPlayers();
+    this.renderOnlineChip();
+  }
+
+  renderPlayers() {
+    const list = this.q('.sdh-players-list');
+    const n = this.players.length;
+    this.q('[data-p="playersCount"]').textContent = String(n);
+    this.q('.sdh-players').classList.toggle('is-empty', n === 0);
+    list.innerHTML = n ? this.players.map((p) => `
+      <li class="${p.isMe ? 'is-me' : ''}"><span class="sdh-lv-badge sdh-lv-sm sdh-num">${esc(p.level)}</span><b>${esc(p.name)}</b>${p.isMe ? '<em>you</em>' : ''}<small>${esc(p.modeLabel || '')}</small></li>`).join('')
+      : '<li class="sdh-players-none">No other drivers on the mountain right now.</li>';
+  }
+
+  /** @param {{name:string, kind:'pb'|'leaderboard', visible?:boolean}|null} ghost */
+  setGhost(ghost) {
+    this.ghost = ghost || null;
+    this.renderGhost();
+  }
+
+  renderGhost() {
+    const chip = this.q('.sdh-ghost-chip');
+    const g = this.ghost;
+    chip.classList.toggle('is-on', Boolean(g));
+    chip.classList.toggle('is-hidden-ghost', Boolean(g) && g.visible === false);
+    chip.querySelector('span').textContent = g ? (g.kind === 'pb' ? 'Ghost · Your best' : `Ghost · ${g.name || 'Rival'}`) : '';
+  }
+
+  /** @param {import('../core/contracts.js').CareerEvent} event Queued: one card at a time. */
+  notify(event) {
+    if (!event || !event.title) return;
+    this.notifyQueue.push(event);
+    if (this.notifyQueue.length > 8) this.notifyQueue.shift();
+    this.pumpNotify();
+  }
+
+  pumpNotify() {
+    if (this.notifyBusy || !this.notifyQueue.length) return;
+    const ev = this.notifyQueue.shift();
+    this.notifyBusy = true;
+    const type = ['achievement', 'levelUp', 'unlock', 'medal', 'daily'].includes(ev.type) ? ev.type : 'achievement';
+    const tier = type === 'medal' ? MEDAL_TIERS.find((t) => `${ev.title} ${ev.detail || ''}`.toLowerCase().includes(t)) : null;
+    const icon = type === 'medal' ? medalBadge(tier || 'gold', ' sdh-medal-md')
+      : type === 'levelUp' ? `<span class="sdh-lv-badge sdh-num">${esc((ev.title.match(/\d+/) || ['↑'])[0])}</span>`
+        : type === 'daily' ? ICON.flame : type === 'unlock' ? ICON.car : ICON.medal;
+    const kicker = { achievement: 'Achievement', levelUp: 'Level up', unlock: 'Unlocked', medal: 'Medal', daily: 'Daily challenge' }[type];
+    const item = document.createElement('div');
+    item.className = `sdh-notify is-${type}`;
+    item.innerHTML = `<span class="sdh-notify-icon">${icon}</span>
+      <span class="sdh-notify-main"><small>${kicker}</small><b>${esc(ev.title)}</b>${ev.detail ? `<span>${esc(ev.detail)}</span>` : ''}</span>
+      ${Number.isFinite(ev.xp) && ev.xp > 0 ? `<span class="sdh-notify-xp sdh-num">+${formatInt(ev.xp)} XP</span>` : ''}`;
+    this.toastsEl.prepend(item);
+    this.later(() => item.classList.add('is-leaving'), 3000);
+    this.later(() => {
+      item.remove();
+      this.notifyBusy = false;
+      this.pumpNotify();
+    }, 3400);
   }
 
   // ---------------------------------------------------------------- per-frame

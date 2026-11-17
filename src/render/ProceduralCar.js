@@ -123,6 +123,7 @@ export class ProceduralCar extends THREE.Group {
     this.materials = [];
     this.textures = [];
     this.paintMeshes = [];
+    this.number = String(options.number ?? '27');
     this.build();
   }
 
@@ -209,8 +210,8 @@ export class ProceduralCar extends THREE.Group {
       this.box(0.15, 0.012, 1.06, x, 1.317, 0.42, this.stripeMaterial);
     }
     // Door number boards.
-    const numberMaterial = this.material({ map: numberTexture('27'), roughness: 0.5 });
-    this.textures.push(numberMaterial.map);
+    const numberMaterial = this.material({ map: numberTexture(this.number), roughness: 0.5 });
+    this.numberMaterial = numberMaterial;
     for (const side of [-1, 1]) {
       const plate = new THREE.PlaneGeometry(0.62, 0.39);
       plate.rotateY(side * Math.PI / 2);
@@ -297,6 +298,7 @@ export class ProceduralCar extends THREE.Group {
     const { wheelbase, track, wheelRadius, wheelWidth } = this.dimensions;
     const tire = this.material({ color: 0x141517, metalness: 0, roughness: 0.92 });
     const rim = this.material({ color: 0xbfc4ca, metalness: 0.85, roughness: 0.3 });
+    this.rimMaterial = rim;
     const caliper = this.material({ color: 0xd6242a, metalness: 0.3, roughness: 0.45 });
 
     // Tyre: a lathe of a rounded section, axis along x.
@@ -420,6 +422,29 @@ export class ProceduralCar extends THREE.Group {
     });
   }
 
+  /** Paint finish: { color, metalness?, roughness? } (an entry of PAINT_OPTIONS). */
+  setPaint(paint) {
+    this.bodyMaterial.metalness = paint.metalness ?? 0.35;
+    this.bodyMaterial.roughness = paint.roughness ?? 0.32;
+    return this.setColor(paint.color);
+  }
+
+  setRimColor(color) {
+    this.rimMaterial.color.set(color);
+    return this;
+  }
+
+  /** Door number, one or two digits. */
+  setNumber(number) {
+    const text = String(number ?? '').replace(/\D/g, '').slice(0, 2) || '27';
+    if (text === this.number) return this;
+    this.number = text;
+    this.numberMaterial.map.dispose();
+    this.numberMaterial.map = numberTexture(text);
+    this.numberMaterial.needsUpdate = true;
+    return this;
+  }
+
   setColor(color) {
     this.color.set(color);
     this.bodyMaterial.color.copy(this.color);
@@ -482,6 +507,7 @@ export class ProceduralCar extends THREE.Group {
     });
     geometries.forEach((geometry) => geometry.dispose());
     new Set(this.materials).forEach((material) => material.dispose());
+    this.numberMaterial?.map?.dispose();
     this.textures.forEach((texture) => texture.dispose());
     this.materials.length = 0;
   }

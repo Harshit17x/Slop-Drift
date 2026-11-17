@@ -40,6 +40,16 @@ export class CarVisual {
     this.model.setColor(color);
   }
 
+  /**
+   * Apply the player's cosmetics.
+   * @param {{paint?: {color:number, metalness?:number, roughness?:number}, rimColor?: number, number?: string}} look
+   */
+  setLook({ paint, rimColor, number } = {}) {
+    if (paint) this.model.setPaint(paint);
+    if (rimColor !== undefined) this.model.setRimColor(rimColor);
+    if (number) this.model.setNumber(number);
+  }
+
   setHeadlights(on) {
     this.headlightsOn = Boolean(on);
     for (const light of this.headlights) light.intensity = this.headlightsOn ? 260 : 0;
