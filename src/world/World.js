@@ -2,6 +2,7 @@ import { SURFACE, SURFACE_PROPS, CONFIG } from '../config.js';
 import { clamp, lerp, smoothstep } from '../core/math.js';
 import { WORLD } from './worldConfig.js';
 import { createRandom } from './noise.js';
+import { nextTask as pause } from '../core/yield.js';
 import { MountainShape } from './MountainShape.js';
 import { TerrainGrid } from './TerrainGrid.js';
 import { Road, gradeLimitedProfile } from './Road.js';
@@ -10,11 +11,11 @@ import { buildLoopPlan, buildSpurPlan } from './TrackLayout.js';
 const LOOP = 0;
 const SPUR = 1;
 const CORRIDOR_CELL = 8;
+const MACRO_STEP = 2; // macro relief is sampled every 2 grid cells (4 m)
 const OBSTACLE_CELL = 16;
 const MOUTH_LEFT = 1;
 const MOUTH_RIGHT = 2;
 
-const pause = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 // Scratch objects reused by the queries so the physics step never allocates.
 const scratchLocation = {};
@@ -59,7 +60,9 @@ export class World {
     this.buildCorridorField([loopPoints, spurPlan.points]);
 
     await stage(0.06, 'Raising the terrain');
-    await this.grid.fill((x, z) => this.rawHeight(x, z), (fraction) => stage(0.06 + fraction * 0.44, 'Raising the terrain'));
+    await this.buildMacroField((fraction) => stage(0.06 + fraction * 0.22, 'Raising the terrain'));
+    await this.grid.fill((x, z) => this.rawHeight(x, z), (fraction) => stage(0.28 + fraction * 0.22, 'Raising the terrain'));
+    this.macro = null;
 
     await stage(0.52, 'Eroding ridges and gullies');
     this.grid.erode(config.erosion, createRandom(config.seed + 5));
@@ -121,13 +124,50 @@ export class World {
     return top + (bottom - top) * fz;
   }
 
+  /**
+   * The ridges and eroded relief are 100 m-scale features but cost most of the generation time, so
+   * they are evaluated every MACRO_STEP grid cells (already faded out along road corridors) and
+   * interpolated. Fine ground texture and erosion still run at full resolution.
+   */
+  async buildMacroField(pause) {
+    const grid = this.grid;
+    const size = Math.ceil((grid.size - 1) / MACRO_STEP) + 1;
+    const cell = grid.cell * MACRO_STEP;
+    const values = new Float32Array(size * size);
+    const road = this.config.road;
+    for (let iz = 0; iz < size; iz += 1) {
+      const z = iz * cell - grid.half;
+      for (let ix = 0; ix < size; ix += 1) {
+        const x = ix * cell - grid.half;
+        const keep = smoothstep(road.corridorClear, road.corridorFade, this.corridorDistance(x, z));
+        values[iz * size + ix] = keep > 0 ? this.shape.macroDetail(x, z) * keep : 0;
+      }
+      if (pause && iz % 64 === 63) await pause(iz / size);
+    }
+    this.macro = { values, size, cell };
+  }
+
+  macroAt(x, z) {
+    const { values, size, cell } = this.macro;
+    const gx = clamp((x + this.grid.half) / cell, 0, size - 1.001);
+    const gz = clamp((z + this.grid.half) / cell, 0, size - 1.001);
+    const ix = gx | 0;
+    const iz = gz | 0;
+    const fx = gx - ix;
+    const fz = gz - iz;
+    const node = iz * size + ix;
+    const top = values[node] + (values[node + 1] - values[node]) * fx;
+    const bottom = values[node + size] + (values[node + size + 1] - values[node + size]) * fx;
+    return top + (bottom - top) * fz;
+  }
+
   /** Terrain height before erosion and road carving. */
   rawHeight(x, z) {
+    const height = this.shape.base(x, z) + this.shape.fixedDetail(x, z);
+    if (this.macro) return height + this.macroAt(x, z);
     const road = this.config.road;
     const keep = smoothstep(road.corridorClear, road.corridorFade, this.corridorDistance(x, z));
-    let height = this.shape.base(x, z) + this.shape.fixedDetail(x, z);
-    if (keep > 0) height += this.shape.macroDetail(x, z) * keep;
-    return height;
+    return keep > 0 ? height + this.shape.macroDetail(x, z) * keep : height;
   }
 
   buildRoads(loopPoints, spurPlan) {
@@ -549,9 +589,14 @@ export class World {
   getMapData() {
     const roads = this.roads.map((road) => {
       const points = [];
-      for (let i = 0; i < road.count; i += 3) points.push(road.px[i], road.pz[i]);
-      if (!road.closed) points.push(road.px[road.count - 1], road.pz[road.count - 1]);
-      return { id: road.id, closed: road.closed, points };
+      const heights = [];
+      const add = (i) => {
+        points.push(road.px[i], road.pz[i]);
+        heights.push(road.py[i]);
+      };
+      for (let i = 0; i < road.count; i += 3) add(i);
+      if (!road.closed) add(road.count - 1);
+      return { id: road.id, closed: road.closed, points, heights };
     });
     const start = this.roads[LOOP].frameAt(this.routes.loop.startS, scratchFrame);
     const markers = [{ x: start.x, z: start.z, kind: 'start' }];

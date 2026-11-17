@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Terrain view test</title>
+    <style>
+      #info { position: fixed; top: 8px; left: 8px; padding: 6px 10px; background: rgba(0, 0, 0, 0.6); color: #dfe; font: 12px/1.5 ui-monospace, Menlo, monospace; white-space: pre; pointer-events: none; }
+    </style>
+    <script type="importmap">
+      { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js" } }
+    </script>
+  </head>
+  <body>
+    <div id="info">building world…</div>
+    <script type="module" src="./view-terrain.js"></script>
+  </body>
+</html>

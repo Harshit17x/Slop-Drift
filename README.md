@@ -2,84 +2,97 @@
 
 [![Live Demo](https://img.shields.io/badge/Demo-Play%20Online-success?style=for-the-badge&logo=vercel)](https://slop-drift.vercel.app/)
 
-🎮 **Play Live in Browser:** [**https://slop-drift.vercel.app/**](https://slop-drift.vercel.app/)
-
-Self-contained browser mountain drift game. The current runtime does not use the supplied GLB files. Terrain, road, car, decorations, checkpoints, effects, and audio are generated at runtime.
+A browser mountain drift-racing game. Everything is generated at load time from a seed: a 2.5 km mountain with eroded ridges and a snow cap, a 5.7 km road loop with four hairpins, a 3 km spur that spirals to the summit, the car, the scenery and the audio. There are no model, texture or sound files.
 
 ## Run
 
-From the project root:
+```bash
+npm install
+```
 
 ```bash
-python -m http.server 8080
+npm run dev
 ```
 
-Open:
+Then open the URL Vite prints. `npm run build` produces a static bundle in `dist/`.
 
-```text
-http://localhost:8080
-```
-
-The page uses a Three.js CDN import map, so it does not require `npm install`, Vite, or a build step. A static HTTP server is required because browser ES modules are not reliably loadable from `file://` URLs.
+The page also carries an import map for Three.js, so the repository root can be served by any static file server without a build step.
 
 ## Modes
 
-- Summit Sprint — one-lap mountain time trial
-- Drift Session — 90-second score attack
-- Ridge Circuit — two-lap run
-- Free Roam — open mountain driving
+| Mode | Route |
+| --- | --- |
+| Mountain Loop | One timed lap of the loop |
+| Ridge Circuit | Two laps |
+| Summit Climb | Hill climb from the pass up the spur to the summit plaza |
+| Touge Descent | The spur driven downhill |
+| Drift Session | 120 seconds of score attack on the loop |
+| Free Roam | No clock; drive anywhere, including off the road |
+
+Laps only count when every checkpoint is passed in order. Best times, splits and drift scores are stored in the browser.
 
 ## Controls
 
-- `W` / `ArrowUp`: throttle
-- `S` / `ArrowDown`: brake and reverse
-- `A/D` / arrows: steer
-- `Space`: handbrake drift
-- `Shift`: nitro
-- `C`: camera mode
-- `R`: respawn at the latest checkpoint
-- `Q/E`: manual downshift/upshift
-- `T`: automatic/manual transmission
-- `H`: headlights
-- `P` / `Escape`: pause
-- `M`: mute
-- `F1`: debug panel
-- Right mouse drag: cockpit free look
-- `B`: look back
+| Action | Keyboard | Gamepad |
+| --- | --- | --- |
+| Throttle / brake and reverse | `W` / `S` or arrows | Right / left trigger |
+| Steer | `A` / `D` or arrows | Left stick |
+| Handbrake | `Space` | A |
+| Nitro | `Shift` | B |
+| Camera | `C` | Y |
+| Look back / free look | `B` / right-drag | R3 / right stick |
+| Reset to the road | `R` | X |
+| Shift down / up (manual) | `Q` / `E` | Bumpers |
+| Automatic or manual gearbox | `T` | View |
+| Headlights | `H` | D-pad up |
+| Pause | `P` or `Esc` | Start |
+| Mute, fullscreen, debug panel | `M`, `F`, `F1` | |
 
-Gamepad and touch controls are also included.
+Touch controls appear on touch devices.
 
-## Runtime files
+## How it is built
 
-- `index.html` — CDN import map and entry point
-- `src/mountain-main.js` — game state, scene, modes, and render loop
-- `src/mountain-config.js` — all major tuning values and saved settings
-- `src/procedural/Heightfield.js` — deterministic basin-and-rim mountain terrain with ridges, cliffs, and edge drop-offs
-- `src/procedural/TerrainChunk.js` — chunked terrain rendering and LOD
-- `src/procedural/MountainRoad.js` — spline road, banked hairpin U-turn, red/white racing curbs, shoulders, guardrails, warning cones, checkpoints
-- `src/procedural/ProceduralCar.js` — primitive-built rally car and interior
-- `src/procedural/MountainVehicle.js` — custom vehicle dynamics, road-follow stability assist, suspension, traction-limited tires, drag, downforce, and fixed-step simulation
-- `src/procedural/DriftModel.js` — handbrake drift detection and scoring
-- `src/mountain-camera.js` — chase, far, hood, and cockpit cameras
-- `src/mountain-effects.js` — smoke, dust, sparks, flames, and skid marks
-- `src/mountain-audio.js` — synthesized engine, tire, wind, nitro, and UI audio
-- `src/mountain-hud.js` — menu, HUD, minimap, settings, pause, and finish flow
+```
+src/
+  main.js              entry point
+  config.js            modes, settings, surface table, persisted records
+  core/                Game (state machine and frame loop), shared math, data contracts
+  world/               mountain shape, road layout, terrain grid, world queries (no rendering; runs in Node)
+  vehicle/             rigid-body raycast vehicle, drivetrain, tyre curve, drift scoring
+  game/                RaceSession: laps, checkpoints, splits, records
+  render/              terrain, roads, scenery, sky, car, camera, effects
+  ui/  input/  audio/  HUD and menus, keyboard/gamepad/touch, synthesized sound
+tests/                 headless tests (npm test) and browser test pages
+```
 
-## Ten key CONFIG values
+**World.** The mountain is an analytic star-shaped cone, so every (bearing, altitude) pair maps to one point. Roads are described as legs in that space and laid on the matching contour, which is why they hug the slope; hairpins join legs, and each leg climbs at an even grade. The terrain is then baked into a 1281 x 1281 height grid (2 m cells), eroded with a droplet simulation, and cut and filled around the roads with rock-cut and embankment slopes. Rendering and physics read the same grid, and on the road the physics uses the analytic road surface, so the ride is smooth.
 
-1. `CONFIG.seed` — regenerates the same mountain when unchanged.
-2. `CONFIG.world.roadWidth` — road width and available drift room.
-3. `CONFIG.world.roadSegments` — road smoothness and loop detail.
-4. `CONFIG.vehicle.engineForce` — acceleration and launch strength.
-5. `CONFIG.vehicle.lateralGrip` — how easily the car slides.
-6. `CONFIG.vehicle.maxSpeed` — top speed in meters per second.
-7. `CONFIG.drift.entryAngleDeg` — angle needed before a drift starts scoring.
-8. `CONFIG.drift.scoreScale` — drift score rate.
-9. `CONFIG.camera.chaseDistance` and `CONFIG.camera.chaseHeight` — exterior camera feel.
-10. `CONFIG.world.chunkSize` and terrain resolution preset — terrain detail/performance balance.
+**Vehicle.** A 6-DOF rigid body with four suspension rays, written from scratch. Suspension force, friction-circle handling and the velocity-cancelling friction solver follow the raycast-vehicle approach used by Bullet, Rapier and cannon-es; lateral grip above walking pace comes from a peaked slip-angle curve, which is what lets the car drift and recover. A locked rear axle (handbrake) slides at kinetic friction. There is no hidden steering or glue: drift assist only eases the front wheels toward the direction of travel.
 
-## Verification
+**References.** Bullet `btRaycastVehicle`, Rapier `ray_cast_vehicle_controller`, cannon-es `RaycastVehicle`, pmndrs/racing-game, spacejack/carphysics2d, Dechode/Godot-Simple-Vehicle, and Sebastian Lague's Hydraulic-Erosion informed the physics and erosion. No code was copied from them.
 
-- All new runtime modules pass `node --check`.
-- `npm run build` still passes for the legacy Vite bundle.
-- The standalone page was opened through a Python static server and rendered the procedural mountain scene, road, HUD, menu, minimap, and procedural runtime without external model files.
+## Tests
+
+```bash
+npm test
+```
+
+Runs the world generation checks (road grades, corner radii, surface continuity, guardrails), the vehicle physics suite (acceleration, braking, hill hold, drift and recovery, landings, barrier hits, and drives on the generated roads), the race-session rules and the HUD logic.
+
+Browser test pages, with the dev server running: `tests/ui-harness.html` (HUD with fake data), `tests/view-terrain.html`, `tests/view-road.html` and `tests/view-scenery.html` (fly camera over each part of the world).
+
+`tests/autopilot.js` drives the real game from the browser console: it attaches a centreline-following driver, steps the game loop at a fixed 60 Hz without rendering (so a full lap takes about a second and works in a background tab), and renders still frames from any point on the roads:
+
+```js
+const t = await import('/tests/autopilot.js');
+await t.ready();
+t.attach();
+t.start('sprint');
+t.step(60 * 30);
+```
+
+## Tuning
+
+- `src/world/worldConfig.js` — seed, mountain size and shape, erosion, road widths and grades, and the leg lists that define the loop and the spur.
+- `src/vehicle/tuning.js` — mass, suspension, tyres, engine, brakes, steering, and the Arcade / Balanced / Sim presets.
+- `src/config.js` — modes, quality presets, nitro, checkpoint spacing.

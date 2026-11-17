@@ -41,7 +41,7 @@
 }
 
 .sdh *, .sdh *::before, .sdh *::after { box-sizing: border-box; }
-.sdh button, .sdh input, .sdh select { font: inherit; color: inherit; }
+:where(.sdh) :where(button, input, select) { font: inherit; color: inherit; }
 .sdh svg { display: block; }
 
 .sdh-num {
@@ -67,6 +67,8 @@
   box-shadow: var(--shadow);
   text-shadow: var(--text-shadow);
 }
+
+.sdh:not(.is-ready), .sdh:not(.is-ready) *, .sdh:not(.is-ready) *::after { transition: none !important; }
 
 /* ------------------------------------------------------------------ race layer grid */
 
@@ -613,8 +615,8 @@
 .sdh-overview {
   display: block;
   width: 100%;
-  aspect-ratio: 16 / 10;
-  max-height: 14em;
+  aspect-ratio: 4 / 3;
+  max-height: 16em;
   border-radius: 0.7em;
   border: 1px solid var(--line);
   background: radial-gradient(120% 120% at 50% 40%, rgba(30, 40, 52, 0.5), rgba(8, 11, 17, 0.6));
@@ -1028,3 +1030,6 @@
   .sdh *, .sdh *::before, .sdh *::after { animation: none !important; transition-duration: 0s !important; transition-delay: 0s !important; }
   .sdh-speedo.is-shift .sdh-g-fill { stroke: #ffffff; }
 }
+
+/* The settings footer is sticky to the panel's bottom edge, so that panel never has bottom padding. */
+.sdh .sdh-panel-settings { padding-bottom: 0; }

@@ -186,17 +186,29 @@ export class Hud {
     this.minimap = new Minimap(this.q('.sdh-map canvas'), { radius: minimap.radius ?? 420, rotate: minimap.rotate ?? true });
     this.elevation = new ElevationStrip(this.q('.sdh-elev-strip'));
     this.applyScreen();
+    this.markReady();
   }
 
   injectStyles() {
     this.injectedStyles = true;
     stylesRefCount += 1;
-    if (document.querySelector('link[data-sdh-styles]')) return;
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = new URL('./hud.css', import.meta.url).href;
-    link.dataset.sdhStyles = '';
-    document.head.appendChild(link);
+    let link = document.querySelector('link[data-sdh-styles]');
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = new URL('./hud.css', import.meta.url).href;
+      link.dataset.sdhStyles = '';
+      document.head.appendChild(link);
+    }
+    this.stylesLink = link;
+  }
+
+  /** Enables transitions once the sheet applies, so nothing animates in from browser-default styles. */
+  markReady() {
+    const ready = () => requestAnimationFrame(() => requestAnimationFrame(() => this.el?.classList.add('is-ready')));
+    const link = this.stylesLink;
+    if (link && !link.sheet) link.addEventListener('load', ready, { once: true });
+    else ready();
   }
 
   q(sel) {
@@ -669,7 +681,7 @@ export class Hud {
     this.q('.sdh-finish-body').innerHTML = `
       <header class="sdh-panel-head">
         <div class="sdh-eyebrow">${esc(label)} · ${kind === 'score' ? 'Score' : 'Finish'}</div>
-        <h2 class="sdh-title">${result.isRecord ? 'New record' : 'Finished'}</h2>
+        <h2 class="sdh-title">${kind === 'score' ? 'Time’s up' : 'Finished'}</h2>
         ${result.isRecord ? '<div class="sdh-record-badge">NEW RECORD</div>' : ''}
       </header>
       ${hero}${compare}

@@ -2,7 +2,8 @@
 import * as THREE from 'three';
 import { Vehicle } from '../src/vehicle/Vehicle.js';
 import { DriftScorer } from '../src/vehicle/DriftScorer.js';
-import { CONFIG } from '../src/config.js';
+import { CONFIG, SURFACE } from '../src/config.js';
+import { World } from '../src/world/World.js';
 
 const DT = CONFIG.physics.fixedDt;
 const DEG = Math.PI / 180;
@@ -585,6 +586,80 @@ function testDriftScorer() {
   check('drift is detected and banked', started && snap.bank > 0, `bank ${snap.bank}`);
 }
 
+
+async function testRealWorld() {
+  console.log('\nReal World integration');
+  const world = await new World().build();
+  for (const routeId of ['loop', 'climb']) {
+    const route = world.routes[routeId];
+    const roadId = route.roadId;
+    const road = world.roads[roadId];
+    const loc = {};
+    const frame = {};
+    const pose = world.getSpawn(routeId, route.startS);
+    const v = makeVehicle(world);
+    let s = v.teleport(pose);
+    world.locate(s.position.x, s.position.z, loc, roadId);
+    const grade = loc.roadId >= 0 ? Math.abs(loc.ty) / Math.hypot(loc.tx, loc.tz) * 100 : NaN;
+
+    // Settles and holds with no input, then with the handbrake.
+    const p0 = s.position.clone();
+    let maxSpeed = 0;
+    s = run(v, 4, (t, st) => { maxSpeed = Math.max(maxSpeed, st.speed); return controls(); });
+    const creep = s.position.distanceTo(p0);
+    check(`${routeId}: settles at rest at the start (grade ${grade.toFixed(1)}%)`, maxSpeed < 0.02 && creep < 0.01 && s.wheelsOnGround === 4,
+      `max speed ${maxSpeed.toExponential(2)}, creep ${(creep * 1000).toFixed(2)} mm`);
+    const p1 = s.position.clone();
+    s = run(v, 4, () => controls({ handbrake: true }));
+    check(`${routeId}: holds on the grade with the handbrake`, s.position.distanceTo(p1) < 0.01, `creep ${(s.position.distanceTo(p1) * 1000).toFixed(2)} mm`);
+
+    // Drive 300 m with pure pursuit on the centreline and a curvature-limited speed.
+    world.locate(s.position.x, s.position.z, loc, roadId);
+    const sStart = loc.s;
+    let travelled = 0;
+    let maxLat = -Infinity;
+    let offAsphalt = 0;
+    let finite = true;
+    let lastS = sStart;
+    s = run(v, 90, (t, st) => {
+      world.locate(st.position.x, st.position.z, loc, roadId);
+      if (loc.roadId < 0) { finite = false; return null; }
+      let ds = (loc.s - lastS) * route.direction;
+      if (route.closed && Math.abs(ds) > road.length / 2) ds -= Math.sign(ds) * road.length;
+      travelled += ds;
+      lastS = loc.s;
+      if (travelled >= 300) return null;
+      if (![st.position.x, st.position.y, st.position.z, st.speed].every(Number.isFinite)) { finite = false; return null; }
+      maxLat = Math.max(maxLat, Math.abs(loc.lateral) - loc.halfWidth);
+      for (const w of st.wheels) if (w.contact && w.surface !== SURFACE.ASPHALT) offAsphalt++;
+      // Speed from the heading change over the next 25 m.
+      road.frameAt(loc.s + route.direction * 5, frame);
+      const h1 = Math.atan2(frame.tx, frame.tz);
+      road.frameAt(loc.s + route.direction * 30, frame);
+      const turn = Math.abs(Math.atan2(Math.sin(Math.atan2(frame.tx, frame.tz) - h1), Math.cos(Math.atan2(frame.tx, frame.tz) - h1)));
+      const radius = 25 / Math.max(turn, 1e-3);
+      const vTarget = Math.min(16, Math.sqrt(0.55 * 9.81 * radius));
+      // Pure pursuit to a point 9 m ahead on the centreline.
+      road.frameAt(loc.s + route.direction * 9, frame);
+      const dx = frame.x - st.position.x;
+      const dz = frame.z - st.position.z;
+      const lx = dx * st.right.x + dz * st.right.z;
+      const lf = dx * st.forward.x + dz * st.forward.z;
+      const alpha = Math.atan2(lx, lf);
+      const delta = Math.atan((2 * 2.55 * Math.sin(alpha)) / Math.max(4, Math.hypot(dx, dz)));
+      const lock = Math.max(6, 34 / (1 + Math.abs(st.forwardSpeed) / 18)) * DEG;
+      const err = vTarget - st.forwardSpeed;
+      return controls({
+        throttle: err > 0 ? Math.min(1, err * 0.5 + 0.2) : 0,
+        brake: err < -1.5 ? Math.min(1, -err * 0.3) : 0,
+        steer: Math.max(-1, Math.min(1, delta / lock)),
+      });
+    });
+    check(`${routeId}: drives 300 m along the road on asphalt`, finite && travelled >= 300 && maxLat < -0.3 && offAsphalt === 0,
+      `travelled ${travelled.toFixed(0)} m, closest edge ${(-maxLat).toFixed(2)} m inside, off-asphalt wheel samples ${offAsphalt}, end speed ${s.speed.toFixed(1)} m/s`);
+  }
+}
+
 // ------------------------------------------------------------------ run
 
 const t0 = Date.now();
@@ -601,6 +676,7 @@ testReverse();
 testNaNRecovery();
 testFuzzAndDeterminism();
 testDriftScorer();
+await testRealWorld();
 
 console.log('\nMeasured figures (Balanced)');
 console.log('  ' + 'figure'.padEnd(42) + 'value'.padStart(10) + '  unit'.padEnd(8) + '  target');

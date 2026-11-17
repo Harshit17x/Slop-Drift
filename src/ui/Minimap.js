@@ -30,7 +30,19 @@ export function normalizeTrack(track) {
     }
     if (!Number.isFinite(b.minX)) b = { minX: -1000, maxX: 1000, minZ: -1000, maxZ: 1000 };
   }
-  return { bounds: { ...b }, roads, markers: (track?.markers || []).slice() };
+  // Extent of the roads and markers, for the overview map (the world bounds include empty terrain).
+  const e = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
+  const grow = (x, z) => {
+    if (x < e.minX) e.minX = x;
+    if (x > e.maxX) e.maxX = x;
+    if (z < e.minZ) e.minZ = z;
+    if (z > e.maxZ) e.maxZ = z;
+  };
+  for (const r of roads) for (let i = 0; i < r.points.length; i += 2) grow(r.points[i], r.points[i + 1]);
+  const markers = (track?.markers || []).slice();
+  for (const m of markers) grow(m.x, m.z);
+  const extent = Number.isFinite(e.minX) ? e : { ...b };
+  return { bounds: { ...b }, extent, roads, markers };
 }
 
 function traceRoad(ctx, road, tx, tz) {
@@ -333,8 +345,8 @@ export class Minimap {
     const ctx = canvas.getContext('2d');
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, cw, ch);
-    const { minX, maxX, minZ, maxZ } = this.track.bounds;
-    const pad = 14 * dpr;
+    const { minX, maxX, minZ, maxZ } = this.track.extent;
+    const pad = 16 * dpr;
     const k = Math.min((cw - pad * 2) / Math.max(1, maxX - minX), (ch - pad * 2) / Math.max(1, maxZ - minZ));
     const ox = (cw - (maxX - minX) * k) / 2;
     const oz = (ch - (maxZ - minZ) * k) / 2;
