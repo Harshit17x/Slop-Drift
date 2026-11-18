@@ -641,6 +641,15 @@ const extraButtons = {
   leaderboard: () => hud.openLeaderboard('sprint'),
   garage: () => hud.openSub('garage'),
   achievements: () => hud.openSub('achievements'),
+  'mode-calm': () => { hud.setHudMode('calm'); log('setHudMode(calm)'); },
+  'mode-race': () => { hud.setHudMode('race'); log('setHudMode(race)'); },
+  checkpoints: () => {
+    hud.showCheckpoint({ index: 3, total: 17, split: -0.84, label: 'CHECKPOINT', km: 3 });
+    hud.showCheckpoint({ index: 4, total: 17, split: 1.27, label: 'KEMPTY FALLS', km: 0.8 });
+    hud.showCheckpoint({ index: 5, total: 17, split: null, label: 'CHECKPOINT', km: null });
+  },
+  slogan: () => log(`showSlogan → ${hud.showSlogan()}`),
+  'drift-break': () => hud.flashDriveSafe(),
 };
 harnessPanel.addEventListener('click', (event) => {
   const b = event.target.closest('[data-h]');
@@ -650,3 +659,30 @@ queueMicrotask(() => {
   if (params.get('name') === '1') hud.promptName('Driver 4821');
   if (params.get('panel')) extraButtons[params.get('panel')]?.();
 });
+
+// ------------------------------------------------------------------ inspection helpers (for checks in a hidden/throttled pane)
+// freezeHud(overrides): stop the fake loop from driving the HUD and show one fixed race frame.
+// noMotion(): turn off transitions/animations so final states can be measured immediately.
+const SAMPLE_FRAME = () => ({
+  speedKmh: 142, gear: 4, rpm: 6900, rpmMax: 7200, throttle: 0.8, brake: 0, boost: 62, boosting: false, surface: 'asphalt',
+  position: { x: 700, z: 120 }, heading: 1.2, altitude: 2104, grade: 7.4,
+  drift: { active: true, angleDeg: 34, score: 12840, bank: 2737, multiplier: 3.1, comboTimer: 1.6, comboWindow: 2 },
+  session: { modeId: 'circuit', modeLabel: 'Ridge Circuit', lap: 2, laps: 2, elapsed: 201.4, lapTime: 83.45, bestLap: 118.2, lastLap: 118.2, progress: 0.62, timeLeft: null, wrongWay: false, offRoad: false },
+  camera: 'Chase', debug: '',
+});
+const realUpdate = hud.update.bind(hud);
+window.freezeHud = (overrides = {}) => {
+  hud.update = () => {};
+  hud.setCountdown('');
+  if (hud.screen !== 'race') hud.showRace();
+  const f = { ...SAMPLE_FRAME(), ...overrides };
+  realUpdate(f);
+  realUpdate(f);
+  return f;
+};
+window.unfreezeHud = () => { hud.update = realUpdate; };
+window.noMotion = () => {
+  const st = document.createElement('style');
+  st.textContent = '.sdh *, .sdh *::before, .sdh *::after { transition: none !important; animation: none !important; }';
+  document.head.appendChild(st);
+};

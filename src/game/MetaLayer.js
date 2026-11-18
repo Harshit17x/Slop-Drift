@@ -122,8 +122,10 @@ export class MetaLayer {
   bindHud() {
     const { hud, career } = this;
     hud.onRename = (name) => {
+      const firstLaunch = career.needsName;
       if (!career.setName(name)) career.keepName();
       this.refreshProfile();
+      if (firstLaunch && this.game.state === 'menu') this.game.startFirstDrive();
     };
     hud.onCosmetic = (slot, value) => {
       if (career.setCosmetic(slot, value)) {

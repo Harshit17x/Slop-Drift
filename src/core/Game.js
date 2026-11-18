@@ -277,12 +277,27 @@ export class Game {
     this.roads.setRoute(this.mode.id === 'roam' ? null : route);
     this.hud.setActiveRoad(route.roadId);
     this.hud.showRace();
+    // Free roam is the calm, explore-the-mountain HUD; timed events get full telemetry.
+    this.hud.setHudMode?.(this.mode.id === 'roam' ? 'calm' : 'race');
     this.cameraRig.setMode('chase');
     this.cameraRig.snap();
+    this.countdownShown = '';
+    if (this.mode.id === 'roam') {
+      // Nothing to time, so no countdown: you are driving the moment it loads.
+      this.state = 'running';
+      this.countdown = 0;
+      this.input.setDrivingEnabled(true);
+      return;
+    }
     this.input.setDrivingEnabled(false);
     this.state = 'countdown';
     this.countdown = CONFIG.race.countdownSeconds;
-    this.countdownShown = '';
+  }
+
+  /** First launch: once the driver has a name, go straight onto the mountain instead of a menu. */
+  startFirstDrive() {
+    this.beginRun('roam');
+    this.hud.toast('Explore the mountain. Esc opens the events board.', 'info');
   }
 
   pause() {
@@ -323,7 +338,7 @@ export class Game {
     this.cameraRig.snap();
     this.audio.respawn();
     this.stuckTimer = 0;
-    this.hud.toast('Back on the road', 'warn');
+    if (!this.slogan()) this.hud.toast('Back on the road', 'warn');
   }
 
   toggleFullscreen() {
@@ -411,6 +426,7 @@ export class Game {
     if (this.state === 'running') this.meta.frame(dt, state, drift, this.session.hud.elapsed, this.cameraRig.camera);
 
     this.effects.emit(dt, state);
+    if (state.impact > 9) this.slogan();
     this.sendNetState(state, boosting, drift.active);
     this.audioFlags.drifting = drift.active;
     this.audioFlags.boosting = boosting;
@@ -424,14 +440,40 @@ export class Game {
     this.meta.sessionEvent(event);
     if (event.type === 'checkpoint') {
       this.audio.checkpoint();
-      const split = event.split === null || event.split === undefined ? '' : `  ${formatDelta(event.split)}`;
-      this.hud.toast(`Checkpoint ${event.index + 1}/${event.total}${split}`, event.split !== null && event.split !== undefined && event.split > 0 ? 'warn' : 'good');
+      const split = Number.isFinite(event.split) ? event.split : null;
+      if (this.hud.showCheckpoint) {
+        this.hud.showCheckpoint({ index: event.index, total: event.total, split, label: 'CHECKPOINT', km: this.distanceToNextGate(event) });
+      } else {
+        this.hud.toast(`Checkpoint ${event.index + 1}/${event.total}${split === null ? '' : `  ${formatDelta(split)}`}`, split !== null && split > 0 ? 'warn' : 'good');
+      }
     } else if (event.type === 'lap') {
       this.audio.checkpoint();
       this.hud.toast(`Lap ${event.lap}  ${formatTime(event.time)}${event.isBest ? '  best lap' : ''}`, 'good');
     } else if (event.type === 'finish') {
       this.finish(event.result);
     }
+  }
+
+  /** Kilometres from the car to the next gate (or the finish) along the route, for the milestone. */
+  distanceToNextGate(event) {
+    const route = this.session.route;
+    const road = this.world.roads[route.roadId];
+    const gates = route.checkpoints;
+    const nextS = event.index + 1 < gates.length ? gates[event.index + 1] : route.finishS;
+    const position = this.vehicle.getState().position;
+    const here = this.world.locate(position.x, position.z, this.location, route.roadId).s;
+    let metres = (nextS - here) * route.direction;
+    if (route.closed) metres = ((metres % road.length) + road.length) % road.length;
+    return Math.max(0, metres) / 1000;
+  }
+
+  /** A BRO-style slogan board, at most every 12 s so it stays a treat rather than noise. */
+  slogan() {
+    const now = performance.now();
+    if (!this.hud.showSlogan || now - (this.lastSlogan || -Infinity) < 12000) return false;
+    this.lastSlogan = now;
+    this.hud.showSlogan();
+    return true;
   }
 
   /** Put the car back on the road if it ends up on its roof, in the lake, or far out of bounds. */

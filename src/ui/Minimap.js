@@ -3,8 +3,14 @@
 // window of it centred on the car, then draws markers and the car arrow on top.
 
 const TAU = Math.PI * 2;
-const ACCENT = '#c7ff52';
-const WARM = '#ffb547';
+// Hill-road enamel-sign palette (matches theme.css tokens).
+const ACCENT = '#F2B01E'; // marigold: active road, car
+const WARM = '#C8321E'; // truck red: summit
+const CHALK = '#F4F1E8';
+const INK = '#14110D';
+const BOARD = '#26352C';
+const FLAG_BLUE = '#2A6FB0';
+const WHITEWASH = '#EDE6D3';
 
 function makeCanvas(w, h) {
   if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(w, h);
@@ -57,10 +63,9 @@ export function drawNetwork(ctx, track, activeRoad, tx, tz, width) {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   const passes = [
-    { active: false, color: 'rgba(0,0,0,0.55)', w: width + Math.max(2, width * 0.7) },
-    { active: false, color: 'rgba(238,244,250,0.78)', w: width },
-    { active: true, color: 'rgba(0,0,0,0.6)', w: width * 1.35 + Math.max(2, width * 0.8) },
-    { active: true, color: ACCENT, w: width * 1.35 },
+    { active: false, color: CHALK, w: width },
+    { active: true, color: INK, w: width * 1.45 + Math.max(2, width * 0.8) },
+    { active: true, color: ACCENT, w: width * 1.45 },
   ];
   for (const pass of passes) {
     ctx.beginPath();
@@ -83,7 +88,7 @@ export function drawMarker(ctx, kind, x, y, s, alpha = 1) {
   ctx.globalAlpha = alpha;
   ctx.translate(x, y);
   ctx.lineWidth = Math.max(1, s * 0.28);
-  ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+  ctx.strokeStyle = INK;
   if (kind === 'start' || kind === 'finish') {
     const q = s * 0.62;
     ctx.fillStyle = '#fff';
@@ -108,7 +113,7 @@ export function drawMarker(ctx, kind, x, y, s, alpha = 1) {
     ctx.lineTo(0, s * 0.7);
     ctx.lineTo(-s * 0.7, 0);
     ctx.closePath();
-    ctx.fillStyle = '#9fd4ff';
+    ctx.fillStyle = FLAG_BLUE;
     ctx.fill();
     ctx.stroke();
   }
@@ -123,7 +128,7 @@ function drawCarArrow(ctx, s) {
   ctx.lineTo(-s * 0.72, s * 0.8);
   ctx.closePath();
   ctx.lineWidth = Math.max(1.5, s * 0.22);
-  ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+  ctx.strokeStyle = INK;
   ctx.stroke();
   ctx.fillStyle = ACCENT;
   ctx.fill();
@@ -192,7 +197,12 @@ export class Minimap {
 
   /** Device pixels per metre in the local view. */
   get viewScale() {
-    return (this.size / 2 - 2 * this.dpr) / this.radius;
+    return this.innerR / this.radius;
+  }
+
+  /** Radius of the board-green field inside the enamel ring, device px. */
+  get innerR() {
+    return this.size / 2 - 10 * this.dpr;
   }
 
   buildBase() {
@@ -223,21 +233,29 @@ export class Minimap {
     const bg = makeCanvas(s, s);
     const ctx = bg.getContext('2d');
     const r = s / 2;
-    const g = ctx.createRadialGradient(r, r, r * 0.1, r, r, r);
-    g.addColorStop(0, 'rgba(14,20,28,0.62)');
-    g.addColorStop(1, 'rgba(6,10,16,0.78)');
-    ctx.fillStyle = g;
+    // Enamel sign: flag-blue ring, whitewash rim, flat board-green field.
+    ctx.fillStyle = FLAG_BLUE;
     ctx.beginPath();
-    ctx.arc(r, r, r - this.dpr, 0, TAU);
+    ctx.arc(r, r, r, 0, TAU);
     ctx.fill();
-    // Range rings every 100 m.
-    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+    ctx.fillStyle = WHITEWASH;
+    ctx.beginPath();
+    ctx.arc(r, r, this.innerR + 3 * this.dpr, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = BOARD;
+    ctx.beginPath();
+    ctx.arc(r, r, this.innerR, 0, TAU);
+    ctx.fill();
+    // Range rings every 100 m, chalk dashes.
+    ctx.setLineDash([3 * this.dpr, 5 * this.dpr]);
+    ctx.strokeStyle = 'rgba(244,241,232,0.18)';
     ctx.lineWidth = this.dpr;
     for (let m = 100; m < this.radius; m += 100) {
       ctx.beginPath();
       ctx.arc(r, r, m * this.viewScale, 0, TAU);
       ctx.stroke();
     }
+    ctx.setLineDash([]);
     this.bg = bg;
   }
 
@@ -274,7 +292,7 @@ export class Minimap {
     if (this.base) {
       ctx.save();
       ctx.beginPath();
-      ctx.arc(r, r, r - dpr * 1.5, 0, TAU);
+      ctx.arc(r, r, this.innerR, 0, TAU);
       ctx.clip();
       const k = vs / this.baseScale;
       ctx.setTransform(cos * k, sin * k, -sin * k, cos * k, r, r);
@@ -284,7 +302,7 @@ export class Minimap {
 
     // Markers stay upright; ones outside the view are pinned to the rim as direction hints.
     if (this.track) {
-      const rim = r - 9 * dpr;
+      const rim = this.innerR - 6 * dpr;
       for (const m of this.track.markers) {
         const dx = (m.x - x) * vs;
         const dz = (m.z - z) * vs;
@@ -306,15 +324,14 @@ export class Minimap {
     const nx = this.rotate ? -Math.sin(heading) : 0;
     const ny = this.rotate ? -Math.cos(heading) : -1;
     ctx.save();
-    ctx.translate(r + nx * (r - 9 * dpr), r + ny * (r - 9 * dpr));
-    ctx.font = `700 ${Math.round(9 * dpr)}px system-ui, sans-serif`;
+    ctx.translate(r + nx * (r - 4.5 * dpr), r + ny * (r - 4.5 * dpr));
+    ctx.fillStyle = WHITEWASH;
+    ctx.fillRect(-5 * dpr, -5 * dpr, 10 * dpr, 10 * dpr);
+    ctx.font = `600 ${Math.round(10 * dpr)}px Khand, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.lineWidth = 3 * dpr;
-    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-    ctx.strokeText('N', 0, 0);
-    ctx.fillStyle = '#fff';
-    ctx.fillText('N', 0, 0);
+    ctx.fillStyle = INK;
+    ctx.fillText('N', 0, 0.5 * dpr);
     ctx.restore();
 
     ctx.save();
@@ -324,9 +341,9 @@ export class Minimap {
     ctx.restore();
 
     ctx.beginPath();
-    ctx.arc(r, r, r - dpr, 0, TAU);
-    ctx.lineWidth = 1.5 * dpr;
-    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.arc(r, r, r - 1.5 * dpr, 0, TAU);
+    ctx.lineWidth = 3 * dpr;
+    ctx.strokeStyle = INK;
     ctx.stroke();
   }
 
@@ -344,7 +361,8 @@ export class Minimap {
     if (canvas.height !== ch) canvas.height = ch;
     const ctx = canvas.getContext('2d');
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, cw, ch);
+    ctx.fillStyle = BOARD;
+    ctx.fillRect(0, 0, cw, ch);
     const { minX, maxX, minZ, maxZ } = this.track.extent;
     const pad = 16 * dpr;
     const k = Math.min((cw - pad * 2) / Math.max(1, maxX - minX), (ch - pad * 2) / Math.max(1, maxZ - minZ));
@@ -488,14 +506,14 @@ export class ElevationStrip {
         // Height at the marker: nearest profile sample.
         const hy = p.heights[this.nearIndex];
         const y = this.yFor(hy, p.minH, p.maxH);
-        ctx.fillStyle = 'rgba(199,255,82,0.35)';
+        ctx.fillStyle = 'rgba(242,176,30,0.45)';
         ctx.fillRect(x - dpr * 0.5, 0, dpr, h);
         ctx.beginPath();
         ctx.arc(x, y, 3 * dpr, 0, TAU);
         ctx.fillStyle = ACCENT;
         ctx.fill();
         ctx.lineWidth = 1.5 * dpr;
-        ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+        ctx.strokeStyle = INK;
         ctx.stroke();
       }
       return;
@@ -519,7 +537,7 @@ export class ElevationStrip {
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
     ctx.lineWidth = 1.5 * dpr;
-    ctx.strokeStyle = 'rgba(238,244,250,0.85)';
+    ctx.strokeStyle = CHALK;
     ctx.lineJoin = 'round';
     ctx.stroke();
     const lx = w;
@@ -550,14 +568,11 @@ export class ElevationStrip {
     area.lineTo(this.w, this.h);
     area.lineTo(0, this.h);
     area.closePath();
-    const g = ctx.createLinearGradient(0, 0, 0, this.h);
-    g.addColorStop(0, 'rgba(238,244,250,0.42)');
-    g.addColorStop(1, 'rgba(238,244,250,0.04)');
-    ctx.fillStyle = g;
+    ctx.fillStyle = 'rgba(244,241,232,0.16)';
     ctx.fill(area);
     ctx.lineJoin = 'round';
     ctx.lineWidth = 1.25 * this.dpr;
-    ctx.strokeStyle = 'rgba(238,244,250,0.8)';
+    ctx.strokeStyle = CHALK;
     ctx.stroke(line);
     return img;
   }

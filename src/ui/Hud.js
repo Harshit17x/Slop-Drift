@@ -7,6 +7,7 @@ import {
 } from '../config.js';
 import { ElevationStrip, Minimap } from './Minimap.js';
 import { MEDAL_LABELS, MEDAL_TARGETS, MEDAL_TIERS } from '../meta/catalog.js';
+import { CHAI_GLASS, ICON } from './icons.js';
 
 const KMH_TO_MPH = 0.621371;
 const M_TO_FT = 3.28084;
@@ -138,46 +139,83 @@ class Style {
   }
 }
 
+/**
+ * Fixed-width character cells for fast-changing numbers. Teko has proportional figures and no
+ * tabular-nums feature, so each character sits in its own cell (digits share one width) and only
+ * cells whose character changed are written. Same interface as Text (raw, set, setKey).
+ */
+class Digits {
+  constructor(el, cells) {
+    el.replaceChildren();
+    el.classList.add('sdh-digits');
+    this.cells = [];
+    for (let i = 0; i < cells; i += 1) {
+      const span = document.createElement('span');
+      const t = document.createTextNode('');
+      span.appendChild(t);
+      span.className = 'sdh-c-e';
+      el.appendChild(span);
+      this.cells.push({ span, t, ch: '', type: 'e' });
+    }
+    this.raw = undefined;
+  }
+
+  set(str) {
+    if (str !== this.raw) {
+      this.raw = str;
+      this.write(String(str));
+    }
+  }
+
+  setKey(key, format) {
+    if (key !== this.raw) {
+      this.raw = key;
+      this.write(String(format(key)));
+    }
+  }
+
+  write(str) {
+    const n = this.cells.length;
+    const s = str.length > n ? str.slice(-n) : str;
+    const pad = n - s.length;
+    for (let i = 0; i < n; i += 1) {
+      const cell = this.cells[i];
+      const ch = i < pad ? '' : s[i - pad];
+      if (ch === cell.ch) continue;
+      cell.ch = ch;
+      cell.t.data = ch;
+      const type = ch === '' ? 'e' : (ch >= '0' && ch <= '9') ? 'd' : 'p';
+      if (type !== cell.type) {
+        cell.type = type;
+        cell.span.className = `sdh-c-${type}`;
+      }
+    }
+  }
+}
+
 // ------------------------------------------------------------------ icons
 
-const ICON = {
-  camera: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z"/><circle cx="12" cy="13.3" r="3.4"/></svg>',
-  pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 5.5v13M15.5 5.5v13" stroke-width="3.2"/></svg>',
-  expand: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>',
-  shrink: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>',
-  sliders: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>',
-  respawn: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4.5 4.5v4.5H9"/></svg>',
-  play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10-6.5z" fill="currentColor" stroke="none"/></svg>',
-  restart: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4.5H15"/></svg>',
-  home: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.5 12 5l8 6.5M6.5 10v9h11v-9"/></svg>',
-  back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6 8.5 12l6 6"/></svg>',
-  check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
-  ghost: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 20V11a6.5 6.5 0 0 1 13 0v9l-2.2-1.6-2.1 1.6-2.2-1.6L9.8 20l-2.1-1.6z"/><circle cx="9.6" cy="11" r="1" fill="currentColor"/><circle cx="14.4" cy="11" r="1" fill="currentColor"/></svg>',
-  trophy: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H4.5a3 3 0 0 0 3.6 4M16 6h3.5a3 3 0 0 1-3.6 4M12 13v4M8.5 20h7M9.5 17h5"/></svg>',
-  medal: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 3 2.5 6M16 3l-2.5 6"/><circle cx="12" cy="15" r="5.5"/><path d="m12 12.3.9 1.8 2 .3-1.45 1.4.35 2-1.8-.95-1.8.95.35-2-1.45-1.4 2-.3z" fill="currentColor" stroke="none"/></svg>',
-  car: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 15.5v-3l2-4.5h13l2 4.5v3zM3.5 15.5V18h3v-2.5M17.5 15.5V18h3v-2.5"/><circle cx="7.5" cy="13" r=".9" fill="currentColor"/><circle cx="16.5" cy="13" r=".9" fill="currentColor"/></svg>',
-  pencil: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>',
-  flame: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21c-3.9 0-6.5-2.6-6.5-6.2 0-3.4 2.6-5.3 3.6-8.8 2.2 1.4 3 3.3 3.1 5 1-.7 1.6-1.9 1.7-3.3 2.4 2 4.6 4.6 4.6 7.6 0 3.3-2.7 5.7-6.5 5.7z" fill="currentColor" stroke="none"/></svg>',
-  lock: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5.5" y="10.5" width="13" height="9.5" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>',
-  user: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>',
-};
+/** Original hill-road slogans in the spirit of mountain road signs (not copies of real ones). */
+export const SLOGANS = Object.freeze([
+  'Hairpins are for hair, not for haste.',
+  'Chai is waiting. Arrive alive.',
+  'Fog ahead. Ego behind.',
+  'Monkeys have right of way.',
+  'The view is better when you stop.',
+  'Drift in the game, not in life.',
+  'Mountains are patient. Be a mountain.',
+  'Honk at the bend, not at your friend.',
+  'The khud is deep. Keep your line.',
+  'Blind bend, open mind, slow foot.',
+  'Slow on the slope, home with hope.',
+  'Brakes before bravado.',
+  'Clouds are free. Brake pads are not.',
+  'Landour will wait. Let it.',
+  'Mist is not a race track.',
+]);
 
-// ------------------------------------------------------------------ gauge geometry
-
-const G = { cx: 110, cy: 110, r: 92, a0: 135, sweep: 270 };
-
-function polar(r, deg) {
-  const a = (deg * Math.PI) / 180;
-  return [G.cx + r * Math.cos(a), G.cy + r * Math.sin(a)];
-}
-
-function arcPath(r, f0, f1) {
-  const a0 = G.a0 + G.sweep * f0;
-  const a1 = G.a0 + G.sweep * f1;
-  const [x0, y0] = polar(r, a0);
-  const [x1, y1] = polar(r, a1);
-  return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
-}
+const TACH_BLOCKS = 14;
+const TACH_COLORS = ['blue', 'white', 'red', 'green', 'yellow'];
 
 let stylesRefCount = 0;
 
@@ -252,6 +290,7 @@ export class Hud {
     this.renderDaily();
     this.renderPlayers();
     this.renderGhost();
+    this.setHudMode('race');
     this.applyScreen();
     this.markReady();
   }
@@ -268,6 +307,14 @@ export class Hud {
   injectStyles() {
     this.injectedStyles = true;
     stylesRefCount += 1;
+    if (!document.querySelector('link[data-sdh-theme]')) {
+      // Fonts and colour tokens; must come before hud.css.
+      const theme = document.createElement('link');
+      theme.rel = 'stylesheet';
+      theme.href = new URL('./theme.css', import.meta.url).href;
+      theme.dataset.sdhTheme = '';
+      document.head.appendChild(theme);
+    }
     let link = document.querySelector('link[data-sdh-styles]');
     if (!link) {
       link = document.createElement('link');
@@ -300,9 +347,9 @@ export class Hud {
     el.style.visibility = 'hidden';
     el.innerHTML = `
       <div class="sdh-race" aria-hidden="true">
-        <section class="sdh-tl sdh-card">
+        <section class="sdh-tl">
           <div class="sdh-mode"><span class="sdh-mode-label"></span><span class="sdh-lap"></span></div>
-          <div class="sdh-main"><span class="sdh-main-time sdh-num"></span></div>
+          <div class="sdh-main sdh-plate"><span class="sdh-plate-ind">IND</span><span class="sdh-plate-reg">UK 07</span><span class="sdh-plate-dot">·</span><span class="sdh-main-time sdh-num"></span></div>
           <div class="sdh-rows">
             <div class="sdh-row" data-row="0"><span class="sdh-k"></span><span class="sdh-v sdh-num"></span></div>
             <div class="sdh-row" data-row="1"><span class="sdh-k"></span><span class="sdh-v sdh-num"></span></div>
@@ -351,20 +398,14 @@ export class Hud {
             <div class="sdh-drift-timer"><i></i></div>
             <div class="sdh-drift-total"><span class="sdh-k">TOTAL</span><span class="sdh-drift-score sdh-num"></span></div>
           </div>
+          <div class="sdh-stamp sdh-drift-stamp" aria-hidden="true">DRIVE SAFE</div>
         </section>
         <section class="sdh-br">
           <div class="sdh-speedo">
-            <div class="sdh-gauge">
-              <svg viewBox="0 0 220 220" aria-hidden="true">
-                <path class="sdh-g-track" d="${arcPath(G.r, 0, 1)}"/>
-                <path class="sdh-g-red"/>
-                <g class="sdh-g-ticks"></g>
-                <path class="sdh-g-fill" d="${arcPath(G.r, 0, 1)}" pathLength="1000"/>
-              </svg>
-              <div class="sdh-readout">
-                <span class="sdh-speed sdh-num"></span>
-                <span class="sdh-unit"></span>
-              </div>
+            <div class="sdh-stone">
+              <div class="sdh-stone-cap"><span class="sdh-unit"></span></div>
+              <div class="sdh-stone-face"><span class="sdh-speed sdh-num"></span></div>
+              <div class="sdh-tach" aria-hidden="true"></div>
               <div class="sdh-gearbox">
                 <span class="sdh-pedal sdh-pedal-brake"><i></i></span>
                 <span class="sdh-gear sdh-num"></span>
@@ -377,6 +418,8 @@ export class Hud {
         <pre class="sdh-debug"></pre>
       </div>
       <div class="sdh-countdown" aria-live="assertive"><span></span></div>
+      <div class="sdh-checkpoints" aria-live="polite"></div>
+      <div class="sdh-slogan" aria-live="polite"><span></span></div>
       <div class="sdh-toasts" aria-live="polite"></div>
       <div class="sdh-touch" aria-hidden="true"></div>
       <div class="sdh-veil"></div>
@@ -398,8 +441,9 @@ export class Hud {
       ${this.nameDialogMarkup()}
       <div class="sdh-loading" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-label="Loading">
         <div class="sdh-loading-inner">
-          <div class="sdh-brand sdh-brand-xl"><span>SLOP</span><b>DRIFT</b></div>
-          <div class="sdh-loading-sub">Mountain</div>
+          <div class="sdh-brand sdh-brand-xl"><span>SLOP DRIFT</span></div>
+          <div class="sdh-loading-sub"><span lang="hi">मसूरी</span> · Mussoorie · Landour</div>
+          <div class="sdh-slogan-board sdh-loading-slogan"><span></span></div>
           <div class="sdh-loading-bar"><i></i></div>
           <div class="sdh-loading-meta"><span class="sdh-loading-label"></span><span class="sdh-loading-pct sdh-num"></span></div>
         </div>
@@ -413,12 +457,12 @@ export class Hud {
     this.v = {
       modeLabel: new Text(this.q('.sdh-mode-label')),
       lap: new Text(this.q('.sdh-lap')),
-      mainTime: new Text(this.q('.sdh-main-time')),
+      mainTime: new Digits(this.q('.sdh-main-time'), 8),
       mainWarn: new Flag(this.q('.sdh-main'), 'is-warn'),
       rows: [0, 1, 2].map((i) => ({
         el: row(i),
         k: new Text(row(i).querySelector('.sdh-k')),
-        v: new Text(row(i).querySelector('.sdh-v')),
+        v: new Digits(row(i).querySelector('.sdh-v'), 8),
         show: new Flag(row(i), 'is-on'),
         good: new Flag(row(i), 'is-good'),
       })),
@@ -428,7 +472,7 @@ export class Hud {
       offRoad: new Flag(this.q('.sdh-offroad'), 'is-on'),
       camChip: new Text(this.q('.sdh-cam-chip span')),
       camChipOn: new Flag(this.q('.sdh-cam-chip'), 'is-on'),
-      alt: new Text(this.q('.sdh-elev-alt')),
+      alt: new Digits(this.q('.sdh-elev-alt'), 6),
       altUnit: new Text(this.q('.sdh-elev-unit')),
       grade: new Text(this.q('.sdh-grade-v')),
       gradeTilt: new Style(this.q('.sdh-grade svg'), 'transform'),
@@ -438,13 +482,15 @@ export class Hud {
       driftActive: new Flag(this.q('.sdh-drift'), 'is-active'),
       driftAngle: new Text(this.q('.sdh-drift-angle')),
       driftMult: new Text(this.q('.sdh-drift-mult')),
-      driftBank: new Text(this.q('.sdh-drift-bank')),
+      driftBank: new Digits(this.q('.sdh-drift-bank'), 7),
+      driftGrow: new Style(this.q('.sdh-drift'), '--grow'),
+      driftStamp: new Flag(this.q('.sdh-drift-stamp'), 'is-on'),
+      timing: new Flag(this.q('.sdh-tl'), 'is-timing'),
       driftTimer: new Style(this.q('.sdh-drift-timer i'), 'transform'),
       driftScore: new Text(this.q('.sdh-drift-score')),
-      speed: new Text(this.q('.sdh-speed')),
+      speed: new Digits(this.q('.sdh-speed'), 3),
       unit: new Text(this.q('.sdh-unit')),
       gear: new Text(this.q('.sdh-gear')),
-      rpmFill: new Style(this.q('.sdh-g-fill'), 'stroke-dashoffset'),
       shift: new Flag(this.q('.sdh-speedo'), 'is-shift'),
       redzone: new Flag(this.q('.sdh-speedo'), 'is-red'),
       reverse: new Flag(this.q('.sdh-speedo'), 'is-reverse'),
@@ -495,10 +541,10 @@ export class Hud {
           </div>
           <button type="button" class="sdh-icon sdh-icon-plain sdh-fs" data-act="fullscreen" aria-label="Fullscreen" title="Fullscreen (F)">${ICON.expand}${ICON.shrink}</button>
         </div>
-        <div class="sdh-brand sdh-brand-menu"><span>SLOP</span><b>DRIFT</b></div>
+        <div class="sdh-brand sdh-brand-menu"><span>SLOP DRIFT</span><small lang="hi">मसूरी</small>${CHAI_GLASS}</div>
         <section class="sdh-daily" aria-label="Daily challenge">
           <div class="sdh-daily-info">
-            <div class="sdh-daily-top"><span class="sdh-eyebrow">Daily challenge</span><span class="sdh-streak" title="Daily streak">${ICON.flame}<b class="sdh-num" data-d="streak">0</b></span></div>
+            <div class="sdh-daily-top"><span class="sdh-eyebrow">Aaj ka challenge</span><span class="sdh-streak" title="Daily streak">${ICON.flame}<b class="sdh-num" data-d="streak">0</b></span></div>
             <div class="sdh-daily-text" data-d="text">Loading today’s challenge…</div>
             <div class="sdh-daily-meta"><span data-d="mode"></span><span class="sdh-daily-xp" data-d="xp"></span></div>
           </div>
@@ -867,16 +913,25 @@ export class Hud {
         <li class="${t === bestLap ? 'is-best' : ''}"><span>Lap ${i + 1}</span><span class="sdh-num">${formatTime(t)}</span>
         <span class="sdh-num sdh-lap-delta">${t === bestLap ? 'BEST' : formatDelta(t - bestLap)}</span></li>`).join('')}
       </ol>` : '';
+    const stamp = result.isRecord ? { text: 'शाबाश!', cls: 'is-record', lang: 'hi' }
+      : rewards?.medal?.tier ? { text: 'बढ़िया!', cls: 'is-medal', lang: 'hi' } : { text: 'PASS', cls: 'is-pass', lang: 'en' };
+    this.ticketNo = ((this.ticketNo || 4817) + 1) % 100000;
     this.q('.sdh-finish-body').innerHTML = `
-      <header class="sdh-panel-head">
-        <div class="sdh-eyebrow">${esc(label)} · ${kind === 'score' ? 'Score' : 'Finish'}</div>
-        <h2 class="sdh-title">${kind === 'score' ? 'Time’s up' : 'Finished'}</h2>
-        ${result.isRecord ? '<div class="sdh-record-badge">NEW RECORD</div>' : ''}
-      </header>
-      ${hero}${compare}
-      ${stats.length ? `<dl class="sdh-stats">${stats.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd class="sdh-num">${esc(v)}</dd></div>`).join('')}</dl>` : ''}
-      ${this.rewardsMarkup(rewards, result.modeId)}
-      ${lapRows}`;
+      <div class="sdh-ticket">
+        <div class="sdh-ticket-head"><span>SLOP DRIFT ROADWAYS</span><span class="sdh-num">No. ${String(this.ticketNo).padStart(5, '0')}</span></div>
+        <header class="sdh-panel-head">
+          <div class="sdh-eyebrow">Mussoorie → ${esc(label)}</div>
+          <h2 class="sdh-title">${kind === 'score' ? 'Time’s up' : 'Finished'}</h2>
+          ${result.isRecord ? '<div class="sdh-record-badge">NEW RECORD</div>' : ''}
+        </header>
+        <div class="sdh-stamp sdh-result-stamp ${stamp.cls}" lang="${stamp.lang}">${stamp.text}</div>
+        ${hero}${compare}
+        ${stats.length ? `<dl class="sdh-stats">${stats.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd class="sdh-num">${esc(v)}</dd></div>`).join('')}</dl>` : ''}
+        ${this.rewardsMarkup(rewards, result.modeId)}
+        ${lapRows}
+        <div class="sdh-ticket-foot">Valid for one descent only · Keep left · Use horn on blind bends</div>
+      </div>
+      <div class="sdh-ticket-chai">${CHAI_GLASS}</div>`;
     this.finishModeId = result.modeId;
     this.q('[data-act="race-ghost"]').hidden = kind === 'none';
     this.q('[data-act="finish-leaderboard"]').hidden = kind === 'none';
@@ -1047,12 +1102,23 @@ export class Hud {
     this.v.loadingPct.setKey(Math.round(p * 100), (k) => `${k}%`);
     el.setAttribute('aria-valuenow', String(Math.round(p * 100)));
     if (label) this.v.loadingLabel.set(String(label));
+    if (!this.loadingSloganTimer) {
+      const span = this.q('.sdh-loading-slogan span');
+      let i = Math.floor(Math.random() * SLOGANS.length);
+      span.textContent = SLOGANS[i];
+      this.loadingSloganTimer = setInterval(() => {
+        i = (i + 1) % SLOGANS.length;
+        span.textContent = SLOGANS[i];
+      }, 2600);
+    }
   }
 
   hideLoading() {
     const el = this.q('.sdh-loading');
     if (!el.classList.contains('is-on') || this.loadingHideTimer) return;
     el.classList.add('is-hiding');
+    clearInterval(this.loadingSloganTimer);
+    this.loadingSloganTimer = null;
     this.loadingHideTimer = this.later(() => {
       el.classList.remove('is-on', 'is-hiding');
       this.loadingHideTimer = null;
@@ -1153,7 +1219,7 @@ export class Hud {
     return `
       <div class="sdh-dialog" aria-hidden="true">
         <form class="sdh-dialog-card" role="dialog" aria-modal="true" aria-labelledby="${this.uid}-name-title" novalidate>
-          <div class="sdh-brand sdh-brand-menu"><span>SLOP</span><b>DRIFT</b></div>
+          <div class="sdh-brand sdh-brand-menu"><span>SLOP DRIFT</span><small lang="hi">मसूरी</small></div>
           <h2 class="sdh-title" id="${this.uid}-name-title">Pick your driver name</h2>
           <p class="sdh-copy">Shown on leaderboards and above your car online. 2–16 characters: letters, digits, space, - and _.</p>
           <input class="sdh-name-input" type="text" maxlength="16" autocomplete="off" spellcheck="false" aria-label="Driver name">
@@ -1591,6 +1657,70 @@ export class Hud {
     }, 3400);
   }
 
+  // ---------------------------------------------------------------- hill-road moments
+
+  /** 'calm' (free roam: speed stone, minimap, player chip only) or 'race' (full telemetry). */
+  setHudMode(mode) {
+    this.hudMode = mode === 'calm' ? 'calm' : 'race';
+    this.el.classList.toggle('is-calm', this.hudMode === 'calm');
+  }
+
+  /**
+   * Milestone stone that slides up from the bottom edge. Queued: one at a time, ~1.8 s each.
+   * @param {{index:number, total:number, split:(number|null), label?:string, km:(number|null)}} cp
+   */
+  showCheckpoint(cp = {}) {
+    this.cpQueue = this.cpQueue || [];
+    this.cpQueue.push(cp);
+    if (this.cpQueue.length > 6) this.cpQueue.shift();
+    this.pumpCheckpoint();
+  }
+
+  pumpCheckpoint() {
+    if (this.cpBusy || !this.cpQueue?.length) return;
+    const cp = this.cpQueue.shift();
+    this.cpBusy = true;
+    const km = Number.isFinite(cp.km) ? (cp.km >= 10 ? Math.round(cp.km) : Math.round(cp.km * 10) / 10) : null;
+    const count = Number.isFinite(cp.index) && Number.isFinite(cp.total) ? `${cp.index}/${cp.total}` : '';
+    const split = Number.isFinite(cp.split)
+      ? `<div class="sdh-cp-split sdh-num ${cp.split < 0 ? 'is-ahead' : cp.split > 0 ? 'is-behind' : 'is-even'}">${formatDelta(cp.split)}</div>` : '';
+    const el = document.createElement('div');
+    el.className = 'sdh-cp';
+    el.innerHTML = `
+      <div class="sdh-cp-stone">
+        <div class="sdh-cp-cap">${esc(cp.label || 'CHECKPOINT')}</div>
+        <div class="sdh-cp-big sdh-num">${km != null ? `${km}<small>KM</small>` : esc(count)}</div>
+        ${km != null && count ? `<div class="sdh-cp-sub sdh-num">${esc(count)}</div>` : ''}
+      </div>${split}`;
+    this.q('.sdh-checkpoints').appendChild(el);
+    this.later(() => el.classList.add('is-leaving'), 1800);
+    this.later(() => {
+      el.remove();
+      this.cpBusy = false;
+      this.pumpCheckpoint();
+    }, 2050);
+  }
+
+  /** Yellow-and-black hill-road slogan board for ~2.5 s. Random original slogan when text is omitted. */
+  showSlogan(text) {
+    const board = this.q('.sdh-slogan');
+    const line = text || SLOGANS[Math.floor(Math.random() * SLOGANS.length)];
+    board.querySelector('span').textContent = line;
+    board.classList.remove('is-on');
+    void board.offsetWidth; // restart the drop-in animation (event-time only, never per frame)
+    board.classList.add('is-on');
+    if (this.sloganTimer) clearTimeout(this.sloganTimer);
+    this.sloganTimer = this.later(() => board.classList.remove('is-on'), 2500);
+    return line;
+  }
+
+  flashDriveSafe() {
+    const v = this.v;
+    v.driftStamp.set(true);
+    if (this.stampTimer) clearTimeout(this.stampTimer);
+    this.stampTimer = this.later(() => v.driftStamp.set(false), 900);
+  }
+
   // ---------------------------------------------------------------- per-frame
 
   setModeLayout(session) {
@@ -1619,36 +1749,21 @@ export class Hud {
   }
 
   rebuildGauge(rpmMax) {
-    // Gauge runs ~8 % past the redline, rounded up to the next 1000 rpm.
-    this.gaugeMax = Math.max(1000, Math.ceil((rpmMax * 1.08) / 1000) * 1000);
+    // Prayer-flag tachometer: blocks light left to right; the scale runs ~8 % past the redline.
+    this.gaugeMax = Math.max(1000, rpmMax * 1.08);
     this.rpmMax = rpmMax;
     const red = rpmMax / this.gaugeMax;
-    this.q('.sdh-g-red').setAttribute('d', arcPath(G.r, red, 1));
-    const ns = 'http://www.w3.org/2000/svg';
-    const g = this.q('.sdh-g-ticks');
-    g.replaceChildren();
-    const steps = this.gaugeMax / 1000;
-    for (let i = 0; i <= steps * 2; i += 1) {
-      const f = i / (steps * 2);
-      const major = i % 2 === 0;
-      const deg = G.a0 + G.sweep * f;
-      const [x0, y0] = polar(G.r - 9, deg);
-      const [x1, y1] = polar(G.r - (major ? 17 : 13), deg);
-      const line = document.createElementNS(ns, 'line');
-      line.setAttribute('x1', x0.toFixed(2)); line.setAttribute('y1', y0.toFixed(2));
-      line.setAttribute('x2', x1.toFixed(2)); line.setAttribute('y2', y1.toFixed(2));
-      line.setAttribute('class', `${major ? 'is-major' : ''}${f >= red - 1e-6 ? ' is-red' : ''}`);
-      g.appendChild(line);
-      if (major) {
-        const [tx, ty] = polar(G.r - 28, deg);
-        const text = document.createElementNS(ns, 'text');
-        text.setAttribute('x', tx.toFixed(2)); text.setAttribute('y', ty.toFixed(2));
-        text.setAttribute('class', f >= red - 1e-6 ? 'is-red' : '');
-        text.textContent = String(i / 2);
-        g.appendChild(text);
-      }
+    const tach = this.q('.sdh-tach');
+    tach.replaceChildren();
+    this.tachFlags = [];
+    for (let i = 0; i < TACH_BLOCKS; i += 1) {
+      const b = document.createElement('i');
+      const zoneRed = (i + 1) / TACH_BLOCKS > red + 1e-6;
+      b.className = `is-${TACH_COLORS[i % TACH_COLORS.length]}${zoneRed ? ' is-redzone' : ''}`;
+      tach.appendChild(b);
+      this.tachFlags.push(new Flag(b, 'is-lit'));
     }
-    this.v.rpmFill.key = undefined;
+    this.tachLit = -1;
   }
 
   /** @param {import('../core/contracts.js').HudFrame} f */
@@ -1666,8 +1781,11 @@ export class Hud {
     const rpmMax = f.rpmMax > 0 ? f.rpmMax : 7000;
     if (rpmMax !== this.rpmMax) this.rebuildGauge(rpmMax);
     const rpm = Math.max(0, f.rpm || 0);
-    const frac = Math.min(1, rpm / this.gaugeMax);
-    v.rpmFill.setKey(Math.round(frac * 400), (k) => String(1000 - k * 2.5));
+    const lit = Math.round(Math.min(1, rpm / this.gaugeMax) * TACH_BLOCKS);
+    if (lit !== this.tachLit) {
+      this.tachLit = lit;
+      for (let i = 0; i < TACH_BLOCKS; i += 1) this.tachFlags[i].set(i < lit);
+    }
     const ratio = rpm / rpmMax;
     v.redzone.set(ratio >= 0.97);
     v.shift.set(ratio >= 0.9 && typeof gear === 'number');
@@ -1708,6 +1826,7 @@ export class Hud {
         v.mainWarn.set(false);
       }
       if (kind !== 'roam') v.progress.setKey(Math.round(Math.max(0, Math.min(1, s.progress || 0)) * 500), (k) => `scaleX(${k / 500})`);
+      v.timing.set(kind !== 'roam' && (s.elapsed || 0) > 0);
       v.wrongWay.set(Boolean(s.wrongWay));
       v.offRoad.set(Boolean(s.offRoad) && !s.wrongWay);
     }
@@ -1718,7 +1837,13 @@ export class Hud {
       const alive = d.active || (d.bank > 0 && d.comboTimer > 0);
       v.driftOn.set(alive);
       v.driftActive.set(Boolean(d.active));
+      // A combo that dies with time still on its clock was broken (spin, crash), not banked.
+      const prevBank = this.driftPrevBank || 0;
+      if (prevBank > 0 && !(d.bank > 0) && !d.active && (this.driftPrevTimer || 0) > 0.2) this.flashDriveSafe();
+      this.driftPrevBank = d.bank || 0;
+      this.driftPrevTimer = d.comboWindow > 0 ? (d.comboTimer || 0) / d.comboWindow : 0;
       if (alive) {
+        v.driftGrow.setKey(Math.round(Math.min(5, d.multiplier || 1) * 10), (k) => String(1 + Math.min(0.24, (k / 10 - 1) * 0.06)));
         v.driftAngle.setKey(Math.round(Math.abs(d.angleDeg || 0)), (n) => `${n}°`);
         v.driftMult.setKey(Math.round((d.multiplier || 1) * 10), (n) => `×${(n / 10).toFixed(1)}`);
         v.driftBank.setKey(Math.round(d.bank || 0), formatInt);
@@ -1775,13 +1900,17 @@ export class Hud {
     this.el.removeEventListener('click', this.onClick);
     this.overviewObserver?.disconnect();
     for (const id of this.timers) clearTimeout(id);
+    clearInterval(this.loadingSloganTimer);
     this.timers.clear();
     this.minimap.destroy();
     this.elevation.destroy();
     this.el.remove();
     if (this.injectedStyles) {
       stylesRefCount -= 1;
-      if (stylesRefCount <= 0) document.querySelector('link[data-sdh-styles]')?.remove();
+      if (stylesRefCount <= 0) {
+        document.querySelector('link[data-sdh-styles]')?.remove();
+        document.querySelector('link[data-sdh-theme]')?.remove();
+      }
     }
   }
 }
