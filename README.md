@@ -95,6 +95,22 @@ server/                Cloudflare Worker: rooms, presence, leaderboards, ghost s
 
 **References.** Bullet `btRaycastVehicle`, Rapier `ray_cast_vehicle_controller`, cannon-es `RaycastVehicle`, pmndrs/racing-game, spacejack/carphysics2d, Dechode/Godot-Simple-Vehicle, and Sebastian Lague's Hydraulic-Erosion informed the physics and erosion. No code was copied from them.
 
+## Blender source car
+
+`assets/blender/` holds an editable Blender build of the rally car: the same
+4.32 × 1.80 m shell and 2.55 m wheelbase as `ProceduralCar`, with a full cockpit,
+roll cage, livery and eight-spoke wheels. It is art source only — the game still
+builds its car at load time and nothing in that folder is imported by the bundle.
+
+```bash
+blender --background --python assets/blender/build_and_export.py
+blender --background --python assets/blender/render_rally_car.py
+```
+
+The second command writes the previews in `assets/blender/renders/`. See
+[assets/blender/README.md](assets/blender/README.md) for dimensions, contents and
+the material set.
+
 ## Tests
 
 ```bash
