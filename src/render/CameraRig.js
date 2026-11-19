@@ -113,7 +113,7 @@ export class CameraRig {
       // Bolted to the chassis; a fast slerp takes the harshness out of bumps without feeling detached.
       this.interiorQuaternion.slerp(state.quaternion, 1 - Math.exp(-22 * dt));
       if (this.mode === 'hood') offset.set(0, 1.3, -0.6);
-      else offset.set(-0.37, 1.2, 0.12);
+      else offset.set(-0.37, 1.17, 0.3);
       position.copy(offset).applyQuaternion(state.quaternion).add(state.position);
       euler.set(freeLook ? freeLook.y : 0, (freeLook ? freeLook.x : 0) + (lookBack ? Math.PI : 0), 0, 'YXZ');
       desiredQuaternion.copy(this.interiorQuaternion).multiply(lookQuaternion.setFromEuler(euler));
