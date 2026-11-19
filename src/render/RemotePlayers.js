@@ -94,7 +94,7 @@ export class RemotePlayers {
   }
 
   add(id, peer) {
-    const car = new ProceduralCar({ color: getPaint(peer.paint).color, name: `Remote_${peer.name}`, ...this.carOptions });
+    const car = new ProceduralCar({ color: getPaint(peer.paint).color, name: `Remote_${peer.name}`, interior: false, ...this.carOptions });
     car.visible = false;
     car.traverse((node) => {
       if (node.isMesh) node.castShadow = true;

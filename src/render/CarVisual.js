@@ -53,6 +53,7 @@ export class CarVisual {
   setHeadlights(on) {
     this.headlightsOn = Boolean(on);
     for (const light of this.headlights) light.intensity = this.headlightsOn ? 260 : 0;
+    this.model.setHeadlights(this.headlightsOn);
   }
 
   /** @param {import('../core/contracts.js').VehicleState} state */
@@ -63,6 +64,7 @@ export class CarVisual {
     const reversing = state.gear === 'R';
     this.model.setBraking(state.brake > 0.05 && !reversing);
     this.model.setReversing(reversing);
+    this.model.setTelemetry({ speedKmh: state.speedKmh, rpm: state.rpm, rpmMax: state.rpmMax });
     for (let i = 0; i < 4; i += 1) {
       const wheel = state.wheels[i];
       this.model.setSuspension(WHEEL_KEYS[i], wheel.compression);

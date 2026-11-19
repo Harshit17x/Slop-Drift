@@ -13,9 +13,6 @@ import { NameTag } from './NameTag.js';
 
 const WHEEL_KEYS = ['frontLeft', 'frontRight', 'rearLeft', 'rearRight'];
 const TWO_PI = Math.PI * 2;
-// Cockpit-only parts of ProceduralCar (dashboard, gauges): hidden, they only add clutter through the glass.
-const COCKPIT_COLOR = 0x1e2226;
-const GAUGE_EMISSIVE = 0x2a8fd0;
 
 const forward = new THREE.Vector3();
 const delta = new THREE.Vector3();
@@ -78,7 +75,7 @@ export class GhostCar {
     const layout = wheelLayout?.length === 4
       ? { wheelbase: Math.abs(wheelLayout[0].z - wheelLayout[2].z), track: Math.abs(wheelLayout[0].x) * 2, wheelCentreY: wheelLayout[0].y }
       : {};
-    this.model = new ProceduralCar({ name: 'GhostCar', ...layout });
+    this.model = new ProceduralCar({ name: 'GhostCar', interior: false, ...layout });
     this.group = this.model;
     this.wheelRadius = this.model.dimensions.wheelRadius;
 
@@ -98,15 +95,14 @@ export class GhostCar {
       const emissive = material.emissive ? material.emissive.r + material.emissive.g + material.emissive.b : 0;
       return emissive === 0 && c.r * 0.2126 + c.g * 0.7152 + c.b * 0.0722 < 0.06;
     };
+    this.model.numberMaterial?.map?.dispose();
+    this.model.numberMaterial = null;
     this.model.traverse((node) => {
       if (!node.isMesh) return;
-      const original = node.material;
-      if (original.color?.getHex() === COCKPIT_COLOR || original.emissive?.getHex() === GAUGE_EMISSIVE) node.visible = false;
-      node.material = isDark(original) ? this.darkMaterial : this.shellMaterial;
+      node.material = isDark(node.material) ? this.darkMaterial : this.shellMaterial;
       node.castShadow = false;
       node.receiveShadow = false;
     });
-    if (this.model.steeringWheel) this.model.steeringWheel.visible = false;
     originals.forEach((material) => material.dispose());
     this.model.textures.forEach((texture) => texture.dispose());
     this.model.materials = [this.shellMaterial, this.darkMaterial];
