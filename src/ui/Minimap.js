@@ -48,7 +48,8 @@ export function normalizeTrack(track) {
   const markers = (track?.markers || []).slice();
   for (const m of markers) grow(m.x, m.z);
   const extent = Number.isFinite(e.minX) ? e : { ...b };
-  return { bounds: { ...b }, extent, roads, markers };
+  const labels = (track?.labels || []).filter((l) => Number.isFinite(l.x) && Number.isFinite(l.z) && l.name);
+  return { bounds: { ...b }, extent, roads, markers, labels };
 }
 
 function traceRoad(ctx, road, tx, tz) {
@@ -83,6 +84,31 @@ export function drawNetwork(ctx, track, activeRoad, tx, tz, width) {
 }
 
 /** Marker glyph centred at (x, y); s is the glyph radius in pixels. */
+/** Place names chalked on the overview, skipping any that would overlap one already drawn. */
+function drawLabels(ctx, labels, tx, tz, dpr, width, height) {
+  if (!labels?.length) return;
+  ctx.save();
+  ctx.font = `600 ${Math.round(11 * dpr)}px Khand, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const placed = [];
+  for (const label of labels) {
+    const x = tx(label.x);
+    const y = tz(label.z) - 9 * dpr;
+    const w = ctx.measureText(label.name).width + 6 * dpr;
+    const h = 13 * dpr;
+    const box = { x0: x - w / 2, x1: x + w / 2, y0: y - h / 2, y1: y + h / 2 };
+    if (box.x0 < 0 || box.x1 > width || box.y0 < 0 || box.y1 > height) continue;
+    if (placed.some((p) => box.x0 < p.x1 && box.x1 > p.x0 && box.y0 < p.y1 && box.y1 > p.y0)) continue;
+    placed.push(box);
+    ctx.fillStyle = '#14110D';
+    ctx.fillRect(box.x0, box.y0, w, h);
+    ctx.fillStyle = '#F4F1E8';
+    ctx.fillText(label.name, x, y + 0.5 * dpr);
+  }
+  ctx.restore();
+}
+
 export function drawMarker(ctx, kind, x, y, s, alpha = 1) {
   ctx.save();
   ctx.globalAlpha = alpha;
@@ -372,6 +398,7 @@ export class Minimap {
     const tz = (z) => oz + (z - minZ) * k;
     drawNetwork(ctx, this.track, this.activeRoad, tx, tz, 2.2 * dpr);
     for (const m of this.track.markers) drawMarker(ctx, m.kind, tx(m.x), tz(m.z), 5 * dpr);
+    drawLabels(ctx, this.track.labels, tx, tz, dpr, cw, ch);
     if (car && Number.isFinite(car.x)) {
       ctx.save();
       ctx.translate(tx(car.x), tz(car.z));

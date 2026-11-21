@@ -1,14 +1,34 @@
 // Pure validation for the Slop Drift backend. No Workers APIs beyond Web Crypto, so Node can import
 // and test it directly (tests/net.test.mjs). Event ids and medal targets come straight from the game
 // source, so the server can never disagree with the client about which events exist.
+//
+// Rooms and leaderboards are per map, named by track key (src/meta/trackKey.js): the bare mode id
+// on the original Alpine map (so existing rows and clients keep working), 'mussoorie.sprint' etc.
+// on the others. The `modeId` fields and `mode` query parameters below are track keys.
 
 import { MODES } from '../../src/config.js';
-import { MEDAL_TARGETS } from '../../src/meta/catalog.js';
+import { TRACK_MEDAL_TARGETS, medalTargets } from '../../src/meta/catalog.js';
+import { MAPS } from '../../src/world/maps.js';
+import { trackKey } from '../../src/meta/trackKey.js';
 
-/** Every event id; each one gets a realtime room. */
-export const ROOM_MODES = Object.freeze(['mountain', ...MODES.map((mode) => mode.id)]);
-/** Events with a leaderboard (all but free roam). */
-export const RANKED_MODES = Object.freeze(Object.keys(MEDAL_TARGETS));
+/** Party room names: 'party.' + a 5-character code (src/net/party.js; kept inline to avoid an import cycle). */
+const PARTY_ROOM_RE = /^party\.[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{5}$/;
+
+/** True for a private party room name ('party.K7QXM'), the only rooms besides ROOM_MODES. */
+export function isPartyRoom(name) {
+  return typeof name === 'string' && PARTY_ROOM_RE.test(name);
+}
+
+/**
+ * Every room name: each map's shared lobby ('mountain'), free roam, and one room per event that map
+ * ranks (so no Nag Tibba rooms on Alpine), as track keys.
+ */
+export const ROOM_MODES = Object.freeze(Object.keys(MAPS).flatMap((mapId) => (
+  ['mountain', ...MODES.map((mode) => mode.id).filter((modeId) => modeId === 'roam' || medalTargets(trackKey(mapId, modeId)))]
+    .map((modeId) => trackKey(mapId, modeId))
+)));
+/** Tracks with a leaderboard (every map's events but free roam), as track keys. */
+export const RANKED_MODES = Object.freeze(Object.keys(TRACK_MEDAL_TARGETS));
 
 export const MAX_ROOM_SIZE = 16;
 /** Ghost strings are base64; 64 KiB of text is ~48 KiB of codec bytes (~10 min at 10 Hz). */
@@ -21,12 +41,12 @@ export const SUBMIT_INTERVAL_MS = 10_000;
 export const MAX_TIME = 3600;
 
 /**
- * Plausibility limits for one event: author * 0.85 is the fastest believable time,
+ * Plausibility limits for one track (track key): author * 0.85 is the fastest believable time,
  * author * 1.6 the highest believable drift score.
  * @returns {{kind:'time'|'score', minTime:number, maxScore:number}|null}
  */
 export function limitsFor(modeId) {
-  const targets = Object.prototype.hasOwnProperty.call(MEDAL_TARGETS, modeId) ? MEDAL_TARGETS[modeId] : null;
+  const targets = typeof modeId === 'string' ? medalTargets(modeId) : null;
   if (!targets) return null;
   return targets.kind === 'time'
     ? { kind: 'time', minTime: targets.author * 0.85, maxScore: 0 }

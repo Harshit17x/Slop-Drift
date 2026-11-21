@@ -41,7 +41,10 @@ export class TerrainView {
     this.sunShadeTexture = byteTexture(this.sunShadeData, this.coarseSize, THREE.RedFormat, false);
     this.noiseTexture = createNoiseTexture(world.config.seed);
 
+    const bankSpec = world.config.mountain.grassBank;
+    const bankPlaza = bankSpec && world.plazas?.find((plaza) => plaza.id === bankSpec.plaza);
     this.uniforms = createTerrainUniforms({
+      grassBank: bankPlaza ? { x: bankPlaza.x, z: bankPlaza.z, radius: bankSpec.radius } : null,
       control: this.controlTexture,
       noise: this.noiseTexture,
       sunShade: this.sunShadeTexture,
@@ -89,8 +92,7 @@ export class TerrainView {
     for (const current of this.world.roads) {
       for (let i = 0; i < current.count; i += 1) stamp(current.px[i], current.pz[i], current.ribbonHalfAt(i) + road.bedMargin);
     }
-    const plaza = this.world.plaza;
-    if (plaza) {
+    for (const plaza of this.world.plazas || (this.world.plaza ? [this.world.plaza] : [])) {
       // Cover the disc with stamps so the same code handles it.
       const bedRadius = plaza.radius + road.verge + road.bedMargin;
       for (let radius = 0; radius <= bedRadius - 6; radius += 5) {

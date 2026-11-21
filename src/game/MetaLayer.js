@@ -1,5 +1,6 @@
 import { getMode, getPaint, MODES } from '../config.js';
-import { RIM_OPTIONS } from '../meta/catalog.js';
+import { RIM_OPTIONS, medalTargets } from '../meta/catalog.js';
+import { LEGACY_MAP, modeOfTrack, trackKey } from '../meta/trackKey.js';
 import { GhostRecorder } from '../ghost/GhostRecorder.js';
 import { GhostPlayer } from '../ghost/GhostPlayer.js';
 import { loadLocalGhost, saveLocalGhost } from '../ghost/ghostStore.js';
@@ -14,6 +15,9 @@ const ghostQuaternion = new THREE.Quaternion();
  * Everything around the driving that gives it a point: the career (XP, medals, achievements,
  * daily challenge, cosmetics), ghost replays, and the online leaderboard and players when a
  * network client is attached. Game calls the run hooks; this class talks to the HUD.
+ *
+ * Everything that compares runs is per map: ghosts, leaderboards and multiplayer rooms use the
+ * track key (src/meta/trackKey.js) of the current map, while the HUD keeps talking in mode ids.
  */
 export class MetaLayer {
   /**
@@ -23,10 +27,16 @@ export class MetaLayer {
    * @param {THREE.Scene} options.scene
    * @param {{x:number,y:number,z:number}[]} options.wheelLayout
    * @param {object} options.game  Callbacks into the game: beginRun(modeId, { daily }), applyTimeOfDay(name), car.
+   * @param {string} [options.mapId]  Map being driven (src/world/maps.js); fixed for the page load.
    */
-  constructor({ career, hud, scene, wheelLayout, game }) {
+  constructor({ career, hud, scene, wheelLayout, game, mapId = LEGACY_MAP }) {
     this.career = career;
     this.hud = hud;
+    this.mapId = mapId;
+    // Players on other maps would appear at meaningless positions, so each map has its own lobby.
+    this.lobby = trackKey(mapId, 'mountain');
+    career.setMap?.(mapId);
+    hud.setMap?.(mapId);
     this.scene = scene;
     this.game = game;
     this.wheelLayout = wheelLayout;
@@ -38,6 +48,8 @@ export class MetaLayer {
     this.leaderboard = null; // attached by attachNetwork()
     this.net = null;
     this.room = null;
+    /** Party room name ('party.<CODE>') while in a party (src/game/PartyRace.js), else null. */
+    this.partyRoom = null;
     this.onlineTimer = 0;
     this.connection = 'offline';
     this.online = null;
@@ -53,7 +65,7 @@ export class MetaLayer {
     if (net) {
       net.onStatus(() => this.updateConnection());
       net.onRoster((peers) => this.updateRoster(peers));
-      net.join('mountain');
+      net.join(this.lobby);
     }
     this.pollOnline();
     this.onlineTimer = setInterval(() => this.pollOnline(), 30000);
@@ -102,10 +114,16 @@ export class MetaLayer {
     }
   }
 
+  /** Track key of a mode on this map. */
+  trackKey(modeId) {
+    return trackKey(this.mapId, modeId);
+  }
+
   joinRoom(modeId) {
     this.room = modeId;
-    if (this.net && this.net.modeId !== 'mountain') {
-      this.net.join('mountain');
+    // In a party the network room is the party's; the public lobby waits until the party is left.
+    if (this.net && !this.partyRoom && this.net.modeId !== this.lobby) {
+      this.net.join(this.lobby);
     }
     this.net?.setMode(modeId);
     this.updateRoster(this.net?.peers);
@@ -114,6 +132,23 @@ export class MetaLayer {
   leaveRoom() {
     this.room = null;
     this.net?.setMode('menu');
+    this.updateRoster(this.net?.peers);
+  }
+
+  /** Swap the public lobby for a private party room (NetClient has one room at a time). */
+  enterParty(roomName, options) {
+    this.partyRoom = roomName;
+    this.net?.join(roomName, options);
+    this.net?.setMode(this.room || 'menu');
+    this.updateRoster(this.net?.peers);
+  }
+
+  /** Back from a party to this map's public lobby. */
+  exitParty() {
+    if (!this.partyRoom) return;
+    this.partyRoom = null;
+    this.net?.join(this.lobby);
+    this.net?.setMode(this.room || 'menu');
     this.updateRoster(this.net?.peers);
   }
 
@@ -202,17 +237,18 @@ export class MetaLayer {
 
   async loadLeaderboard(modeId) {
     const { hud } = this;
-    if (!MODES.some((mode) => mode.id === modeId) || modeId === 'roam') return;
+    // Only tracks this map ranks (no Nag Tibba board on Alpine); the server ranks the same set.
+    if (!MODES.some((mode) => mode.id === modeId) || modeId === 'roam' || !medalTargets(this.trackKey(modeId))) return;
     hud.setLeaderboard(modeId, { status: 'loading', entries: [] });
     try {
-      const response = this.leaderboard ? await this.leaderboard.top(modeId, 50) : this.localBoard(modeId);
+      const response = this.leaderboard ? await this.leaderboard.top(this.trackKey(modeId), 50) : this.localBoard(modeId);
       hud.setLeaderboard(modeId, { status: response.status, entries: response.entries });
     } catch {
       hud.setLeaderboard(modeId, { status: 'error', entries: [] });
     }
   }
 
-  /** Without a leaderboard service: this browser's best on the event, if any. */
+  /** Without a leaderboard service: this browser's best on the event, if any (game.records is this map's). */
   localBoard(modeId) {
     const record = this.game.records[modeId];
     const profile = this.career.profile;
@@ -224,18 +260,19 @@ export class MetaLayer {
       entries: [{
         rank: 1, playerId: profile.id, name: profile.name, level: this.career.level,
         time: isScore ? null : value, score: isScore ? value : null,
-        hasGhost: Boolean(loadLocalGhost(modeId)), at: Date.now(), isMe: true,
+        hasGhost: Boolean(loadLocalGhost(this.trackKey(modeId))), at: Date.now(), isMe: true,
       }],
     };
   }
 
   async raceLeaderboardGhost(modeId, playerId) {
     let data = null;
+    const key = this.trackKey(modeId);
     if (playerId === this.career.profile.id) {
-      data = loadLocalGhost(modeId);
+      data = loadLocalGhost(key);
     } else if (this.leaderboard) {
       try {
-        const text = await this.leaderboard.ghost(modeId, playerId);
+        const text = await this.leaderboard.ghost(key, playerId);
         data = text ? decodeGhost(text) : null;
       } catch {
         data = null;
@@ -258,13 +295,14 @@ export class MetaLayer {
     this.career.beginRun({ modeId, timeOfDay });
     this.recorder.discard();
     const profile = this.career.profile;
-    if (modeId !== 'roam') this.recorder.start(modeId, profile.name, profile.cosmetics.paint);
+    const key = this.trackKey(modeId);
+    if (modeId !== 'roam') this.recorder.start(key, profile.name, profile.cosmetics.paint);
 
     // Race a chosen leaderboard ghost, otherwise your own best on this event.
-    let choice = this.pendingGhost && this.pendingGhost.data.modeId === modeId ? this.pendingGhost : null;
+    let choice = this.pendingGhost && this.pendingGhost.data.modeId === key ? this.pendingGhost : null;
     this.pendingGhost = null;
     if (!choice && modeId !== 'roam') {
-      const data = loadLocalGhost(modeId);
+      const data = loadLocalGhost(key);
       if (data) choice = { data, kind: 'pb', playerId: profile.id };
     }
     this.setGhost(choice);
@@ -338,7 +376,7 @@ export class MetaLayer {
     const rewards = this.career.finishRun(result);
     const ghost = this.recorder.active ? this.recorder.finish(result.time, result.score) : null;
     if (ghost && result.isRecord) {
-      saveLocalGhost(modeId, ghost);
+      saveLocalGhost(this.trackKey(modeId), ghost);
       this.submit(modeId, result, ghost);
     }
     this.hideGhost();
@@ -350,7 +388,7 @@ export class MetaLayer {
   async submit(modeId, result, ghost) {
     if (!this.leaderboard) return;
     try {
-      const response = await this.leaderboard.submit(modeId, result, encodeGhost(ghost));
+      const response = await this.leaderboard.submit(this.trackKey(modeId), result, encodeGhost(ghost));
       if (response?.accepted && response.status === 'online' && Number.isFinite(response.rank)) {
         this.hud.toast(`Global rank #${response.rank} on ${getMode(modeId).label}`, 'good');
       }
@@ -382,7 +420,7 @@ export class MetaLayer {
 }
 
 function formatGhostDetail(data) {
-  if (data.modeId === 'drift') return `${Math.round(data.score).toLocaleString('en-US')} pts`;
+  if (modeOfTrack(data.modeId) === 'drift') return `${Math.round(data.score).toLocaleString('en-US')} pts`;
   const minutes = Math.floor(data.time / 60);
   return `${minutes}:${(data.time - minutes * 60).toFixed(2).padStart(5, '0')}`;
 }

@@ -167,14 +167,19 @@ export class TerrainGrid {
   }
 
   /**
-   * Cut and fill the terrain around roads and the plaza.
+   * Cut and fill the terrain around roads and plazas.
    *
    * For every node near a road we keep an allowed height interval: inside the bed it is pinned just
    * below the road surface; beyond it the ground may rise no faster than `cutSlope` and fall no
    * faster than `fillSlope`. The original height is then clamped into that interval, which leaves
    * rock cuts on the uphill side and embankments on the downhill side, and untouched ground beyond.
+   *
+   * @param {import('./Road.js').Road[]} roads
+   * @param {Array<{x:number,z:number,y:number,radius:number}>|{x:number,z:number,y:number,radius:number}|null} plazas
+   *   Every plaza (a single plaza object or null is accepted too).
+   * @param {object} config  The world's road config.
    */
-  carve(roads, plaza, config) {
+  carve(roads, plazas, config) {
     const { size, cell, heights, half } = this;
     const lower = new Float32Array(heights.length).fill(-Infinity);
     const upper = new Float32Array(heights.length).fill(Infinity);
@@ -234,7 +239,8 @@ export class TerrainGrid {
       }
     }
 
-    if (plaza) {
+    const plazaList = Array.isArray(plazas) ? plazas : plazas ? [plazas] : [];
+    for (const plaza of plazaList) {
       const bedRadius = plaza.radius + config.verge + config.bedMargin;
       stamp(plaza.x, plaza.z, bedRadius + reach, (x, z, node) => {
         const distance = Math.hypot(x - plaza.x, z - plaza.z);

@@ -1,6 +1,6 @@
 // Headless logic tests for the UI layer: node tests/ui.test.mjs
 import assert from 'node:assert/strict';
-import { formatTime, formatDelta, formatInt, recordKind, formatTarget, medalFor, validateName } from '../src/ui/Hud.js';
+import { formatTime, formatDelta, formatInt, recordKind, formatTarget, medalFor, validateName, normalizePartyCode, isPartyCode, paintColor } from '../src/ui/Hud.js';
 import { applyDeadzone, isFormField, KEY_BINDINGS, PAD_BUTTONS } from '../src/input/Input.js';
 import { normalizeTrack } from '../src/ui/Minimap.js';
 import { MODES } from '../src/config.js';
@@ -34,7 +34,7 @@ test('formatInt groups thousands without locale', () => {
 
 test('recordKind per mode', () => {
   const kinds = Object.fromEntries(MODES.map((m) => [m.id, recordKind(m)]));
-  assert.deepEqual(kinds, { sprint: 'time', circuit: 'time', climb: 'time', descent: 'time', drift: 'score', roam: 'none' });
+  assert.deepEqual(kinds, { sprint: 'time', circuit: 'time', climb: 'time', descent: 'time', drift: 'score', peak: 'time', peakdown: 'time', roam: 'none' });
 });
 
 test('applyDeadzone rescales', () => {
@@ -83,6 +83,10 @@ test('medalFor uses MEDAL_TARGETS direction', () => {
   assert.equal(medalFor('drift', 4000), 'silver');
   assert.equal(medalFor('drift', 100), null);
   assert.equal(medalFor('roam', 1), null);
+  // Per map: a Mussoorie sprint time is judged against the Mussoorie targets.
+  assert.equal(medalFor('sprint', 160, 'alpine'), 'gold');
+  assert.equal(medalFor('sprint', 160, 'mussoorie'), null);
+  assert.equal(medalFor('sprint', 92, 'mussoorie'), 'gold');
 });
 
 test('validateName', () => {
@@ -91,6 +95,22 @@ test('validateName', () => {
   assert.equal(validateName('x'.repeat(17)), null);
   assert.equal(validateName('drift_mum-2'), 'drift_mum-2');
   assert.equal(validateName('bad!name'), null);
+});
+
+test('party code input sanitising', () => {
+  assert.equal(normalizePartyCode(' k7-mpq9z '), 'K7MPQ');
+  assert.equal(normalizePartyCode('a0b1c'), 'ABC');
+  assert.equal(normalizePartyCode(null), '');
+  assert.equal(isPartyCode('K7MPQ'), true);
+  assert.equal(isPartyCode('K7MP'), false);
+  assert.equal(isPartyCode('K7MP0'), false);
+});
+
+test('paintColor only passes safe colours', () => {
+  assert.equal(paintColor(0xc8321e), '#c8321e');
+  assert.equal(paintColor('#2A6FB0'), '#2A6FB0');
+  assert.equal(paintColor('red;background:url(x)'), null);
+  assert.equal(paintColor(undefined), null);
 });
 
 console.log(`\n${passed} passed`);

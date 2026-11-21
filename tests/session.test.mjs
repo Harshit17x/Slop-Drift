@@ -3,7 +3,7 @@
 
 import { RaceSession } from '../src/game/RaceSession.js';
 import { AudioEngine } from '../src/audio/AudioEngine.js';
-import { MODES } from '../src/config.js';
+import { MODES, loadRecords, saveRecords } from '../src/config.js';
 
 let failures = 0;
 let passes = 0;
@@ -477,6 +477,35 @@ test('records and splits update only on improvement', () => {
   near(records.sprint.splits[0], (6 + loopD(1200)) / 60, 1e-6, 'splits replaced');
   // Other modes untouched.
   assert(Object.keys(records).join() === 'sprint', 'only sprint written');
+});
+
+test('records are stored per map; Alpine keeps the pre-map save', () => {
+  const memory = new Map();
+  const previous = globalThis.localStorage;
+  globalThis.localStorage = { getItem: (k) => (memory.has(k) ? memory.get(k) : null), setItem: (k, v) => memory.set(k, String(v)) };
+  try {
+    // A save from before maps existed: bare mode ids.
+    memory.set('slop-drift-records-v1', JSON.stringify({ sprint: { time: 170 }, drift: { score: 5000 } }));
+    const alpine = loadRecords('alpine');
+    assert(alpine.sprint.time === 170 && alpine.drift.score === 5000, 'legacy records are alpine');
+    assert(Object.keys(loadRecords('mussoorie')).length === 0, 'mussoorie starts empty');
+
+    // A Mussoorie run through RaceSession writes the per-map view, keyed by mode id.
+    const hills = loadRecords('mussoorie');
+    const run = newRun('sprint', hills);
+    run.driver.drive(L0 + 30, 50, 60);
+    assert(hills.sprint.time === run.session.result.time && run.session.result.isRecord, 'first mussoorie run is a record');
+    saveRecords(hills, 'mussoorie');
+    const stored = JSON.parse(memory.get('slop-drift-records-v1'));
+    assert(stored.sprint.time === 170 && stored['mussoorie.sprint'].time === hills.sprint.time, `stored ${JSON.stringify(Object.keys(stored))}`);
+    assert(loadRecords('alpine').sprint.time === 170 && loadRecords('mussoorie').sprint.time === hills.sprint.time, 'reload per map');
+    assert(loadRecords().sprint.time === 170, 'default map is the legacy one');
+    memory.set('slop-drift-records-v1', '[1,2]');
+    assert(Object.keys(loadRecords('alpine')).length === 0, 'junk save loads empty');
+  } finally {
+    if (previous === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = previous;
+  }
 });
 
 test('constructor rejects unknown routes, HUD shape matches HudFrame.session', () => {

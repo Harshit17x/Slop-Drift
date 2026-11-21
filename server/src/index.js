@@ -1,5 +1,7 @@
 // Slop Drift backend: one Worker.
-//   /parties/room/<modeId>   WebSocket upgrade into the Room Durable Object for that event (Room.js)
+//   /parties/room/<modeId>   WebSocket upgrade into the Room Durable Object for that event (Room.js);
+//                            modeId is a track key (src/meta/trackKey.js), e.g. 'sprint' or 'mussoorie.sprint',
+//                            or a private party room 'party.<CODE>' (src/net/party.js)
 //   /api/*                   REST (Hono): register, score, top, ghost, online
 //
 // Free-tier budget (100k requests/day for Workers + Durable Objects together) drives the design:
@@ -11,7 +13,7 @@ import { cors } from 'hono/cors';
 import { routePartykitRequest } from 'partyserver';
 import { Room } from './Room.js';
 import {
-  RANKED_MODES, ROOM_MODES, SUBMIT_INTERVAL_MS, isValidPlayerId, limitsFor, originAllowed, parseJoinParams,
+  RANKED_MODES, ROOM_MODES, SUBMIT_INTERVAL_MS, isPartyRoom, isValidPlayerId, limitsFor, originAllowed, parseJoinParams,
   sanitizeName, signToken, validateSubmission, verifyToken,
 } from './validate.js';
 
@@ -241,7 +243,7 @@ export default {
         onBeforeConnect: async (req, lobby) => {
           const origin = req.headers.get('Origin');
           if (!originAllowed(origin, env.ALLOWED_ORIGINS)) return new Response('origin not allowed', { status: 403 });
-          if (lobby.className !== 'Room' || !ROOM_MODES.includes(lobby.name)) return new Response('unknown room', { status: 404 });
+          if (lobby.className !== 'Room' || !(ROOM_MODES.includes(lobby.name) || isPartyRoom(lobby.name))) return new Response('unknown room', { status: 404 });
           const params = parseJoinParams(new URL(req.url).searchParams);
           if (!params) return new Response('bad join parameters', { status: 400 });
           if (!(await verifyToken(env.TOKEN_SECRET, params.playerId, params.token))) return new Response('bad token', { status: 401 });

@@ -10,11 +10,15 @@ import { buildLoopPlan, buildSpurPlan } from './TrackLayout.js';
 
 const LOOP = 0;
 const SPUR = 1;
+const PEAK = 2;
+// Open roads of an authored map are given ids in this order (after the loop); any other open road follows.
+const BRANCH_ORDER = ['spur', 'peak'];
 const CORRIDOR_CELL = 8;
 const MACRO_STEP = 2; // macro relief is sampled every 2 grid cells (4 m)
 const OBSTACLE_CELL = 16;
 const MOUTH_LEFT = 1;
 const MOUTH_RIGHT = 2;
+const PIN_RAMP = 24; // metres over which a branch's climb eases in after its pinned stretch
 
 
 // Scratch objects reused by the queries so the physics step never allocates.
@@ -28,13 +32,28 @@ const scratchNormal = { nx: 0, ny: 1, nz: 0 };
  * vehicle, race logic and scenery need. It has no rendering code and runs unchanged in Node.
  */
 export class World {
-  constructor(config = WORLD) {
+  /**
+   * @param {object} [config]  WORLD, or a map's config from maps.js.
+   * @param {object} [mapData]  parseMapData() output for an authored map; null generates the procedural mountain.
+   */
+  constructor(config = WORLD, mapData = null) {
     this.config = config;
+    this.mapData = mapData;
+    this.placements = [];
+    this.labels = [];
+    this.staticObstacles = [];
     this.grid = new TerrainGrid(config.grid);
     this.shape = null;
     this.roads = [];
     this.routes = {};
+    /** @type {{id:string, roadId:number, x:number, z:number, y:number, radius:number, label:(string|null)}[]} One per open road, at its end. */
+    this.plazas = [];
+    /** The spur's plaza (alias of an entry of `plazas`), kept for callers that know only one summit. */
     this.plaza = null;
+    /** @type {{roadId:number, s:number}[]} Where each open road leaves the loop (s along the loop). */
+    this.junctions = [];
+    /** The spur's junction s on the loop (alias of its `junctions` entry). */
+    this.junctionS = 0;
     this.waterLevel = config.mountain.waterLevel;
     this.bounds = { minX: -this.grid.half, maxX: this.grid.half, minZ: -this.grid.half, maxZ: this.grid.half };
     this.summit = { x: 0, y: 0, z: 0 };
@@ -52,6 +71,7 @@ export class World {
       onProgress(fraction, label);
       await pause();
     };
+    if (this.mapData) return this.buildFromMap(stage);
 
     await stage(0.02, 'Surveying the mountain');
     this.shape = new MountainShape(config.mountain, config.seed);
@@ -72,13 +92,338 @@ export class World {
     this.flagMouths();
 
     await stage(0.8, 'Cutting the roadbed');
-    this.grid.carve(this.roads, this.plaza, config.road);
+    this.grid.carve(this.roads, this.plazas, config.road);
     this.flagRails();
     this.buildRoutes();
     this.corridor = null;
     this.built = true;
     await stage(0.9, 'Planting the forest');
     return this;
+  }
+
+  /** Build from an authored map (maps.js): its terrain, its loop, every open road and their plazas. */
+  async buildFromMap(stage) {
+    const config = this.config;
+    const data = this.mapData;
+    this.waterLevel = data.waterLevel ?? config.mountain.waterLevel;
+
+    await stage(0.05, 'Reading the survey');
+    const source = data.grid;
+    const sourceHalf = ((source.size - 1) * source.cell) / 2;
+    const heights = data.heights;
+    const sampleSource = (x, z) => {
+      const gx = clamp((x + sourceHalf) / source.cell, 0, source.size - 1.001);
+      const gz = clamp((z + sourceHalf) / source.cell, 0, source.size - 1.001);
+      const ix = gx | 0;
+      const iz = gz | 0;
+      const fx = gx - ix;
+      const fz = gz - iz;
+      const node = iz * source.size + ix;
+      const top = heights[node] + (heights[node + 1] - heights[node]) * fx;
+      const bottom = heights[node + source.size] + (heights[node + source.size + 1] - heights[node + source.size]) * fx;
+      return top + (bottom - top) * fz;
+    };
+    await this.grid.fill(sampleSource, (fraction) => stage(0.08 + fraction * 0.3, 'Raising the terrain'));
+
+    await stage(0.4, 'Eroding ridges and gullies');
+    if (config.erosion.droplets > 0) this.grid.erode(config.erosion, createRandom(config.seed + 5));
+
+    await stage(0.62, 'Grading the roads');
+    this.buildMapRoads(data);
+    this.flagMouths();
+
+    await stage(0.78, 'Cutting the roadbed');
+    this.grid.carve(this.roads, this.plazas, config.road);
+    this.flagRails();
+    this.buildRoutes();
+
+    this.labels = (data.labels || []).map((label) => ({ ...label }));
+    // A named plaza the map does not already label gets one, so every summit reads on the map.
+    for (const plaza of this.plazas) {
+      if (!plaza.label) continue;
+      const name = plaza.label.toLowerCase();
+      if (!this.labels.some((label) => String(label.name).toLowerCase() === name)) this.labels.push({ name: plaza.label, x: plaza.x, z: plaza.z });
+    }
+    // Footprints: w along the building's local x, d along its local depth, both turned by yaw.
+    // A building moved onto a road in Blender is dropped rather than left to block it.
+    this.placements = [];
+    this.staticObstacles = [];
+    for (const source of data.placements || []) {
+      const placement = { ...source, w: source.w ?? 8, d: source.d ?? 8 };
+      placement.radius = Math.hypot(placement.w, placement.d) / 2;
+      let blocked = false;
+      for (const current of this.roads) {
+        if (current.locate(placement.x, placement.z, scratchLocation) && !scratchLocation.beyondEnd
+          && scratchLocation.distance < Math.min(placement.w, placement.d) / 2 + scratchLocation.halfWidth + config.road.shoulder) blocked = true;
+      }
+      if (blocked) continue;
+      this.placements.push(placement);
+      // Solid as a row of circles along the long axis.
+      const along = placement.w >= placement.d;
+      const length = along ? placement.w : placement.d;
+      const radius = (along ? placement.d : placement.w) / 2;
+      const ax = along ? Math.cos(placement.yaw) : -Math.sin(placement.yaw);
+      const az = along ? -Math.sin(placement.yaw) : -Math.cos(placement.yaw);
+      const circles = Math.max(1, Math.ceil(length / (radius * 2)));
+      for (let k = 0; k < circles; k += 1) {
+        const offset = circles === 1 ? 0 : -length / 2 + radius + ((length - radius * 2) * k) / (circles - 1);
+        this.staticObstacles.push(placement.x + ax * offset, placement.z + az * offset, radius * 0.96);
+      }
+    }
+    this.setObstacles([]);
+    this.built = true;
+    await stage(0.9, 'Planting the forest');
+    return this;
+  }
+
+  /** Resample an exported polyline (x, z pairs plus heights) to the road spacing. */
+  static resamplePolyline(flat, heights, closed, spacing) {
+    const count = heights.length;
+    const xs = [];
+    const zs = [];
+    const ys = [];
+    for (let i = 0; i < count; i += 1) {
+      xs.push(flat[i * 2]);
+      zs.push(flat[i * 2 + 1]);
+      ys.push(heights[i]);
+    }
+    if (closed) {
+      xs.push(xs[0]);
+      zs.push(zs[0]);
+      ys.push(ys[0]);
+    }
+    const cumulative = [0];
+    for (let i = 1; i < xs.length; i += 1) cumulative.push(cumulative[i - 1] + Math.hypot(xs[i] - xs[i - 1], zs[i] - zs[i - 1]));
+    const total = cumulative[cumulative.length - 1];
+    const samples = closed ? Math.max(8, Math.round(total / spacing)) : Math.max(2, Math.round(total / spacing) + 1);
+    const step = closed ? total / samples : total / (samples - 1);
+    const points = [];
+    const profile = new Float32Array(samples);
+    let segment = 0;
+    for (let k = 0; k < samples; k += 1) {
+      const s = Math.min(total, k * step);
+      while (segment < cumulative.length - 2 && cumulative[segment + 1] < s) segment += 1;
+      const span = cumulative[segment + 1] - cumulative[segment] || 1;
+      const t = clamp((s - cumulative[segment]) / span, 0, 1);
+      points.push([lerp(xs[segment], xs[segment + 1], t), lerp(zs[segment], zs[segment + 1], t)]);
+      profile[k] = lerp(ys[segment], ys[segment + 1], t);
+    }
+    // The export is a 4 m polyline; linear resampling leaves its corners as curvature spikes.
+    for (let pass = 0; pass < 4; pass += 1) {
+      const previous = points.map((point) => point.slice());
+      for (let k = 0; k < samples; k += 1) {
+        if (!closed && (k === 0 || k === samples - 1)) continue;
+        const a = previous[(k - 1 + samples) % samples];
+        const b = previous[(k + 1) % samples];
+        points[k][0] = (a[0] + 2 * previous[k][0] + b[0]) / 4;
+        points[k][1] = (a[1] + 2 * previous[k][1] + b[1]) / 4;
+      }
+    }
+    return { points, profile };
+  }
+
+  /**
+   * The loop and every open road of an authored map. Road ids are array indices: the loop is LOOP,
+   * then the open roads in BRANCH_ORDER ('spur' = SPUR, 'peak' = PEAK), then any others in file order.
+   * Each open road starts on the loop and ends at its plaza.
+   */
+  buildMapRoads(data) {
+    const config = this.config;
+    const road = config.road;
+    const spacing = road.spacing;
+    const loopData = data.roads.find((entry) => entry.name === 'loop') || data.roads.find((entry) => entry.closed);
+    const rank = (entry) => {
+      const index = BRANCH_ORDER.indexOf(entry.name);
+      return index < 0 ? BRANCH_ORDER.length : index;
+    };
+    const branchData = data.roads.filter((entry) => entry !== loopData && !entry.closed)
+      .map((entry, order) => ({ entry, order }))
+      .sort((a, b) => rank(a.entry) - rank(b.entry) || a.order - b.order)
+      .map(({ entry }) => entry);
+
+    const loopSampled = World.resamplePolyline(loopData.points, loopData.heights, true, spacing);
+    const loopPoints = loopSampled.points;
+    const loopHeights = gradeLimitedProfile(loopSampled.profile, spacing, road.maxGrade, true);
+
+    // Every open road starts on the loop. Find where, so each fork is kept flat and unbanked on the loop.
+    const branches = branchData.map((entry) => {
+      const sampled = World.resamplePolyline(entry.points, entry.heights, false, spacing);
+      const first = sampled.points[0];
+      let junctionIndex = 0;
+      let nearest = Infinity;
+      for (let i = 0; i < loopPoints.length; i += 1) {
+        const d = Math.hypot(loopPoints[i][0] - first[0], loopPoints[i][1] - first[1]);
+        if (d < nearest) {
+          nearest = d;
+          junctionIndex = i;
+        }
+      }
+      return { entry, sampled, junctionIndex };
+    });
+    const loopFlatten = new Float32Array(loopPoints.length);
+    for (let i = 0; i < loopPoints.length; i += 1) {
+      let flat = 0;
+      for (const branch of branches) {
+        let offset = Math.abs(i - branch.junctionIndex);
+        offset = Math.min(offset, loopPoints.length - offset) * spacing;
+        flat = Math.max(flat, 1 - smoothstep(85, 130, offset));
+      }
+      loopFlatten[i] = flat;
+    }
+    const loop = new Road({ id: LOOP, name: 'loop', closed: true, points: loopPoints, heights: loopHeights, config: road, flatten: loopFlatten });
+
+    this.roads = [loop];
+    this.plazas = [];
+    this.junctions = [];
+    for (const branch of branches) {
+      const id = this.roads.length;
+      const { entry, sampled, junctionIndex } = branch;
+      const built = this.buildMapBranch(loop, id, entry.name, sampled, junctionIndex);
+      this.roads.push(built.road);
+      const source = World.plazaSource(data, entry, branches.length);
+      const last = sampled.points[sampled.points.length - 1];
+      this.plazas.push({
+        id: String(source?.id ?? (entry.name === 'spur' ? 'summit' : entry.name)),
+        roadId: id,
+        x: source ? source.x : last[0],
+        z: source ? source.z : last[1],
+        y: built.plazaY,
+        radius: source?.radius ?? config.spur.plazaRadius,
+        label: source?.label ?? null,
+      });
+      this.junctions.push({ roadId: id, s: junctionIndex * loop.spacing });
+    }
+    this.setPlazaAliases();
+  }
+
+  /** The map.json plaza for an open road: its `plazas` entry, else the legacy single `plaza` for the spur. */
+  static plazaSource(data, entry, branchCount) {
+    const listed = Array.isArray(data.plazas) ? data.plazas.find((plaza) => plaza.road === entry.name) : null;
+    if (listed) return listed;
+    if (data.plaza && (entry.name === 'spur' || branchCount === 1)) return data.plaza;
+    return null;
+  }
+
+  /** Point `plaza`, `summit` and `junctionS` at the spur's entries (or the first open road's). */
+  setPlazaAliases() {
+    this.plaza = this.plazas.find((plaza) => plaza.roadId === SPUR) || this.plazas[0] || null;
+    const junction = this.junctions.find((entry) => entry.roadId === SPUR) || this.junctions[0];
+    this.junctionS = junction ? junction.s : 0;
+    // The summit is the highest plaza.
+    let top = null;
+    for (const plaza of this.plazas) if (!top || plaza.y > top.y) top = plaza;
+    this.summit = top ? { x: top.x, y: top.y, z: top.z } : { x: 0, y: 0, z: 0 };
+  }
+
+  /**
+   * One open road of an authored map: resampled `sampled` ({points, profile}), the approach to its
+   * plaza levelled, grade-limited, and pinned to the loop through its fork at `junctionIndex`.
+   * @returns {{road: Road, plazaY: number}}
+   */
+  buildMapBranch(loop, id, name, sampled, junctionIndex) {
+    const road = this.config.road;
+    const spacing = road.spacing;
+    const points = sampled.points;
+
+    // Level the approach to the plaza before grading, so the road arrives flat instead of being
+    // squeezed level in its last few metres. Likewise ease the departure into the loop's height, so
+    // an export that starts above or below the graded loop does not leave a kink at the fork.
+    const raw = sampled.profile;
+    const rawLength = (raw.length - 1) * spacing;
+    const arrival = raw[Math.max(0, Math.round((rawLength - 110) / spacing))];
+    for (let i = 0; i < raw.length; i += 1) raw[i] = lerp(raw[i], arrival, smoothstep(rawLength - 150, rawLength - 70, i * spacing));
+    if (loop.locate(points[0][0], points[0][1], scratchLocation)) {
+      const departure = scratchLocation.y;
+      for (let i = 0; i < raw.length; i += 1) raw[i] = lerp(departure, raw[i], smoothstep(0, 80, i * spacing));
+    }
+    const own = gradeLimitedProfile(raw, spacing, road.maxGrade, false);
+    const heights = this.pinSpurToLoop(loop, points, own, junctionIndex);
+    const plazaY = heights[heights.length - 1];
+    const count = points.length;
+    const length = (count - 1) * spacing;
+    const flatten = new Float32Array(count);
+    const pinnedLength = this.lastPinnedLength;
+    for (let i = 0; i < count; i += 1) {
+      const s = i * spacing;
+      flatten[i] = Math.max(1 - smoothstep(pinnedLength + 60, pinnedLength + 120, s), smoothstep(length - 70, length - 30, s));
+    }
+    const branch = new Road({ id, name, closed: false, points, heights, config: road, flatten });
+    this.matchForkCrossSlope(loop, branch, this.lastHeldLength);
+    return { road: branch, plazaY };
+  }
+
+  /**
+   * Where an open road crosses the loop's asphalt its surface must be the loop's surface. Along its
+   * own centreline pinSpurToLoop guarantees that; across it, tilt the branch (its `bank`) to the
+   * slope the loop has in that direction, easing back to the branch's own banking once clear. A road
+   * leaving a climbing loop at a right angle needs this; for a shallow fork the tilt is near zero.
+   */
+  matchForkCrossSlope(loop, branch, heldLength) {
+    const fade = 24;
+    for (let i = 0; i < branch.count; i += 1) {
+      const s = i * branch.spacing;
+      if (s > heldLength + fade) break;
+      if (!loop.locate(branch.px[i], branch.pz[i], scratchLocation)) continue;
+      // Loop height changes by grade along its tangent (rz, -rx) and by bank along its right.
+      const alongLoop = scratchLocation.rz * branch.rx[i] - scratchLocation.rx * branch.rz[i];
+      const acrossLoop = scratchLocation.rx * branch.rx[i] + scratchLocation.rz * branch.rz[i];
+      const tilt = scratchLocation.grade * alongLoop + scratchLocation.bank * acrossLoop;
+      branch.bank[i] = lerp(tilt, branch.bank[i], smoothstep(heldLength, heldLength + fade, s));
+    }
+  }
+
+  /**
+   * Through the fork the two asphalt surfaces overlap, so the spur copies the loop's height until
+   * they are clear of each other, then climbs at the grade limit until it rejoins its own profile,
+   * and the kink where the pinned stretch ends is rounded off. The rounding never reaches back onto
+   * the loop's asphalt and shoulder, so a road that leaves the loop at a right angle (whose pinned
+   * stretch is short) still meets it flush. The last metres are levelled with wherever the graded
+   * road arrives (the plaza). Sets this.lastPinnedLength.
+   */
+  pinSpurToLoop(loop, spurPoints, own, junctionIndex) {
+    const road = this.config.road;
+    const spacing = road.spacing;
+    const count = spurPoints.length;
+    const spurLength = (count - 1) * spacing;
+    const plazaY = own[count - 1];
+    const spurHeights = new Float32Array(count);
+    const clearSeparation = loop.halfWidth[junctionIndex] * 2 + road.shoulder * 2 + 6;
+    const onLoop = loop.halfWidth[junctionIndex] + road.shoulder;
+    let pinnedUntil = 0;
+    let heldUntil = 0;
+    for (let i = 0; i < count; i += 1) {
+      const s = i * spacing;
+      spurHeights[i] = own[i];
+      if (s > 320 || !loop.locate(spurPoints[i][0], spurPoints[i][1], scratchLocation)) continue;
+      if (scratchLocation.distance < clearSeparation && i === pinnedUntil) {
+        spurHeights[i] = scratchLocation.y;
+        pinnedUntil = i + 1;
+        if (scratchLocation.distance < onLoop && i === heldUntil) heldUntil = i + 1;
+      }
+    }
+    // The climb away from the pinned stretch eases in over RAMP metres (a vertical curve), so the
+    // grade never steps where the pin ends.
+    const maxStep = road.maxGrade * spacing * 0.9;
+    const pinnedLength = pinnedUntil * spacing;
+    for (let i = Math.max(1, pinnedUntil); i < count; i += 1) {
+      const step = maxStep * Math.max(0.05, smoothstep(0, PIN_RAMP, i * spacing - pinnedLength));
+      const limited = clamp(own[i], spurHeights[i - 1] - step, spurHeights[i - 1] + step);
+      spurHeights[i] = limited;
+      if (limited === own[i] && i > pinnedUntil + 40) break;
+    }
+    // Round off what is left of the kink, but never on the loop's own asphalt and shoulder.
+    const pinnedHeights = spurHeights.slice();
+    const eased = gradeLimitedProfile(spurHeights, spacing, road.maxGrade * 1.15, false, 20);
+    const easeFrom = Math.max(pinnedLength - 36, heldUntil * spacing);
+    const easeTo = Math.max(pinnedLength - 2, easeFrom + 20);
+    for (let i = 0; i < count; i += 1) {
+      const s = i * spacing;
+      spurHeights[i] = lerp(pinnedHeights[i], eased[i], smoothstep(easeFrom, easeTo, s));
+    }
+    for (let i = 0; i < count; i += 1) spurHeights[i] = lerp(spurHeights[i], plazaY, smoothstep(spurLength - 46, spurLength - 24, i * spacing));
+    this.lastPinnedLength = pinnedLength;
+    this.lastHeldLength = heldUntil * spacing;
+    return spurHeights;
   }
 
   // ---------------------------------------------------------------- generation
@@ -238,28 +583,33 @@ export class World {
     const spur = new Road({ id: SPUR, name: 'spur', closed: false, points: spurPoints, heights: spurHeights, config: road, flatten: spurFlatten });
 
     this.roads = [loop, spur];
-    this.plaza = { x: 0, z: 0, y: plazaY, radius: config.spur.plazaRadius };
-    this.summit = { x: 0, y: plazaY, z: 0 };
-    this.junctionS = spurPlan.junctionIndex * loop.spacing;
+    this.plazas = [{ id: 'summit', roadId: SPUR, x: 0, z: 0, y: plazaY, radius: config.spur.plazaRadius, label: null }];
+    this.junctions = [{ roadId: SPUR, s: spurPlan.junctionIndex * loop.spacing }];
+    this.setPlazaAliases();
   }
 
-  /** Mark where roads merge into each other or the plaza (no rails, verge or edge lines on those sides). */
+  /** Mark where open roads merge into the loop or a plaza (no rails, verge or edge lines on those sides). */
   flagMouths() {
-    const [loop, spur] = this.roads;
-    const plaza = this.plaza;
-
-    for (let i = 0; i < spur.count; i += 1) {
-      const s = i * spur.spacing;
-      if (s < 260 && loop.locate(spur.px[i], spur.pz[i], scratchLocation)) {
-        const near = scratchLocation.u < 0.5 ? scratchLocation.index : (scratchLocation.index + 1) % loop.count;
-        if (scratchLocation.distance < loop.ribbonHalfAt(near) + spur.ribbonHalfAt(i) + 1.5) {
-          spur.mouth[i] = MOUTH_LEFT | MOUTH_RIGHT;
-          const side = scratchLocation.lateral < 0 ? MOUTH_LEFT : MOUTH_RIGHT;
-          for (let k = -4; k <= 4; k += 1) loop.mouth[(near + k + loop.count) % loop.count] |= side;
+    const loop = this.roads[LOOP];
+    const plazas = this.plazas;
+    for (let r = 0; r < this.roads.length; r += 1) {
+      const branch = this.roads[r];
+      if (r === LOOP || branch.closed) continue;
+      for (let i = 0; i < branch.count; i += 1) {
+        const s = i * branch.spacing;
+        if (s < 260 && loop.locate(branch.px[i], branch.pz[i], scratchLocation)) {
+          const near = scratchLocation.u < 0.5 ? scratchLocation.index : (scratchLocation.index + 1) % loop.count;
+          if (scratchLocation.distance < loop.ribbonHalfAt(near) + branch.ribbonHalfAt(i) + 1.5) {
+            branch.mouth[i] = MOUTH_LEFT | MOUTH_RIGHT;
+            const side = scratchLocation.lateral < 0 ? MOUTH_LEFT : MOUTH_RIGHT;
+            for (let k = -4; k <= 4; k += 1) loop.mouth[(near + k + loop.count) % loop.count] |= side;
+          }
         }
-      }
-      if (Math.hypot(spur.px[i] - plaza.x, spur.pz[i] - plaza.z) < plaza.radius + spur.ribbonHalfAt(i) + 2) {
-        spur.mouth[i] = MOUTH_LEFT | MOUTH_RIGHT;
+        for (const plaza of plazas) {
+          if (Math.hypot(branch.px[i] - plaza.x, branch.pz[i] - plaza.z) < plaza.radius + branch.ribbonHalfAt(i) + 2) {
+            branch.mouth[i] = MOUTH_LEFT | MOUTH_RIGHT;
+          }
+        }
       }
     }
   }
@@ -296,8 +646,12 @@ export class World {
     }
   }
 
+  /**
+   * Routes: 'loop' always; 'climb' / 'descent' on the spur; 'peak' / 'peakdown' only when the map
+   * has a PEAK road. Modes whose route is missing are not offered (config.js modesForWorld).
+   */
   buildRoutes() {
-    const [loop, spur] = this.roads;
+    const loop = this.roads[LOOP];
     const gateSpacing = CONFIG.race.checkpointSpacing;
     const gatesBetween = (from, to, direction, length, closed) => {
       const span = closed ? length : Math.abs(to - from);
@@ -311,22 +665,30 @@ export class World {
       return gates;
     };
     const loopStart = 40;
-    const spurStart = 190;
-    const spurFinish = spur.length - 58;
     this.routes = {
       loop: {
         id: 'loop', roadId: LOOP, closed: true, direction: 1, startS: loopStart, finishS: loopStart, length: loop.length,
         checkpoints: gatesBetween(loopStart, loopStart, 1, loop.length, true),
       },
-      climb: {
-        id: 'climb', roadId: SPUR, closed: false, direction: 1, startS: spurStart, finishS: spurFinish, length: spurFinish - spurStart,
-        checkpoints: gatesBetween(spurStart, spurFinish, 1, spur.length, false),
-      },
-      descent: {
-        id: 'descent', roadId: SPUR, closed: false, direction: -1, startS: spurFinish, finishS: spurStart, length: spurFinish - spurStart,
-        checkpoints: gatesBetween(spurFinish, spurStart, -1, spur.length, false),
-      },
     };
+    // Up from just past the fork to just short of the plaza, and back down.
+    const branchRoutes = (roadId, upId, downId) => {
+      const branch = this.roads[roadId];
+      if (!branch || branch.closed) return;
+      const start = 190;
+      const finish = branch.length - 58;
+      if (finish - start < 100) return; // too short to race on
+      this.routes[upId] = {
+        id: upId, roadId, closed: false, direction: 1, startS: start, finishS: finish, length: finish - start,
+        checkpoints: gatesBetween(start, finish, 1, branch.length, false),
+      };
+      this.routes[downId] = {
+        id: downId, roadId, closed: false, direction: -1, startS: finish, finishS: start, length: finish - start,
+        checkpoints: gatesBetween(finish, start, -1, branch.length, false),
+      };
+    };
+    branchRoutes(SPUR, 'climb', 'descent');
+    branchRoutes(PEAK, 'peak', 'peakdown');
   }
 
   // ---------------------------------------------------------------- queries
@@ -368,8 +730,9 @@ export class World {
       }
     }
 
-    const plaza = this.plaza;
-    if (plaza) {
+    const plazas = this.plazas;
+    for (let p = 0; p < plazas.length; p += 1) {
+      const plaza = plazas[p];
       const dx = x - plaza.x;
       const dz = z - plaza.z;
       const distance = Math.sqrt(dx * dx + dz * dz);
@@ -380,7 +743,7 @@ export class World {
         if (surfaceClass < bestClass || (surfaceClass === bestClass && y > bestY)) {
           bestClass = surfaceClass;
           bestY = y;
-          bestRoad = SPUR;
+          bestRoad = plaza.roadId;
           const slope = beyond > 0 && distance > 0 ? -road.vergeDrop / road.verge / distance : 0;
           gradX = dx * slope;
           gradZ = dz * slope;
@@ -475,8 +838,10 @@ export class World {
       }
     }
 
-    const plaza = this.plaza;
-    if (plaza && y - plaza.y < road.railHeight + 0.3) {
+    const plazas = this.plazas;
+    for (let p = 0; p < plazas.length; p += 1) {
+      const plaza = plazas[p];
+      if (y - plaza.y >= road.railHeight + 0.3) continue;
       const dx = x - plaza.x;
       const dz = z - plaza.z;
       const distance = Math.sqrt(dx * dx + dz * dz);
@@ -508,15 +873,21 @@ export class World {
     return out;
   }
 
-  /** True where the spur road passes through the plaza rail ring. */
+  /** True where an open road passes through a plaza rail ring (the ring is open there). */
   inPlazaEntry(x, z) {
-    const spur = this.roads[SPUR];
-    if (!spur.locate(x, z, scratchLocationB)) return false;
-    return scratchLocationB.distance < scratchLocationB.halfWidth + this.config.road.shoulder + 1.2;
+    const reach = this.config.road.shoulder + 1.2;
+    for (let r = 0; r < this.roads.length; r += 1) {
+      const current = this.roads[r];
+      if (r === LOOP || current.closed || !current.locate(x, z, scratchLocationB)) continue;
+      if (scratchLocationB.distance < scratchLocationB.halfWidth + reach) return true;
+    }
+    return false;
   }
 
   /** Register solid scenery (tree trunks, boulders) as flat [x, z, radius, ...] triples. */
-  setObstacles(triples) {
+  /** Dynamic obstacles (Scenery's trees and rocks). The map's buildings are always included. */
+  setObstacles(dynamic) {
+    const triples = this.staticObstacles.length ? this.staticObstacles.concat(dynamic) : dynamic;
     this.obstacleHash = new Map();
     this.obstacles = triples;
     for (let i = 0; i < triples.length; i += 3) {
@@ -585,6 +956,23 @@ export class World {
     return out;
   }
 
+  /** True within `margin` metres of a building footprint (Scenery keeps trees out). */
+  isReserved(x, z, margin = 0) {
+    for (const placement of this.placements) {
+      const reach = placement.radius + margin;
+      const dx = x - placement.x;
+      const dz = z - placement.z;
+      if (dx * dx + dz * dz < reach * reach) return true;
+    }
+    return false;
+  }
+
+  /** Displayed altitude in metres for a world height. */
+  displayAltitude(y) {
+    const altitude = this.config.altitude;
+    return altitude ? y * altitude.scale + altitude.offset : y - this.config.mountain.valleyFloor;
+  }
+
   /** Road outlines and landmarks for the minimap (Hud.setTrack). */
   getMapData() {
     const roads = this.roads.map((road) => {
@@ -600,10 +988,16 @@ export class World {
     });
     const start = this.roads[LOOP].frameAt(this.routes.loop.startS, scratchFrame);
     const markers = [{ x: start.x, z: start.z, kind: 'start' }];
-    const junction = this.roads[LOOP].frameAt(this.junctionS, scratchFrame);
-    markers.push({ x: junction.x, z: junction.z, kind: 'junction' });
-    markers.push({ x: this.plaza.x, z: this.plaza.z, kind: 'summit' });
-    return { bounds: { ...this.bounds }, roads, markers };
+    for (const entry of this.junctions) {
+      const junction = this.roads[LOOP].frameAt(entry.s, scratchFrame);
+      markers.push({ x: junction.x, z: junction.z, kind: 'junction' });
+    }
+    for (const plaza of this.plazas) {
+      const marker = { x: plaza.x, z: plaza.z, kind: 'summit' };
+      if (plaza.label) marker.label = plaza.label;
+      markers.push(marker);
+    }
+    return { bounds: { ...this.bounds }, roads, markers, labels: this.labels.map((label) => ({ ...label })) };
   }
 }
 
@@ -645,5 +1039,5 @@ function basisToQuaternion(m00, m10, m20, m01, m11, m21, m02, m12, m22, out) {
   return out;
 }
 
-export const ROAD_IDS = Object.freeze({ LOOP, SPUR });
+export const ROAD_IDS = Object.freeze({ LOOP, SPUR, PEAK });
 export const MOUTH = Object.freeze({ LEFT: MOUTH_LEFT, RIGHT: MOUTH_RIGHT });

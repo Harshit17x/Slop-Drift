@@ -53,7 +53,7 @@ Touch controls appear on touch devices.
 ## Progression
 
 - **Driver level.** XP for distance, banked drifts, checkpoints, finishes, personal bests, medals, achievements and the daily challenge. Levels come up mid-run, so free roam counts too.
-- **Medals.** Bronze, silver, gold and author targets on every event (`MEDAL_TARGETS` in `src/meta/catalog.js`), calibrated against scripted runs. Each event card shows your medal and the next target.
+- **Medals.** Bronze, silver, gold and author targets on every event (`MEDAL_TARGETS` in `src/meta/catalog.js`; Mussoorie has its own, still provisional, `MUSSOORIE_MEDAL_TARGETS`), calibrated against scripted runs. Records, ghosts, medals, leaderboards and rooms are per map, keyed by track key (`src/meta/trackKey.js`). Each event card shows your medal and the next target.
 - **Daily challenge.** One seeded rule per UTC day (for example a time on the Touge Descent with no resets) with a streak counter.
 - **Achievements and unlocks.** 20 achievements; paints, rim colours and a custom door number unlock by level, medal count or achievement. Everything earnable is cosmetic: no event, car or handling is ever locked.
 - **Ghosts.** Your best run on each event is saved and replayed as a translucent car; you can also race any leaderboard entry's ghost.

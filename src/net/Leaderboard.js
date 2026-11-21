@@ -9,8 +9,11 @@
 // With no host, or when a request fails, it answers from a leaderboard kept in localStorage that
 // holds this browser's own runs only, and says so with status 'local'. Every run is also recorded
 // locally, so the fallback is never empty after a finish. Nothing here rejects.
+//
+// Every `modeId` here is a track key (src/meta/trackKey.js): 'sprint' is the Alpine loop,
+// 'mussoorie.sprint' the Mussoorie one. Each track key is its own board online and locally.
 
-import { MEDAL_TARGETS, levelForXp } from '../meta/catalog.js';
+import { levelForXp, medalTargets } from '../meta/catalog.js';
 import { ensureToken, fetchWithTimeout, normalizeHost, profileLevel, readJson, storage, writeJson } from './identity.js';
 
 const BOARD_KEY = 'slop-drift-local-board-v1';
@@ -20,7 +23,7 @@ const GHOST_CACHE = 60000;
 const LOCAL_MAX_PER_MODE = 50;
 
 function kindOf(modeId) {
-  return MEDAL_TARGETS[modeId]?.kind || null;
+  return medalTargets(modeId)?.kind || null;
 }
 
 /**

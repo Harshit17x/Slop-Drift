@@ -1,12 +1,14 @@
 // What there is to play for: medals, driver levels, unlockable cosmetics, achievements and the
 // daily challenge rules. Pure data; the logic that awards them lives in src/meta/Career.js.
 
+import { trackKey } from './trackKey.js';
+
 /** Medal tiers, worst to best. */
 export const MEDAL_TIERS = Object.freeze(['bronze', 'silver', 'gold', 'author']);
 export const MEDAL_LABELS = Object.freeze({ bronze: 'Bronze', silver: 'Silver', gold: 'Gold', author: 'Author' });
 
 /**
- * Per-event medal targets. Timed events: seconds, lower is better. Drift: points, higher is better.
+ * Per-event medal targets on the Alpine map (keyed by mode id; see TRACK_MEDAL_TARGETS for every map). Timed events: seconds, lower is better. Drift: points, higher is better.
  * Calibrated against a scripted centreline driver (which cannot use racing lines): its fast clean run
  * sets roughly Gold, its at-the-limit run roughly sits between Gold and Author.
  *   loop 168 / 165 s, circuit 333 s, climb 110 / 107 s, descent 101 / 96 s.
@@ -19,6 +21,44 @@ export const MEDAL_TARGETS = Object.freeze({
   descent: Object.freeze({ kind: 'time', bronze: 128, silver: 112, gold: 101, author: 93 }),
   drift: Object.freeze({ kind: 'score', bronze: 1500, silver: 4000, gold: 8000, author: 14000 }),
 });
+
+/**
+ * Mussoorie medal targets. PROVISIONAL: derived from the Alpine targets above by track length, not
+ * driven yet. Calibrate them with the scripted driver (tests/autopilot.js) before treating them as final.
+ *   loop:  2.93 km vs 5.7 km Alpine, x1.08 for the tighter town corners  -> factor 0.555
+ *   spur:  1.75 km (~112 m of climb) vs ~3 km Alpine, x1.10 for the tighter hairpins -> factor 0.642
+ * Drift scoring does not depend on the track, so the drift targets are Alpine's.
+ */
+export const MUSSOORIE_MEDAL_TARGETS = Object.freeze({
+  sprint: Object.freeze({ kind: 'time', bronze: 119, silver: 104, gold: 93, author: 87 }),
+  circuit: Object.freeze({ kind: 'time', bronze: 239, silver: 208, gold: 187, author: 175 }),
+  climb: Object.freeze({ kind: 'time', bronze: 90, silver: 78, gold: 71, author: 66 }),
+  descent: Object.freeze({ kind: 'time', bronze: 82, silver: 72, gold: 65, author: 60 }),
+  drift: MEDAL_TARGETS.drift,
+  // PROVISIONAL, and not driven at all yet: the Nag Tibba road (~2.86 km, stacked 14 m hairpins)
+  // did not exist when these were set. Scaled from the Lal Tibba spur above by length
+  // (2.86 / 1.75 = x1.63) and x1.05 for the longer run of tight switchbacks -> factor ~1.72.
+  peak: Object.freeze({ kind: 'time', bronze: 154, silver: 134, gold: 122, author: 113 }),
+  peakdown: Object.freeze({ kind: 'time', bronze: 141, silver: 124, gold: 112, author: 103 }),
+});
+
+function keyedByTrack(mapId, targets) {
+  return Object.fromEntries(Object.entries(targets).map(([modeId, value]) => [trackKey(mapId, modeId), value]));
+}
+
+/**
+ * Medal targets for every ranked track, by track key (src/meta/trackKey.js). Alpine keys are the
+ * bare mode ids of MEDAL_TARGETS. Its keys are exactly the tracks with medals and leaderboards.
+ */
+export const TRACK_MEDAL_TARGETS = Object.freeze({
+  ...keyedByTrack('alpine', MEDAL_TARGETS),
+  ...keyedByTrack('mussoorie', MUSSOORIE_MEDAL_TARGETS),
+});
+
+/** Medal targets for a track key, or null for unranked tracks (free roam, maps without targets). */
+export function medalTargets(key) {
+  return Object.prototype.hasOwnProperty.call(TRACK_MEDAL_TARGETS, key) ? TRACK_MEDAL_TARGETS[key] : null;
+}
 
 /** XP awarded for things that happen while driving. */
 export const XP = Object.freeze({
@@ -85,6 +125,7 @@ export const ACHIEVEMENTS = Object.freeze([
   { id: 'first-drift', title: 'Sideways', description: 'Bank your first drift.', event: 'drift', xp: 30 },
   { id: 'summit', title: 'Top of the World', description: 'Finish the Summit Climb.', event: 'finish:climb', xp: 100 },
   { id: 'descent', title: 'Gravity Assisted', description: 'Finish the Touge Descent.', event: 'finish:descent', xp: 100 },
+  { id: 'nag-tibba', title: 'Nag Tibba Summit', description: 'Finish the Nag Tibba Hill Climb.', event: 'finish:peak', xp: 150 },
   { id: 'clean-lap', title: 'Clean Sheet', description: 'Finish the Mountain Loop without a reset.', event: 'clean:sprint', xp: 120 },
   { id: 'combo-1k', title: 'Linked Up', description: 'Bank a single drift combo worth 1,000 points.', event: 'combo:1000', xp: 100 },
   { id: 'combo-5k', title: 'Tandem Dreams', description: 'Bank a single drift combo worth 5,000 points.', event: 'combo:5000', xp: 300 },
@@ -106,10 +147,11 @@ export const ACHIEVEMENTS = Object.freeze([
 /**
  * Daily challenge templates. One is picked per UTC day from a seeded random, together with an event.
  * `target` is relative to that event's medal targets so every day is achievable but not trivial.
+ * Only events the current map ranks are drawn (Career.daily), so 'peak' never comes up on Alpine.
  */
 export const DAILY_TEMPLATES = Object.freeze([
-  { id: 'beat-silver', modes: ['sprint', 'climb', 'descent'], text: (t) => `Finish under ${t}`, target: (m) => m.silver * 0.99, kind: 'time' },
-  { id: 'clean-gold', modes: ['climb', 'descent'], text: (t) => `Finish under ${t} with no resets`, target: (m) => m.gold * 1.04, kind: 'time', clean: true },
+  { id: 'beat-silver', modes: ['sprint', 'climb', 'descent', 'peak', 'peakdown'], text: (t) => `Finish under ${t}`, target: (m) => m.silver * 0.99, kind: 'time' },
+  { id: 'clean-gold', modes: ['climb', 'descent', 'peak', 'peakdown'], text: (t) => `Finish under ${t} with no resets`, target: (m) => m.gold * 1.04, kind: 'time', clean: true },
   { id: 'drift-score', modes: ['drift'], text: (t) => `Score ${t} drift points`, target: (m) => m.silver * 1.1, kind: 'score' },
   { id: 'drift-night', modes: ['drift'], text: (t) => `Score ${t} drift points at night`, target: (m) => m.bronze * 1.6, kind: 'score', timeOfDay: 'night' },
   { id: 'circuit', modes: ['circuit'], text: (t) => `Finish both laps under ${t}`, target: (m) => m.silver, kind: 'time' },

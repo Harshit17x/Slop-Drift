@@ -19,7 +19,10 @@ const { NetClient, PEER_STALE, EXTRAPOLATE_MAX } = await import('../src/net/NetC
 const { Leaderboard, rankEntries } = await import('../src/net/Leaderboard.js');
 const validate = await import('../server/src/validate.js');
 const { encodeGhost } = await import('../src/ghost/ghostCodec.js');
-const { MEDAL_TARGETS } = await import('../src/meta/catalog.js');
+const { MEDAL_TARGETS, MUSSOORIE_MEDAL_TARGETS } = await import('../src/meta/catalog.js');
+const { MetaLayer } = await import('../src/game/MetaLayer.js');
+const { PartyHost } = await import('../server/src/partyHost.js');
+const { PARTY_COUNTDOWN_MS, PARTY_FINISH_GRACE_MS } = await import('../src/net/party.js');
 
 let failures = 0;
 let passes = 0;
@@ -294,6 +297,146 @@ test('local mode: two clients over BroadcastChannel see each other', async () =>
   b.dispose();
 });
 
+// ------------------------------------------------------------------ parties (local transport)
+
+const waitFor = async (cond, ms = 2000) => {
+  const start = Date.now();
+  while (!cond()) {
+    if (Date.now() - start > ms) return false;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return true;
+};
+
+test('local mode: party create, join, select, ready, synchronised start, finish, results, host hand-over', async () => {
+  if (typeof BroadcastChannel === 'undefined') return;
+  let wall = 1_800_000_000_000;
+  const wallNow = () => wall;
+  const make = (name) => {
+    const client = new NetClient({ profile: { id: 'same-profile-id', name, level: 2, cosmetics: { paint: 'ember' } }, wallNow });
+    const seen = [];
+    client.onParty((state, info) => seen.push({ state, info }));
+    return { client, seen, last: () => seen.at(-1) };
+  };
+  const a = make('Tab A');
+  const b = make('Tab B');
+  const c = make('Tab C');
+  try {
+    a.client.join('party.K7QXM', { party: { intent: 'create', mapId: 'mussoorie', modeId: 'sprint' } });
+    assert(a.last()?.state?.hostId === a.client.instanceId, 'creator hosts at once');
+    b.client.join('party.K7QXM');
+    assert(await waitFor(() => b.last()?.state?.members?.[b.client.instanceId]), 'B joined');
+    assert(await waitFor(() => Object.keys(a.last().state.members).length === 2), 'A sees B');
+    assert(b.last().info.you === b.client.instanceId && b.last().state.hostId === a.client.instanceId, 'B knows who it is');
+    assert(await waitFor(() => b.client.partyPeerKey(a.client.instanceId) === a.client.instanceId), 'B finds A\'s car by member id');
+
+    // Only the host may pick; B's attempt is refused back to B.
+    b.client.sendParty('select', { modeId: 'climb' });
+    assert(await waitFor(() => b.last().info.error === 'not-host'), 'refusal reaches B');
+    a.client.sendParty('select', { mapId: 'mussoorie', modeId: 'peak' });
+    b.client.sendParty('ready', { ready: true });
+    assert(await waitFor(() => b.last().state.modeId === 'peak' && b.last().state.members[b.client.instanceId].ready), 'select + ready');
+
+    a.client.sendParty('start');
+    assert(await waitFor(() => b.last().state.phase === 'countdown'), 'countdown reaches B');
+    assert(b.last().state.startAt === wall + PARTY_COUNTDOWN_MS && b.last().info.offset === 0, 'shared start time');
+    wall += PARTY_COUNTDOWN_MS;
+    assert(await waitFor(() => b.last().state.phase === 'racing', 1500), 'the host tab ticks to racing');
+
+    a.client.sendParty('finish', { time: 112.5, score: 0 });
+    b.client.sendParty('finish', { time: 118.25, score: 0 });
+    assert(await waitFor(() => b.last().state.phase === 'results'), 'results');
+    const members = b.last().state.members;
+    assert(members[a.client.instanceId].time === 112.5 && members[b.client.instanceId].time === 118.25, 'times');
+
+    // A third tab joins; the host leaves; B (next in line) takes over as the authority.
+    c.client.join('party.K7QXM');
+    assert(await waitFor(() => c.last()?.state?.members?.[c.client.instanceId]), 'C joined');
+    a.client.leave();
+    assert(await waitFor(() => c.last().state.hostId === b.client.instanceId), 'host hand-over');
+    b.client.sendParty('rematch');
+    assert(await waitFor(() => c.last().state.phase === 'lobby' && c.last().state.round === 2), 'new host runs the party');
+  } finally {
+    a.client.dispose();
+    b.client.dispose();
+    c.client.dispose();
+  }
+});
+
+test('local mode: joining a party nobody hosts fails', async () => {
+  if (typeof BroadcastChannel === 'undefined') return;
+  const client = new NetClient({ profile: { id: 'lonely-profile', name: 'Lonely' } });
+  let last = null;
+  client.onParty((state, info) => { last = { state, info }; });
+  client.join('party.ZZZZZ');
+  assert(await waitFor(() => last?.info?.fatal, 2500), 'gives up');
+  assert(last.info.error === 'not-found' && last.state === null, JSON.stringify(last));
+  client.dispose();
+});
+
+// ------------------------------------------------------------------ parties (server authority)
+
+function fakeStorage() {
+  const data = new Map();
+  return {
+    data,
+    alarm: 0,
+    async get(key) { return data.has(key) ? structuredClone(data.get(key)) : undefined; },
+    async put(key, value) { data.set(key, structuredClone(value)); },
+    async delete(key) { return data.delete(key); },
+    async setAlarm(at) { this.alarm = at; },
+    async deleteAlarm() { this.alarm = 0; },
+  };
+}
+
+test('server party host: create/join refusals, ops, alarms, persistence, migration', async () => {
+  let now = 1_800_000_000_000;
+  const storage = fakeStorage();
+  const host = new PartyHost({ roomName: 'party.K7QXM', storage, now: () => now });
+  const profile = (name, peer) => ({ name, level: 5, paint: 'acid', peer });
+
+  assert((await host.connect('a#1', profile('Alice', 0), { intent: 'join' })).error === 'not-found', 'join before create');
+  assert((await host.connect('a#1', profile('Alice', 0), { intent: 'create', mapId: 'moon' })).error === 'bad-map', 'bad map');
+  const created = await host.connect('a#1', profile('Alice', 0), { intent: 'create', mapId: 'alpine', modeId: 'climb' });
+  assert(!created.error && created.state.hostId === 'a#1' && created.state.modeId === 'climb', JSON.stringify(created));
+  assert((await host.connect('x#9', profile('Xavier', 5), { intent: 'create', mapId: 'alpine' })).error === 'exists', 'code taken');
+  const joined = await host.connect('b#2', profile('Bob', 1), { intent: 'join' });
+  assert(!joined.error && joined.state.members['b#2'].peer === 1, 'B joined with its sender index');
+  assert(storage.data.get('party').members['b#2'], 'persisted');
+
+  const refused = await host.message('b#2', { t: 'party', op: 'start' });
+  assert(refused.error === 'not-host' && !refused.changed, 'not host');
+  assert((await host.message('b#2', { t: 'party', op: 'teleport' })).error === 'bad-input', 'unknown op');
+  assert(!(await host.message('b#2', { t: 'party', op: 'sync' })).error, 'sync is fine');
+  assert((await host.message('b#2', { t: 'party', op: 'ready', ready: true })).changed, 'ready');
+  const started = await host.message('a#1', { t: 'party', op: 'start' });
+  assert(started.changed && started.state.phase === 'countdown' && storage.alarm === now + PARTY_COUNTDOWN_MS, `alarm ${storage.alarm - now}`);
+
+  // Hibernation: a fresh host object on the same storage carries on.
+  const woken = new PartyHost({ roomName: 'party.K7QXM', storage, now: () => now });
+  now += PARTY_COUNTDOWN_MS;
+  // A Durable Object alarm is consumed when it fires.
+  const fire = (target) => { storage.alarm = 0; return target.alarm(); };
+  const fired = await fire(woken);
+  assert(fired.changed && fired.state.phase === 'racing' && storage.alarm === fired.state.raceDeadline, 'alarm: racing, cap scheduled');
+  await woken.message('a#1', { t: 'party', op: 'finish', time: 104.2, score: 0 });
+  assert(storage.alarm === now + PARTY_FINISH_GRACE_MS, 'grace alarm');
+  now += PARTY_FINISH_GRACE_MS;
+  const late = await fire(woken);
+  assert(late.state.phase === 'results' && late.state.members['b#2'].dnf && storage.alarm === 0, 'deadline DNF');
+
+  // The host leaves: B hosts. Stale members are pruned. The last one out deletes the party.
+  const left = await woken.disconnect('a#1');
+  assert(left.changed && left.state.hostId === 'b#2', 'migration');
+  await woken.connect('c#3', profile('Cara', 2), { intent: 'join' });
+  const pruned = await woken.prune(['c#3']);
+  assert(pruned.changed && pruned.state.hostId === 'c#3' && !pruned.state.members['b#2'], 'pruned');
+  await woken.disconnect('c#3');
+  assert(woken.state === null && !storage.data.has('party'), 'empty party deleted');
+  assert((await woken.connect('d#4', profile('Dee', 0), { intent: 'join' })).error === 'not-found', 'gone');
+  assert(new PartyHost({ roomName: 'mountain', storage }).code === null, 'not a party room');
+});
+
 // ------------------------------------------------------------------ leaderboard (local)
 
 test('Leaderboard local: time ascending, score descending, best per player', async () => {
@@ -338,6 +481,62 @@ test('Leaderboard: unreachable host falls back to local', async () => {
   assert(result.status === 'local' && result.accepted && result.reason === 'offline', JSON.stringify(result));
 });
 
+test('Leaderboard local: each map\'s track is its own board', async () => {
+  memoryStore.clear();
+  const board = new Leaderboard({ host: '', profile: { id: 'p-aaaaaaaa1', name: 'Alice' } });
+  await board.submit('sprint', { time: 170, score: 0 }, 'alpine-ghost');
+  const hills = await board.submit('mussoorie.sprint', { time: 95, score: 0 }, 'hills-ghost');
+  assert(hills.accepted && hills.rank === 1, JSON.stringify(hills));
+  assert((await board.top('sprint')).entries.map((e) => e.time).join(',') === '170', 'alpine board untouched');
+  assert((await board.top('mussoorie.sprint')).entries.map((e) => e.time).join(',') === '95', 'mussoorie board');
+  assert((await board.ghost('mussoorie.sprint', 'p-aaaaaaaa1')) === 'hills-ghost', 'mussoorie ghost');
+  assert(!(await board.submit('mussoorie.roam', { time: 10 })).accepted, 'map roam unranked');
+});
+
+test('MetaLayer: rooms, leaderboards and submissions use the map\'s track keys', async () => {
+  memoryStore.clear();
+  const make = (mapId) => {
+    const calls = { join: [], setMode: [], top: [], submit: [] };
+    const hud = new Proxy({ setMap(id) { calls.hudMap = id; } }, { get: (target, key) => (key in target ? target[key] : () => {}), set: (target, key, value) => { target[key] = value; return true; } });
+    const career = {
+      profile: { id: 'p-aaaaaaaa1', name: 'Alice', cosmetics: { paint: 'pearl', rim: 'silver', number: '27' } },
+      level: 1, run: null,
+      levelInfo: () => ({ level: 1 }),
+      setMap(id) { calls.careerMap = id; },
+    };
+    const net = {
+      mode: 'local', status: 'connected', modeId: null, peers: new Map(),
+      onStatus() {}, onRoster() {}, online: async () => ({ total: 1 }),
+      join(id) { this.modeId = id; calls.join.push(id); },
+      setMode(id) { calls.setMode.push(id); },
+    };
+    const leaderboard = {
+      top: async (key) => { calls.top.push(key); return { status: 'local', entries: [] }; },
+      submit: async (key) => { calls.submit.push(key); return { accepted: true, status: 'local' }; },
+    };
+    const meta = new MetaLayer({ career, hud, scene: null, wheelLayout: [], game: { records: {}, state: 'menu' }, mapId });
+    meta.attachNetwork({ leaderboard, net });
+    clearInterval(meta.onlineTimer);
+    return { meta, calls };
+  };
+  const alpine = make('alpine');
+  alpine.meta.joinRoom('climb');
+  await alpine.meta.loadLeaderboard('climb');
+  assert(alpine.calls.join.join(',') === 'mountain' && alpine.calls.top.join(',') === 'climb', `alpine ${JSON.stringify(alpine.calls)}`);
+  const hills = make('mussoorie');
+  hills.meta.joinRoom('climb');
+  await hills.meta.loadLeaderboard('climb');
+  await hills.meta.submit('climb', { time: 70 }, { version: 1, modeId: 'mussoorie.climb', name: 'Alice', time: 70, score: 0, rate: 10, count: 2,
+    positions: new Float32Array(6), rotations: new Int16Array([0, 0, 0, 32767, 0, 0, 0, 32767]), steer: new Int8Array(2), paint: 'pearl' });
+  assert(hills.calls.join.join(',') === 'mussoorie.mountain', `lobby ${hills.calls.join}`);
+  assert(hills.calls.setMode.at(-1) === 'climb', 'presence keeps the plain mode id for labels');
+  assert(hills.calls.top.join(',') === 'mussoorie.climb' && hills.calls.submit.join(',') === 'mussoorie.climb', JSON.stringify(hills.calls));
+  assert(hills.calls.careerMap === 'mussoorie' && hills.calls.hudMap === 'mussoorie', 'map passed to career and hud');
+  assert(hills.meta.roomLabel() === 'Summit Climb', 'friendly label');
+  alpine.meta.dispose();
+  hills.meta.dispose();
+});
+
 // ------------------------------------------------------------------ server validation
 
 function makeGhost(modeId, seconds, rate = 10) {
@@ -357,6 +556,18 @@ test('validate: limits from medal targets', () => {
   near(validate.limitsFor('drift').maxScore, MEDAL_TARGETS.drift.author * 1.6, 1e-9, 'drift max');
   assert(validate.limitsFor('roam') === null && validate.limitsFor('__proto__') === null, 'unranked');
   assert(validate.ROOM_MODES.includes('roam') && !validate.RANKED_MODES.includes('roam'), 'mode lists');
+  // Other maps are namespaced track keys; Alpine keeps the bare ids.
+  near(validate.limitsFor('mussoorie.climb').minTime, MUSSOORIE_MEDAL_TARGETS.climb.author * 0.85, 1e-9, 'mussoorie climb min');
+  assert(validate.limitsFor('mussoorie.roam') === null && validate.limitsFor('nowhere.climb') === null && validate.limitsFor(42) === null, 'unknown tracks');
+  for (const room of ['mountain', 'sprint', 'mussoorie.mountain', 'mussoorie.sprint', 'mussoorie.roam']) assert(validate.ROOM_MODES.includes(room), `room ${room}`);
+  assert(validate.RANKED_MODES.includes('mussoorie.drift') && !validate.RANKED_MODES.includes('mussoorie.roam'), 'ranked map tracks');
+  assert(validate.ROOM_MODES.every((room) => /^[a-z0-9.-]+$/.test(room)), 'room names are URL-safe');
+  // The Nag Tibba events exist on Mussoorie only, and are ranked from their (provisional) medal targets.
+  for (const key of ['mussoorie.peak', 'mussoorie.peakdown']) {
+    assert(validate.RANKED_MODES.includes(key) && validate.ROOM_MODES.includes(key), `ranked ${key}`);
+    near(validate.limitsFor(key).minTime, MUSSOORIE_MEDAL_TARGETS[key.split('.')[1]].author * 0.85, 1e-9, `${key} min`);
+  }
+  assert(!validate.RANKED_MODES.includes('peak') && !validate.ROOM_MODES.includes('peak') && validate.limitsFor('peakdown') === null, 'no Nag Tibba on Alpine');
 });
 
 test('validate: names, ids, cosmetics, origins', () => {
@@ -425,6 +636,16 @@ test('validate: submissions', () => {
   assert(inside.ok, 'within 1.5 s tolerance');
   const drift = validate.validateSubmission({ ...base, modeId: 'drift', score: 8123.6 });
   assert(drift.ok && drift.entry.score === 8124 && drift.entry.time === null, 'drift without ghost');
+
+  // Namespaced map tracks: the ghost must carry the same track key.
+  const hills = { ...base, modeId: 'mussoorie.climb' };
+  const hillsOk = validate.validateSubmission({ ...hills, time: 72.3, ghost: makeGhost('mussoorie.climb', 72.3) });
+  assert(hillsOk.ok && hillsOk.entry.modeId === 'mussoorie.climb', JSON.stringify(hillsOk));
+  const alpineGhost = validate.validateSubmission({ ...hills, time: 72.3, ghost: makeGhost('climb', 72.3) });
+  assert(!alpineGhost.ok && alpineGhost.reason === 'ghost-mode-mismatch', 'alpine ghost on a mussoorie board');
+  // 72 s is a Mussoorie silver but impossibly fast on the Alpine climb.
+  const crossMap = validate.validateSubmission({ ...base, modeId: 'climb', time: 72.3, ghost: makeGhost('climb', 72.3) });
+  assert(!crossMap.ok && crossMap.reason === 'implausible-time', 'limits are per track');
 });
 
 // ------------------------------------------------------------------ live server (optional)
@@ -562,6 +783,80 @@ if (LIVE) {
     assert(late.error === 'room-full' && late.status === 'disconnected', `late client ${late.status} ${late.error}`);
     late.dispose();
     for (const s of sockets) s.ws.close();
+  });
+
+  test('live: party room create, join, start countdown, refusals', async () => {
+    const code = Array.from({ length: 5 }, () => 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 31)]).join('');
+    const params = (id, token, name, extra) => ({ playerId: id, name, level: '4', token, instance: `${id}#live`, ...extra });
+    const missing = await openSocket(`party.${code}`, params(idA, tokenA, 'Live A', { party: 'join' }));
+    await wait(200);
+    assert(missing.text.some((m) => m.t === 'party' && m.error === 'not-found'), `unknown party ${JSON.stringify(missing.text)}`);
+    missing.ws.close();
+    const a = await openSocket(`party.${code}`, params(idA, tokenA, 'Live A', { party: 'create', partyMap: 'alpine', partyMode: 'climb' }));
+    await wait(200);
+    const created = a.text.find((m) => m.t === 'party' && m.state);
+    assert(created && created.state.hostId === `${idA}#live` && created.you === `${idA}#live` && Number.isFinite(created.now), JSON.stringify(a.text));
+    const b = await openSocket(`party.${code}`, params(idB, tokenB, 'Live B', { party: 'join' }));
+    await wait(200);
+    const seen = b.text.filter((m) => m.t === 'party' && m.state).at(-1);
+    assert(seen && Object.keys(seen.state.members).length === 2 && seen.you === `${idB}#live`, JSON.stringify(b.text));
+    b.ws.send(JSON.stringify({ t: 'party', op: 'start' }));
+    await wait(200);
+    assert(b.text.some((m) => m.t === 'party' && m.error === 'not-host'), 'only the host starts');
+    a.ws.send(JSON.stringify({ t: 'party', op: 'start' }));
+    await wait(300);
+    const countdown = b.text.filter((m) => m.t === 'party' && m.state).at(-1);
+    assert(countdown.state.phase === 'countdown' && countdown.state.startAt - countdown.now > 4000, JSON.stringify(countdown));
+    await wait(5500);
+    const racing = b.text.filter((m) => m.t === 'party' && m.state).at(-1);
+    assert(racing.state.phase === 'racing', `alarm moved the party on: ${racing.state.phase}`);
+    a.ws.close();
+    await wait(300);
+    const handed = b.text.filter((m) => m.t === 'party' && m.state).at(-1);
+    assert(handed.state.hostId === `${idB}#live`, 'host hand-over');
+    b.ws.close();
+  });
+
+  test('live: NetClient party over a real socket (create, join, start, unknown code)', async () => {
+    const NativeWebSocket = globalThis.WebSocket;
+    globalThis.WebSocket = class extends NativeWebSocket {
+      constructor(url) {
+        super(url, { headers: { Origin: ORIGIN } });
+      }
+    };
+    const clients = [];
+    try {
+      const make = (suffix, name) => {
+        const client = new NetClient({ host: LIVE, profile: { id: `live-party-${suffix}-${run}`, name, level: 3 } });
+        const seen = [];
+        client.onParty((state, info) => seen.push({ state, info }));
+        clients.push(client);
+        return { client, seen, last: () => seen.at(-1) };
+      };
+      const code = Array.from({ length: 5 }, () => 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 31)]).join('');
+      const a = make('a', 'Party A');
+      const b = make('b', 'Party B');
+      a.client.join(`party.${code}`, { party: { intent: 'create', mapId: 'mussoorie', modeId: 'peak' } });
+      for (let i = 0; i < 60 && !a.last()?.state; i += 1) await wait(50);
+      assert(a.last()?.state?.hostId === a.client.instanceId && a.last().state.modeId === 'peak', `A ${JSON.stringify(a.last())}`);
+      b.client.join(`party.${code}`);
+      for (let i = 0; i < 60 && !b.last()?.state?.members?.[b.client.instanceId]; i += 1) await wait(50);
+      assert(b.last().info.you === b.client.instanceId, 'B member');
+      for (let i = 0; i < 40 && !b.client.partyPeerKey(a.client.instanceId); i += 1) await wait(50);
+      assert(b.client.partyPeerKey(a.client.instanceId) === `live-party-a-${run}`, `peer key ${b.client.partyPeerKey(a.client.instanceId)}`);
+      a.client.sendParty('start');
+      for (let i = 0; i < 40 && b.last().state.phase !== 'countdown'; i += 1) await wait(50);
+      assert(b.last().state.phase === 'countdown' && Math.abs(b.last().info.offset) < 2000, `countdown offset ${b.last().info.offset}`);
+      const lost = make('c', 'Party C');
+      lost.client.join('party.ZZZZZ');
+      for (let i = 0; i < 60 && !lost.last()?.info?.fatal; i += 1) await wait(50);
+      assert(lost.last()?.info?.error === 'not-found' && lost.client.error === 'party-not-found', `lost ${JSON.stringify(lost.last())} ${lost.client.error}`);
+      await wait(1500);
+      assert(lost.client.status === 'disconnected', 'no retry after not-found');
+    } finally {
+      for (const client of clients) client.dispose();
+      globalThis.WebSocket = NativeWebSocket;
+    }
   });
 
   test('live: score submission, validation, rate limit, best only, top, ghost', async () => {

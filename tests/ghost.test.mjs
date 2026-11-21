@@ -6,6 +6,7 @@ import { encodeGhost, decodeGhost, STEER_TELEPORT } from '../src/ghost/ghostCode
 import { GhostRecorder } from '../src/ghost/GhostRecorder.js';
 import { GhostPlayer } from '../src/ghost/GhostPlayer.js';
 import { saveLocalGhost, loadLocalGhost, clearLocalGhost, GHOST_KEY_PREFIX } from '../src/ghost/ghostStore.js';
+import { trackKey } from '../src/meta/trackKey.js';
 import { World } from '../src/world/World.js';
 import { Vehicle } from '../src/vehicle/Vehicle.js';
 
@@ -337,6 +338,16 @@ function testStore() {
   check('missing mode loads null', loadLocalGhost('climb') === null);
   memory.set(`${GHOST_KEY_PREFIX}descent`, 'garbage!!');
   check('corrupt entry loads null', loadLocalGhost('descent') === null);
+  // Per-map ghosts: stored under the track key, and a ghost never loads for another map's track.
+  const hillsKey = trackKey('mussoorie', 'sprint');
+  const hillsGhost = { ...ghost, modeId: hillsKey };
+  check('map ghost stores under its track key', saveLocalGhost(hillsKey, hillsGhost) && memory.has(`${GHOST_KEY_PREFIX}mussoorie.sprint`));
+  check('map ghost loads for its track only', loadLocalGhost(hillsKey)?.modeId === hillsKey && loadLocalGhost('sprint')?.modeId === 'sprint');
+  check('alpine ghost under a map key is rejected', saveLocalGhost(trackKey('mussoorie', 'climb'), { ...ghost, modeId: 'climb' }) && loadLocalGhost(trackKey('mussoorie', 'climb')) === null);
+  const recorder = new GhostRecorder({ rate: 10 });
+  recorder.start(hillsKey, 'Tester', 'ember');
+  check('recorder stamps the track key', recorder.modeId === hillsKey);
+  clearLocalGhost(hillsKey);
   full = true;
   check('quota error returns false', saveLocalGhost('circuit', ghost) === false);
   full = false;

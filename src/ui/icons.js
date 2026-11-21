@@ -33,6 +33,12 @@ export const ICON = Object.freeze({
   chai: svg('<path d="M6 7h12l-1.6 13H7.6z"/><path d="M6.6 11.5h10.8" /><path d="M7.4 11.5h9.2l-1 8.5H8.4z" fill="currentColor" stroke="none" opacity=".55"/>'),
   steam: svg('<path d="M9 20c-2-2 2-4 0-6s2-4 0-6M15 20c-2-2 2-4 0-6s2-4 0-6"/>'),
   horn: svg('<path d="M3 10h4l9-5v14l-9-5H3z"/><path d="M19 9c1.2 1.6 1.2 4.4 0 6"/>'),
+  // Party: two road-sign posts side by side.
+  party: svg('<path d="M3 21V8h7v13M14 21V4h7v17M3 21h18"/><path d="M5.5 11h2M16.5 8h2M16.5 12h2" />'),
+  // Host: a pagdi-like crest (three-peaked crown on a band).
+  host: svg('<path d="M3 18 4 7l5 5 3-8 3 8 5-5 1 11z" fill="currentColor"/><path d="M3 21h18"/>'),
+  link: svg('<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'),
+  exit: svg('<path d="M10 4H4v16h6M9 12h11M16 8l4 4-4 4"/>'),
   wifi: svg('<path d="M2 9c5.5-5 14.5-5 20 0M5.5 12.5c3.6-3.2 9.4-3.2 13 0M9 16c1.8-1.5 4.2-1.5 6 0"/><path d="M11 19h2v2h-2z" fill="currentColor"/>'),
 });
 

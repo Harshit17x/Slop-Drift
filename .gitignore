@@ -13,3 +13,9 @@ Thumbs.db
 public/models/track.glb
 
 .claude/
+
+# Blender autosave backups
+*.blend1
+
+# Standalone nested sub-projects
+my-game/

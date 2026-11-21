@@ -1,9 +1,10 @@
-import { PAINT_OPTIONS, getMode } from '../config.js';
+import { MODES, PAINT_OPTIONS, getMode } from '../config.js';
 import { createRandom } from '../world/noise.js';
 import {
   ACHIEVEMENTS, DAILY_TEMPLATES, MEDAL_LABELS, MEDAL_TARGETS, MEDAL_TIERS, RIM_OPTIONS, UNLOCKS, XP,
-  levelForXp, xpForLevel,
+  levelForXp, medalTargets, xpForLevel,
 } from './catalog.js';
+import { LEGACY_MAP, trackKey } from './trackKey.js';
 
 const STORAGE_KEY = 'slop-drift-profile-v1';
 const PROFILE_VERSION = 1;
@@ -48,6 +49,9 @@ export function sanitizeName(name) {
   const trimmed = String(name ?? '').replace(/\s+/g, ' ').trim().slice(0, 16);
   return NAME_PATTERN.test(trimmed) ? trimmed : null;
 }
+
+/** Every mode id, in menu order. A map ranks those it has medal targets for (Career.rankedModes). */
+const MODE_IDS = Object.freeze(MODES.map((mode) => mode.id));
 
 function tierIndex(tier) {
   return tier ? MEDAL_TIERS.indexOf(tier) : -1;
@@ -94,17 +98,52 @@ function normalizeProfile(raw, now) {
  * The meta game: everything the player earns across runs. It watches runs (trackFrame, session
  * events, finishRun), awards XP, medals, achievements, unlocks and the daily challenge, persists
  * the profile, and queues CareerEvents for the HUD. No rendering, no DOM; runs in Node.
+ *
+ * Medals and the daily challenge are per map: profile.medals is keyed by track key
+ * (src/meta/trackKey.js) of the current map. Achievements use plain mode ids, so they count anywhere.
  */
 export class Career {
-  constructor({ storage = defaultStorage(), now = () => new Date() } = {}) {
+  /**
+   * @param {object} [options]
+   * @param {Storage|null} [options.storage]
+   * @param {() => Date} [options.now]
+   * @param {string} [options.mapId]  Map being driven (src/world/maps.js); see setMap().
+   */
+  constructor({ storage = defaultStorage(), now = () => new Date(), mapId = LEGACY_MAP } = {}) {
     this.storage = storage;
     this.now = now;
+    this.mapId = mapId;
     this.events = [];
     this.run = null;
     this.saveClock = 0;
     this.profile = this.load();
     // Unlocks already announced, so a level-up and a medal in the same moment do not both report one.
     this.knownUnlocks = this.unlockedIds();
+  }
+
+  // ------------------------------------------------------------------ map
+
+  /** Select the map whose medals and daily challenge apply (the map is fixed per page load). */
+  setMap(mapId) {
+    this.mapId = mapId || LEGACY_MAP;
+  }
+
+  /** Track key of a mode on the current map. */
+  trackKey(modeId) {
+    return trackKey(this.mapId, modeId);
+  }
+
+  /** Medal targets of a mode on the current map, or null. */
+  targetsFor(modeId) {
+    return medalTargets(this.trackKey(modeId));
+  }
+
+  /**
+   * Mode ids with medals on the current map, in menu order. A map ranks exactly the events it has
+   * roads for (no Nag Tibba events on Alpine), so this is also what the daily challenge draws from.
+   */
+  rankedModes() {
+    return MODE_IDS.filter((modeId) => this.targetsFor(modeId) !== null);
   }
 
   // ------------------------------------------------------------------ persistence
@@ -183,9 +222,9 @@ export class Career {
 
   // ------------------------------------------------------------------ medals
 
-  /** Best medal a result earns on its own, or null. */
+  /** Best medal a result on the current map earns on its own, or null. */
   medalFor(modeId, result) {
-    const targets = MEDAL_TARGETS[modeId];
+    const targets = this.targetsFor(modeId);
     if (!targets || !result) return null;
     const value = targets.kind === 'score' ? result.score : result.time;
     if (!Number.isFinite(value)) return null;
@@ -199,18 +238,18 @@ export class Career {
 
   /** The next medal to chase on an event, or null when the author medal is already won. */
   nextMedal(modeId) {
-    const targets = MEDAL_TARGETS[modeId];
+    const targets = this.targetsFor(modeId);
     if (!targets) return null;
-    const index = tierIndex(this.profile.medals[modeId]) + 1;
+    const index = tierIndex(this.profile.medals[this.trackKey(modeId)]) + 1;
     if (index >= MEDAL_TIERS.length) return null;
     const tier = MEDAL_TIERS[index];
     return { tier, target: targets[tier], kind: targets.kind, text: `${MEDAL_LABELS[tier]} ${formatTarget(targets.kind, targets[tier])}` };
   }
 
-  /** { [modeId]: { medal, next } } for the event cards. */
+  /** { [modeId]: { medal, next } } for the event cards, on the current map. */
   medalBoard() {
     const board = {};
-    for (const modeId of Object.keys(MEDAL_TARGETS)) board[modeId] = { medal: this.profile.medals[modeId] || null, next: this.nextMedal(modeId) };
+    for (const modeId of this.rankedModes()) board[modeId] = { medal: this.profile.medals[this.trackKey(modeId)] || null, next: this.nextMedal(modeId) };
     return board;
   }
 
@@ -325,13 +364,34 @@ export class Career {
 
   // ------------------------------------------------------------------ daily challenge
 
-  /** @returns {import('../core/contracts.js').DailyChallenge} */
+  /**
+   * Today's challenge on the current map. The template and event are the same on every map that
+   * has that event; a map without it (Nag Tibba on Alpine) draws another of the template's events
+   * from the same seeded sequence. The target comes from that map's medal targets, and only a run on
+   * this map's track can complete it. One challenge (and one streak) per day, whichever map it is
+   * completed on.
+   * @returns {import('../core/contracts.js').DailyChallenge}
+   */
   daily() {
     const date = utcDate(this.now());
     const random = createRandom(`daily:${date}`);
-    const template = DAILY_TEMPLATES[Math.floor(random() * DAILY_TEMPLATES.length)];
-    const modeId = template.modes[Math.floor(random() * template.modes.length)];
-    const targets = MEDAL_TARGETS[modeId];
+    const ranked = this.rankedModes();
+    let template = DAILY_TEMPLATES[0];
+    let modeId = null;
+    for (let attempt = 0; attempt < 8 && !modeId; attempt += 1) {
+      template = DAILY_TEMPLATES[Math.floor(random() * DAILY_TEMPLATES.length)];
+      const pick = template.modes[Math.floor(random() * template.modes.length)];
+      if (ranked.includes(pick)) modeId = pick;
+      else {
+        const available = template.modes.filter((id) => ranked.includes(id));
+        if (available.length) modeId = available[Math.floor(random() * available.length)];
+      }
+    }
+    if (!modeId) {
+      template = DAILY_TEMPLATES[0];
+      modeId = template.modes.find((id) => ranked.includes(id)) || template.modes[0];
+    }
+    const targets = this.targetsFor(modeId) || MEDAL_TARGETS[modeId];
     let target = template.target(targets);
     target = template.kind === 'score' ? Math.round(target / 50) * 50 : Math.round(target * 10) / 10;
     const state = this.profile.daily;
@@ -341,6 +401,7 @@ export class Career {
     return {
       date,
       modeId,
+      trackKey: this.trackKey(modeId),
       modeLabel: getMode(modeId).label,
       text: `${getMode(modeId).label}: ${template.text(formatTarget(template.kind, target))}`,
       kind: template.kind,
@@ -354,7 +415,7 @@ export class Career {
   }
 
   dailyMet(challenge, result, run) {
-    if (!result || result.modeId !== challenge.modeId) return false;
+    if (!result || this.trackKey(result.modeId) !== (challenge.trackKey ?? challenge.modeId)) return false;
     if (challenge.clean && (result.respawns || 0) > 0) return false;
     if (challenge.timeOfDay && run?.timeOfDay !== challenge.timeOfDay) return false;
     return challenge.kind === 'score' ? result.score >= challenge.target : result.time <= challenge.target;
@@ -496,13 +557,14 @@ export class Career {
     // Medals: every tier newly passed pays out once.
     let medal = null;
     const earned = this.medalFor(result.modeId, result);
+    const medalKey = this.trackKey(result.modeId);
     if (earned) {
-      const prior = this.profile.medals[result.modeId] || null;
+      const prior = this.profile.medals[medalKey] || null;
       const isNew = tierIndex(earned) > tierIndex(prior);
       if (isNew) {
         let medalXp = 0;
         for (let i = tierIndex(prior) + 1; i <= tierIndex(earned); i += 1) medalXp += XP.medal[MEDAL_TIERS[i]];
-        this.profile.medals[result.modeId] = earned;
+        this.profile.medals[medalKey] = earned;
         this.events.push({ type: 'medal', title: `${MEDAL_LABELS[earned]} medal`, detail: getMode(result.modeId).label, xp: medalXp });
         this.addXp(medalXp, `${MEDAL_LABELS[earned]} medal`);
         this.announceUnlocks();
@@ -510,7 +572,8 @@ export class Career {
       medal = { tier: earned, isNew, next: this.nextMedal(result.modeId) };
       if (tierIndex(earned) >= tierIndex('gold')) this.trigger('medal:gold');
       if (earned === 'author') this.trigger('medal:author');
-      if (Object.keys(MEDAL_TARGETS).every((modeId) => tierIndex(this.profile.medals[modeId]) >= tierIndex('gold'))) this.trigger('all-gold');
+      // Every event on the map being driven.
+      if (this.rankedModes().every((modeId) => tierIndex(this.profile.medals[this.trackKey(modeId)]) >= tierIndex('gold'))) this.trigger('all-gold');
     }
 
     const modeId = result.modeId;

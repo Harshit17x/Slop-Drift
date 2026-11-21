@@ -1,4 +1,6 @@
-// Personal-best ghost per mode, in localStorage. Never throws: storage may be missing, full or blocked.
+// Personal-best ghost per track, in localStorage. Never throws: storage may be missing, full or blocked.
+// `modeId` below is a track key (src/meta/trackKey.js): the bare mode id on Alpine, 'mussoorie.climb'
+// and so on elsewhere. A stored ghost's own modeId must match it, so ghosts never cross maps.
 import { decodeGhost, encodeGhost } from './ghostCodec.js';
 
 export const GHOST_KEY_PREFIX = 'slop-drift-ghost-v1:';
@@ -16,7 +18,7 @@ export function ghostKey(modeId) {
 }
 
 /**
- * @param {string} modeId
+ * @param {string} modeId  Track key.
  * @param {import('../core/contracts.js').GhostData|string} ghost  GhostData, or an already encoded string.
  * @returns {boolean} true when stored (false on quota errors, missing storage or an invalid ghost).
  */

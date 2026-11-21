@@ -36,6 +36,7 @@ uniform float uTreeLine;
 uniform float uWaterLevel;
 uniform float uValleyFloor;
 uniform float uSunShadeStrength;
+uniform vec4 uGrassBank;      // xy: centre (world x, z), z: radius (0 = none); grass holds on steeper banks inside
 varying vec3 vTerrainPos;
 float terrainOcclusion = 1.0;
 float terrainSunShade = 1.0;
@@ -80,8 +81,11 @@ const FRAGMENT_COLOR = /* glsl */ `
   // Above the tree line vegetation gives up sooner, so bare ground starts on gentler slopes.
   float alpineBias = alpine;
   // Thresholds on 1 - normal.y: 0.11 is a 27 degree slope, 0.2 is 37 degrees, 0.34 is 49 degrees.
-  float steep = smoothstep(0.2, 0.34, slopeRaw + (nMid.b - 0.5) * 0.1 + alpineBias * 0.05);
-  float scree = smoothstep(0.125, 0.23, slopeRaw + (nMid.a - 0.5) * 0.09 + alpineBias * 0.07);
+  // Inside a grass bank (the switchback terraces) turf holds up to ~60 degrees: cut slopes of
+  // 1 : 1.6 and fills of 1 : 1.3 stay green and only true cliffs show rock.
+  float bank = uGrassBank.z > 0.0 ? 1.0 - smoothstep(uGrassBank.z * 0.8, uGrassBank.z, distance(wp.xz, uGrassBank.xy)) : 0.0;
+  float steep = smoothstep(0.2 + 0.3 * bank, 0.34 + 0.32 * bank, slopeRaw + (nMid.b - 0.5) * 0.1 + alpineBias * 0.05);
+  float scree = smoothstep(0.125 + 0.3 * bank, 0.23 + 0.32 * bank, slopeRaw + (nMid.a - 0.5) * 0.09 + alpineBias * 0.07);
 
   // Ground cover by altitude: lush valley grass, darker forest floor on the flanks, pale alpine turf.
   vec3 meadow = mix(vec3(0.115, 0.175, 0.048), vec3(0.2, 0.235, 0.07), nMid.r);
@@ -164,7 +168,7 @@ reflectedLight.directSpecular *= terrainSunShade;
  * @param {THREE.Texture} options.noise    Tiling RGBA noise.
  * @param {THREE.Texture} options.sunShade Coarse R8 sun shadow.
  */
-export function createTerrainUniforms({ control, noise, sunShade, grid, mountain }) {
+export function createTerrainUniforms({ control, noise, sunShade, grid, mountain, grassBank = null }) {
   return {
     uControl: { value: control },
     uNoise: { value: noise },
@@ -179,6 +183,7 @@ export function createTerrainUniforms({ control, noise, sunShade, grid, mountain
     uWaterLevel: { value: mountain.waterLevel },
     uValleyFloor: { value: mountain.valleyFloor },
     uSunShadeStrength: { value: 0.8 },
+    uGrassBank: { value: new THREE.Vector4(grassBank?.x ?? 0, grassBank?.z ?? 0, grassBank?.radius ?? 0, 0) },
   };
 }
 
@@ -203,7 +208,7 @@ export function createTerrainMaterial(shared, { heightMap, lodStep, skirtDepth }
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${FRAGMENT_NORMAL}`)
       .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>\n${FRAGMENT_LIGHTS_END}`);
   };
-  material.customProgramCacheKey = () => 'slop-terrain-v6';
+  material.customProgramCacheKey = () => 'slop-terrain-v7';
   material.userData.terrainUniforms = own;
   return material;
 }

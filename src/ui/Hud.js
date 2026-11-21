@@ -2,11 +2,13 @@
 // DOM is built once in the constructor. update(frame) runs every animation frame and only writes to the
 // DOM when a displayed (quantised) value actually changed; it never reads layout.
 
+import { MAPS } from '../world/maps.js';
 import {
   DEFAULT_SETTINGS, HANDLING_PRESETS, QUALITY_PRESETS, TIME_OF_DAY, normalizeSettings,
 } from '../config.js';
 import { ElevationStrip, Minimap } from './Minimap.js';
-import { MEDAL_LABELS, MEDAL_TARGETS, MEDAL_TIERS } from '../meta/catalog.js';
+import { MEDAL_LABELS, MEDAL_TARGETS, MEDAL_TIERS, medalTargets } from '../meta/catalog.js';
+import { trackKey } from '../meta/trackKey.js';
 import { CHAI_GLASS, ICON } from './icons.js';
 
 const KMH_TO_MPH = 0.621371;
@@ -50,9 +52,9 @@ export function formatTarget(kind, value) {
   return `${m}:${sec < 10 ? '0' : ''}${sec.toFixed(1)}`;
 }
 
-/** Best medal tier a time (lower is better) or score (higher is better) earns, or null. */
-export function medalFor(modeId, value) {
-  const t = MEDAL_TARGETS[modeId];
+/** Best medal tier a time (lower is better) or score (higher is better) earns on a map (default Alpine), or null. */
+export function medalFor(modeId, value, mapId) {
+  const t = medalTargets(trackKey(mapId, modeId));
   if (!t || !Number.isFinite(value)) return null;
   let best = null;
   for (const tier of MEDAL_TIERS) {
@@ -71,6 +73,11 @@ const medalBadge = (tier, extra = '') => (tier
   ? `<span class="sdh-medal is-${esc(tier)}${extra}" title="${esc(MEDAL_LABELS[tier] || tier)} medal">${esc((MEDAL_LABELS[tier] || tier).charAt(0))}</span>`
   : `<span class="sdh-medal is-none${extra}" aria-hidden="true"></span>`);
 
+/** Short leaderboard tab text: the mode's own `tab`, else the first word of its label. */
+function tabLabel(mode) {
+  return mode.tab || String(mode.label).split(' ')[0];
+}
+
 /** 'time' | 'score' | 'none' — which record a mode keeps. */
 export function recordKind(mode) {
   if (!mode || mode.id === 'roam') return 'none';
@@ -81,6 +88,21 @@ export function recordKind(mode) {
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ESC[c]);
 const hex = (n) => `#${(n >>> 0).toString(16).padStart(6, '0')}`;
+
+/** Party codes: 5 characters, A-Z and 2-9 only (no 0/1 to avoid confusion with O/I in a shouted code). */
+export function normalizePartyCode(value) {
+  return String(value ?? '').toUpperCase().replace(/[^A-Z2-9]/g, '').slice(0, 5);
+}
+
+export function isPartyCode(value) {
+  return /^[A-Z2-9]{5}$/.test(String(value ?? ''));
+}
+
+/** A safe CSS colour for a car paint given as 0xRRGGBB or '#rgb'/'#rrggbb'; null otherwise. */
+export function paintColor(paint) {
+  if (Number.isFinite(paint)) return hex(paint);
+  return typeof paint === 'string' && /^#[0-9a-f]{3,8}$/i.test(paint) ? paint : null;
+}
 
 // ------------------------------------------------------------------ cached DOM writers
 
@@ -237,6 +259,7 @@ export class Hud {
     this.settingsSource = 'menu';
     this.profile = null;
     this.medals = {};
+    this.mapId = this.settings.map; // the map actually loaded comes in through setMap()
     this.daily = null;
     this.leaderboards = {};
     this.lbMode = null;
@@ -255,6 +278,11 @@ export class Hud {
     this.activeRoad = null;
     this.lastCar = null;
     this.timers = new Set();
+    this.party = null; // last view passed to setParty()
+    this.partyResults = null;
+    this.partyKey = '';
+    this.standingsKey = '';
+    this.finishFresh = false;
     this.reducedMotion = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
 
     // Callbacks assigned by the game.
@@ -278,6 +306,15 @@ export class Hud {
     this.onRaceLeaderboardGhost = noop;
     this.onCosmetic = noop;
     this.onToggleGhost = noop;
+    // Party callbacks are assigned by the game and always invoked with `?.`.
+    this.onPartyCreate = null;
+    this.onPartyJoin = null;
+    this.onPartyLeave = null;
+    this.onPartySelect = null;
+    this.onPartyReady = null;
+    this.onPartyStart = null;
+    this.onPartyRematch = null;
+    this.onPartyCopyLink = null;
 
     if (injectStyles) this.injectStyles();
     this.build();
@@ -290,6 +327,7 @@ export class Hud {
     this.renderDaily();
     this.renderPlayers();
     this.renderGhost();
+    this.renderParty();
     this.setHudMode('race');
     this.applyScreen();
     this.markReady();
@@ -356,6 +394,10 @@ export class Hud {
             <div class="sdh-row" data-row="2"><span class="sdh-k"></span><span class="sdh-v sdh-num"></span></div>
           </div>
           <div class="sdh-progress"><i></i></div>
+          <section class="sdh-standings" aria-label="Race standings" hidden>
+            <div class="sdh-st-head"><span>ORDER</span><span class="sdh-st-count sdh-num"></span></div>
+            <ol class="sdh-st-list"></ol>
+          </section>
         </section>
         <div class="sdh-tc">
           <div class="sdh-wrongway" role="alert"><span>WRONG WAY</span></div>
@@ -434,6 +476,16 @@ export class Hud {
           <button type="button" class="sdh-btn" data-act="menu">${ICON.home}<span>Main menu</span></button>
         </footer>
       </aside>
+      <aside class="sdh-panel sdh-panel-finish sdh-panel-party-results" data-panel="party-results" aria-label="Party results">
+        <div class="sdh-party-results-body"></div>
+        <footer class="sdh-panel-foot sdh-finish-foot">
+          <button type="button" class="sdh-btn sdh-btn-primary" data-act="party-rematch" hidden>${ICON.restart}<span>Rematch</span></button>
+          <button type="button" class="sdh-btn" data-act="party-back">${ICON.party}<span>Back to party</span></button>
+          <button type="button" class="sdh-btn" data-act="party-leave">${ICON.exit}<span>Leave party</span></button>
+          <button type="button" class="sdh-btn" data-act="menu">${ICON.home}<span>Main menu</span></button>
+        </footer>
+      </aside>
+      ${this.partyMarkup()}
       ${this.settingsMarkup()}
       ${this.leaderboardMarkup()}
       ${this.achievementsMarkup()}
@@ -512,8 +564,8 @@ export class Hud {
     this.countdownSpan = this.q('.sdh-countdown span');
   }
 
-  menuMarkup() {
-    const cards = this.modes.map((mode, i) => `
+  modeCardsMarkup() {
+    return this.modes.map((mode, i) => `
       <button type="button" class="sdh-mode-card" data-mode="${esc(mode.id)}" style="--i:${i}">
         <span class="sdh-mode-card-main">
           <span class="sdh-mode-card-label">${esc(mode.label)}</span>
@@ -526,6 +578,10 @@ export class Hud {
         </span>
         <span class="sdh-mode-card-go" aria-hidden="true">${ICON.play}</span>
       </button>`).join('');
+  }
+
+  menuMarkup() {
+    const cards = this.modeCardsMarkup();
     return `
       <aside class="sdh-panel sdh-panel-menu" data-panel="menu" aria-label="Main menu">
         <div class="sdh-playerbar">
@@ -551,6 +607,11 @@ export class Hud {
           <button type="button" class="sdh-btn sdh-daily-go" data-act="daily">${ICON.play}<span data-d="btn">Start</span></button>
         </section>
         <div class="sdh-mode-list" role="list" aria-label="Events">${cards}</div>
+        <button type="button" class="sdh-party-entry" data-act="party">
+          <span class="sdh-party-entry-ico">${ICON.party}</span>
+          <span class="sdh-party-entry-main"><b>Race with friends</b><small data-p="partyLine">Share a 5-letter code. Up to 8 drivers.</small></span>
+          <span class="sdh-party-entry-code sdh-num" data-p="partyCode" hidden></span>
+        </button>
         <div class="sdh-menu-actions">
           <button type="button" class="sdh-btn sdh-btn-tile" data-act="garage">${ICON.car}<span>Garage</span></button>
           <button type="button" class="sdh-btn sdh-btn-tile" data-act="leaderboard">${ICON.trophy}<span>Leaderboard</span></button>
@@ -611,6 +672,8 @@ export class Hud {
           <h2 class="sdh-title">Settings</h2>
         </header>
         <form class="sdh-form" novalidate>
+          <div class="sdh-group-label">Mountain</div>
+          ${seg('map', 'Map', Object.values(MAPS).map((m) => ({ value: m.id, label: m.label })))}
           <div class="sdh-group-label">Graphics</div>
           ${seg('quality', 'Quality', Object.keys(QUALITY_PRESETS).map((k) => ({ value: k, label: k })))}
           ${seg('timeOfDay', 'Time of day', TIME_OF_DAY.map((k) => ({ value: k, label: cap(k) })))}
@@ -682,6 +745,16 @@ export class Hud {
         case 'cosmetic':
           if (target.getAttribute('aria-disabled') !== 'true') this.onCosmetic(target.dataset.slot, target.dataset.value);
           break;
+        case 'party': this.openParty(); break;
+        case 'party-create': this.onPartyCreate?.(); break;
+        case 'party-leave': this.onPartyLeave?.(); break;
+        case 'party-copy': this.onPartyCopyLink?.(); break;
+        case 'party-select': this.onPartySelect?.(target.dataset.id); break;
+        case 'party-ready': this.onPartyReady?.(target.getAttribute('aria-pressed') !== 'true'); break;
+        case 'party-start': this.onPartyStart?.(); break;
+        case 'party-rematch': this.onPartyRematch?.(); break;
+        case 'party-back': this.openSub('party', this.screen === 'party-results' ? 'party-results' : 'menu'); break;
+        case 'party-results': if (this.partyResults) this.showPartyResults(this.partyResults); break;
         case 'sub-back': this.closeSub(); break;
         case 'name-skip': this.skipName(); break;
         case 'camera': this.onCamera(); break;
@@ -719,6 +792,18 @@ export class Hud {
     this.q('.sdh-dialog-card').addEventListener('submit', (event) => {
       event.preventDefault();
       this.confirmName();
+    });
+    const partyInput = this.q('.sdh-party-input');
+    partyInput.addEventListener('input', () => {
+      const clean = normalizePartyCode(partyInput.value);
+      if (clean !== partyInput.value) partyInput.value = clean;
+      this.q('.sdh-party-join').disabled = !isPartyCode(clean);
+    });
+    this.q('.sdh-party-form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      const code = normalizePartyCode(partyInput.value);
+      if (isPartyCode(code)) this.onPartyJoin?.(code);
+      else partyInput.focus();
     });
     const numberInput = this.q('.sdh-number-input');
     numberInput.addEventListener('change', () => this.commitNumber());
@@ -816,7 +901,7 @@ export class Hud {
 
   openPanel() {
     if (this.sub) return this.q(`[data-panel="${this.sub}"]`);
-    if (this.screen === 'menu' || this.screen === 'pause' || this.screen === 'finish') return this.q(`[data-panel="${this.screen}"]`);
+    if (this.screen === 'menu' || this.screen === 'pause' || this.screen === 'finish' || this.screen === 'party-results') return this.q(`[data-panel="${this.screen}"]`);
     return null;
   }
 
@@ -856,12 +941,14 @@ export class Hud {
   }
 
   showMenu() {
+    this.finishFresh = false;
     this.screen = 'menu';
     this.sub = null;
     this.applyScreen();
   }
 
   showRace() {
+    this.finishFresh = false;
     this.screen = 'race';
     this.sub = null;
     if (this.renaming) this.endRename(false);
@@ -937,11 +1024,222 @@ export class Hud {
     this.q('[data-act="finish-leaderboard"]').hidden = kind === 'none';
     this.q('[data-panel="finish"]').classList.toggle('is-record', Boolean(result.isRecord));
     this.screen = 'finish';
+    this.finishFresh = true;
     this.sub = null;
     this.currentPanel = null; // force focus to the fresh content
     this.applyScreen();
     this.q('[data-panel="finish"]').scrollTop = 0;
     if (rewards) this.animateRewards(rewards);
+  }
+
+  // ---------------------------------------------------------------- party (race with friends)
+
+  partyMarkup() {
+    return `
+      <aside class="sdh-panel sdh-panel-party" data-panel="party" aria-label="Race with friends">
+        <header class="sdh-panel-head sdh-panel-head-row">
+          <button type="button" class="sdh-icon sdh-icon-plain" data-act="sub-back" aria-label="Back">${ICON.back}</button>
+          <h2 class="sdh-title">Race with friends</h2>
+        </header>
+        <div class="sdh-party-start">
+          <p class="sdh-copy">Open a party, send the code or link, and race the same road at the same time.</p>
+          <button type="button" class="sdh-btn sdh-btn-primary" data-act="party-create">${ICON.flag}<span>Create a party</span></button>
+          <div class="sdh-party-or"><span>or join with a code</span></div>
+          <form class="sdh-party-form" novalidate>
+            <label class="sdh-party-label" for="${this.uid}-pcode">Party code</label>
+            <div class="sdh-party-form-row">
+              <input id="${this.uid}-pcode" class="sdh-party-input sdh-num" type="text" maxlength="5" inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="K7MPQ" aria-describedby="${this.uid}-phint">
+              <button type="submit" class="sdh-btn sdh-party-join" disabled>${ICON.play}<span>Join</span></button>
+            </div>
+            <small id="${this.uid}-phint" class="sdh-party-hint">Five characters: letters A to Z and digits 2 to 9.</small>
+          </form>
+        </div>
+        <div class="sdh-party-room" hidden></div>
+      </aside>`;
+  }
+
+  openParty() {
+    this.renderParty();
+    this.openSub('party', this.screen === 'party-results' ? 'party-results' : 'menu');
+    if (this.q('.sdh-party-start').hidden === false) {
+      this.q('.sdh-party-input')?.focus({ preventScroll: true });
+    }
+  }
+
+  /** @param {object|null} view see the Party view contract; null = not in a party. */
+  setParty(view) {
+    this.party = view && typeof view === 'object' ? view : null;
+    this.renderParty();
+  }
+
+  partyMemberRight(m, status) {
+    if (m.dnf) return '<span class="sdh-pm-res is-dnf">DNF</span>';
+    if (m.finished || (status === 'results' && Number.isFinite(m.time ?? m.score))) {
+      const v = Number.isFinite(m.score) && !Number.isFinite(m.time) ? `${formatInt(m.score)} pts` : formatTime(m.time);
+      return `<span class="sdh-pm-res sdh-num">${esc(v)}</span>`;
+    }
+    return m.ready
+      ? `<span class="sdh-ready is-on">${ICON.check}<span>Ready</span></span>`
+      : '<span class="sdh-ready"><span>Waiting</span></span>';
+  }
+
+  renderParty() {
+    const v = this.party;
+    const start = this.q('.sdh-party-start');
+    const room = this.q('.sdh-party-room');
+    const entry = this.q('.sdh-party-entry');
+    const line = entry.querySelector('[data-p="partyLine"]');
+    const codeChip = entry.querySelector('[data-p="partyCode"]');
+    const key = JSON.stringify([v, Boolean(this.partyResults)]);
+    if (key === this.partyKey) return;
+    this.partyKey = key;
+    start.hidden = Boolean(v);
+    room.hidden = !v;
+    entry.classList.toggle('is-live', Boolean(v));
+    if (!v) {
+      line.textContent = 'Share a 5-letter code. Up to 8 drivers.';
+      codeChip.hidden = true;
+      room.replaceChildren();
+      return;
+    }
+    const members = Array.isArray(v.members) ? v.members.slice(0, 8) : [];
+    const status = v.status || 'lobby';
+    const me = members.find((m) => m.isYou);
+    codeChip.hidden = !v.code;
+    codeChip.textContent = v.code || '';
+    line.textContent = {
+      connecting: 'Connecting…', lobby: `${members.length} in the lobby`, countdown: 'Starting now',
+      racing: 'Race in progress', results: 'Results are in', error: 'Problem with the party', closed: 'Party closed',
+    }[status] || 'Party';
+    const active = document.activeElement;
+    const keep = room.contains(active) ? (active.dataset.act ? `[data-act="${active.dataset.act}"]${active.dataset.id ? `[data-id="${CSS.escape(active.dataset.id)}"]` : ''}` : null) : null;
+
+    const plate = v.code ? `
+      <div class="sdh-pplate" role="group" aria-label="Party code ${esc(v.code.split('').join(' '))}">
+        <span class="sdh-pplate-ind">PARTY</span>
+        <span class="sdh-pplate-code sdh-num">${esc(v.code)}</span>
+      </div>
+      <button type="button" class="sdh-btn sdh-party-copy" data-act="party-copy">${ICON.link}<span>Copy link</span></button>` : '';
+    let banner = '';
+    if (status === 'connecting') banner = '<div class="sdh-party-banner">Connecting to the party…</div>';
+    else if (status === 'error') banner = `<div class="sdh-party-banner is-error" role="alert">${esc(v.error || 'Something went wrong with this party.')}</div>`;
+    else if (status === 'closed') banner = `<div class="sdh-party-banner is-error" role="alert">${esc(v.error || 'The host closed this party.')}</div>`;
+    else if (status === 'countdown') banner = `<div class="sdh-party-banner is-go" role="status">Starting in <b class="sdh-num">${esc(Number.isFinite(v.startsIn) ? Math.max(0, Math.ceil(v.startsIn)) : '…')}</b></div>`;
+    else if (status === 'racing') banner = '<div class="sdh-party-banner" role="status">Race in progress. You’ll join the next round.</div>';
+
+    const modes = Array.isArray(v.modes) ? v.modes : [];
+    const canPick = Boolean(v.isHost) && (status === 'lobby' || status === 'results');
+    const modeBlock = status === 'error' || status === 'closed' || status === 'connecting' ? '' : `
+      <div class="sdh-section-label">Event · ${esc(v.mapLabel || '')}${v.round > 1 ? ` · Round ${esc(v.round)}` : ''}</div>
+      ${canPick && modes.length ? `<div class="sdh-party-modes" role="group" aria-label="Choose the event">${modes.map((m) => `
+        <button type="button" class="sdh-party-mode" data-act="party-select" data-id="${esc(m.id)}" aria-pressed="${m.id === v.modeId}">${esc(m.label)}</button>`).join('')}</div>`
+        : `<div class="sdh-party-event"><b>${esc(v.modeLabel || '—')}</b>${v.isHost ? '' : '<small>Chosen by the host</small>'}</div>`}`;
+
+    const list = members.length && status !== 'error' && status !== 'closed' && status !== 'connecting' ? `
+      <div class="sdh-section-label">Drivers · ${members.length}/8</div>
+      <ul class="sdh-party-members">${members.map((m) => {
+        const col = paintColor(m.paint);
+        return `<li class="${m.isYou ? 'is-you' : ''}">
+          <span class="sdh-lv-badge sdh-lv-sm sdh-num" title="Level">${esc(m.level ?? 1)}</span>
+          <span class="sdh-pm-name">${col ? `<i class="sdh-pm-paint" style="background:${col}"></i>` : ''}<span class="sdh-pm-text">${esc(m.name)}</span>${m.isHost ? `<span class="sdh-pm-host" title="Host">${ICON.host}<span class="sdh-sr">Host</span></span>` : ''}${m.isYou ? '<span class="sdh-pm-you">YOU</span>' : ''}</span>
+          ${this.partyMemberRight(m, status)}
+        </li>`;
+      }).join('')}</ul>` : '';
+
+    const live = status === 'lobby' || status === 'results';
+    const ready = Boolean(me?.ready);
+    let foot = '';
+    if (status !== 'error' && status !== 'closed' && status !== 'connecting') {
+      foot += `<button type="button" class="sdh-btn${ready ? '' : ' sdh-btn-primary'}" data-act="party-ready" aria-pressed="${ready}"${live ? '' : ' disabled'}>${ICON.check}<span>${ready ? 'Not ready' : 'Ready'}</span></button>`;
+      if (v.isHost) {
+        foot += status === 'results'
+          ? `<button type="button" class="sdh-btn sdh-btn-primary" data-act="party-rematch"${v.canStart === false ? ' disabled' : ''}>${ICON.restart}<span>Rematch</span></button>`
+          : `<button type="button" class="sdh-btn sdh-btn-primary" data-act="party-start"${v.canStart && status === 'lobby' ? '' : ' disabled'}>${ICON.play}<span>Start race</span></button>`;
+      }
+      if (status === 'results' && this.partyResults) foot += `<button type="button" class="sdh-btn" data-act="party-results">${ICON.trophy}<span>View results</span></button>`;
+    }
+    foot += `<button type="button" class="sdh-btn" data-act="party-leave">${ICON.exit}<span>Leave</span></button>`;
+
+    room.innerHTML = `
+      <div class="sdh-party-codebar">${plate}</div>
+      ${banner}${modeBlock}${list}
+      <div class="sdh-party-foot">${foot}</div>`;
+    if (keep) room.querySelector(keep)?.focus({ preventScroll: true });
+    else if (this.sub === 'party' && !this.el.contains(document.activeElement)) {
+      room.querySelector('.sdh-btn-primary:not(:disabled), [data-act="party-leave"]')?.focus({ preventScroll: true });
+    }
+  }
+
+  /**
+   * In-race standings box under the timer plate. Never touches the DOM unless the rows changed.
+   * @param {{position:number, name:string, isYou?:boolean, detail?:string}[]|null} rows
+   */
+  setRaceStandings(rows) {
+    const list = Array.isArray(rows) ? rows.slice(0, 8) : [];
+    const key = list.map((r) => `${r?.position}|${r?.name}|${r?.isYou ? 1 : 0}|${r?.detail ?? ''}`).join('\n');
+    if (key === this.standingsKey) return;
+    this.standingsKey = key;
+    const box = this.q('.sdh-standings');
+    box.hidden = list.length === 0;
+    box.querySelector('.sdh-st-count').textContent = list.length ? String(list.length) : '';
+    this.q('.sdh-st-list').innerHTML = list.map((r) => `
+      <li class="sdh-st-row${r.isYou ? ' is-you' : ''}"><span class="sdh-st-pos sdh-num">${esc(r.position)}</span><span class="sdh-st-name">${esc(r.name)}</span><span class="sdh-st-detail sdh-num">${esc(r.detail ?? '')}</span></li>`).join('');
+  }
+
+  /**
+   * Party variant of the finish ticket.
+   * @param {{modeLabel:string, mapLabel?:string, isScore?:boolean, round?:number, isHost?:boolean,
+   *          rows:{position:number, name:string, isYou?:boolean, time?:number, score?:number, dnf?:boolean}[]}|null} r
+   */
+  showPartyResults(r) {
+    const body = this.q('.sdh-party-results-body');
+    if (!r) {
+      this.partyResults = null;
+      body.replaceChildren();
+      this.renderParty();
+      if (this.screen === 'party-results') {
+        this.screen = this.finishFresh ? 'finish' : 'menu';
+        this.sub = null;
+        this.currentPanel = null;
+        this.applyScreen();
+      }
+      return;
+    }
+    this.partyResults = r;
+    this.renderParty();
+    const rows = Array.isArray(r.rows) ? r.rows.slice(0, 8) : [];
+    const youWon = rows.some((x) => x.isYou && x.position === 1 && !x.dnf);
+    const cell = (x) => {
+      if (x.dnf) return '<span class="sdh-pr-dnf">DNF</span>';
+      return r.isScore ? `<span class="sdh-pr-val sdh-num">${formatInt(x.score)}<small>pts</small></span>` : `<span class="sdh-pr-val sdh-num">${formatTime(x.time)}</span>`;
+    };
+    this.ticketNo = ((this.ticketNo || 4817) + 1) % 100000;
+    body.innerHTML = `
+      <div class="sdh-ticket">
+        <div class="sdh-ticket-head"><span>SLOP DRIFT ROADWAYS · PARTY</span><span class="sdh-num">No. ${String(this.ticketNo).padStart(5, '0')}</span></div>
+        <header class="sdh-panel-head">
+          <div class="sdh-eyebrow">${esc(r.mapLabel || 'Mussoorie')} → ${esc(r.modeLabel || 'Event')}${r.round > 1 ? ` · Round ${esc(r.round)}` : ''}</div>
+          <h2 class="sdh-title">Final order</h2>
+        </header>
+        ${youWon ? '<div class="sdh-stamp sdh-result-stamp is-record" lang="hi">बढ़िया!</div>' : ''}
+        <ol class="sdh-pr-list">${rows.map((x) => `
+          <li class="${x.isYou ? 'is-you' : ''}${x.position === 1 && !x.dnf ? ' is-first' : ''}">
+            <span class="sdh-pr-pos sdh-num">${x.dnf ? '–' : esc(x.position)}</span>
+            <span class="sdh-pr-name">${esc(x.name)}${x.isYou ? ' <em>you</em>' : ''}${x.position === 1 && !x.dnf && !youWon ? '<span class="sdh-stamp sdh-pr-win" lang="hi">बढ़िया!</span>' : ''}</span>
+            ${cell(x)}
+          </li>`).join('')}</ol>
+        <div class="sdh-ticket-foot">One road · One finish line · Chai is on the winner</div>
+      </div>`;
+    this.q('[data-act="party-rematch"]').hidden = !r.isHost;
+    if (this.screen === 'menu') {
+      this.toast('Party results are in. Open Race with friends to view them.', 'good');
+      return;
+    }
+    this.screen = 'party-results';
+    this.sub = null;
+    this.currentPanel = null;
+    this.applyScreen();
+    this.q('[data-panel="party-results"]').scrollTop = 0;
   }
 
   openSettings(source = 'menu') {
@@ -982,7 +1280,7 @@ export class Hud {
     const s = this.settings;
     const f = this.form || this.q('.sdh-form');
     const n = (k) => f.elements.namedItem(`${this.uid}-${k}`);
-    for (const key of ['quality', 'timeOfDay', 'handling', 'transmission', 'units']) {
+    for (const key of ['map', 'quality', 'timeOfDay', 'handling', 'transmission', 'units']) {
       const group = n(key);
       if (group) group.value = String(s[key]);
     }
@@ -1004,7 +1302,7 @@ export class Hud {
     const f = this.form;
     const n = (k) => f.elements.namedItem(`${this.uid}-${k}`);
     const out = { ...this.settings };
-    for (const key of ['quality', 'timeOfDay', 'handling', 'transmission', 'units']) {
+    for (const key of ['map', 'quality', 'timeOfDay', 'handling', 'transmission', 'units']) {
       const v = n(key)?.value;
       if (v) out[key] = v;
     }
@@ -1027,6 +1325,21 @@ export class Hud {
 
   setRecords(records) {
     this.records = records || {};
+    this.renderCards();
+  }
+
+  /**
+   * Replace the events on offer: once the world is built, only the modes its routes support
+   * (config.js modesForWorld), so a map without the Nag Tibba road shows no Nag Tibba events.
+   * @param {Array} modes  Entries of MODES.
+   */
+  setModes(modes) {
+    this.modes = modes || [];
+    const list = this.q('.sdh-mode-list');
+    if (list) list.innerHTML = this.modeCardsMarkup();
+    const tabs = this.q('[data-panel="leaderboard"] .sdh-tabs');
+    if (tabs) tabs.innerHTML = this.leaderboardTabsMarkup();
+    if (this.lbMode && !this.rankedModes().some((m) => m.id === this.lbMode)) this.lbMode = null;
     this.renderCards();
   }
 
@@ -1168,9 +1481,13 @@ export class Hud {
 
   // ---------------------------------------------------------------- progression & online: markup
 
+  leaderboardTabsMarkup() {
+    return this.rankedModes().map((m) => `
+      <button type="button" role="tab" class="sdh-tab" data-act="lb-tab" data-tab="${esc(m.id)}" aria-selected="false" tabindex="-1" title="${esc(m.label)}">${esc(tabLabel(m))}</button>`).join('');
+  }
+
   leaderboardMarkup() {
-    const tabs = this.rankedModes().map((m) => `
-      <button type="button" role="tab" class="sdh-tab" data-act="lb-tab" data-tab="${esc(m.id)}" aria-selected="false" tabindex="-1" title="${esc(m.label)}">${esc(m.label.split(' ')[0])}</button>`).join('');
+    const tabs = this.leaderboardTabsMarkup();
     return `
       <aside class="sdh-panel sdh-panel-sub" data-panel="leaderboard" aria-label="Leaderboard">
         <header class="sdh-panel-head sdh-panel-head-row">
@@ -1355,6 +1672,12 @@ export class Hud {
     }
   }
 
+  /** The map being driven: leaderboard medals and headings are for its tracks. */
+  setMap(mapId) {
+    this.mapId = mapId;
+    if (this.lbMode) this.renderLeaderboard();
+  }
+
   /** @param {{status:'loading'|'online'|'local'|'error', entries: import('../core/contracts.js').LeaderboardEntry[]}} data */
   setLeaderboard(modeId, data) {
     this.leaderboards[modeId] = data || { status: 'loading', entries: [] };
@@ -1368,9 +1691,10 @@ export class Hud {
     const list = this.q('.sdh-lb-list');
     const kind = MEDAL_TARGETS[id]?.kind || (recordKind(this.modes.find((m) => m.id === id)) === 'score' ? 'score' : 'time');
     const entries = Array.isArray(data.entries) ? data.entries : [];
+    const mapLabel = MAPS[this.mapId]?.label;
     const msg = {
       loading: 'Loading…',
-      online: `Global leaderboard · ${entries.length} ${entries.length === 1 ? 'driver' : 'drivers'}`,
+      online: `${mapLabel ? `${esc(mapLabel)} · ` : ''}Global leaderboard · ${entries.length} ${entries.length === 1 ? 'driver' : 'drivers'}`,
       local: '<b>Local only.</b> These are this browser’s runs. Online leaderboards are not configured.',
       error: '<b>Couldn’t reach the leaderboard.</b> Check your connection and try again.',
     }[data.status] || '';
@@ -1387,7 +1711,7 @@ export class Hud {
         <li class="sdh-lb-row${e.isMe ? ' is-me' : ''}">
           <span class="sdh-lb-rank sdh-num">${esc(e.rank)}</span>
           <span class="sdh-lb-name"><b>${esc(e.name)}</b>${e.isMe ? '<em>you</em>' : ''}<small>Lv ${esc(e.level)}</small></span>
-          ${medalBadge(medalFor(id, value))}
+          ${medalBadge(medalFor(id, value, this.mapId))}
           <span class="sdh-lb-value sdh-num">${shown}</span>
           ${e.hasGhost ? `<button type="button" class="sdh-icon sdh-icon-sm" data-act="lb-ghost" data-lb-mode="${esc(id)}" data-player="${esc(e.playerId)}" aria-label="Race ${esc(e.name)}’s ghost" title="Race ghost">${ICON.ghost}</button>` : '<span class="sdh-icon-sm" aria-hidden="true"></span>'}
         </li>`;

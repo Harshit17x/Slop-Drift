@@ -1,10 +1,11 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { smoothstep } from '../core/math.js';
 import { MeshBuffer } from './road/MeshBuffer.js';
 import { createAsphaltTexture, createGrainTexture, createChevronTexture, createLabelTexture, createCheckerTexture } from './road/textures.js';
 
 // Everything you see of the road network: asphalt, shoulders and verges, painted lines, guardrails,
-// reflector posts, corner chevrons, the summit plaza, and the gates of the active route.
+// reflector posts, corner chevrons, every summit plaza, and the gates of the active route.
 // All static parts are merged or instanced, so the whole network is about a dozen draw calls.
 //
 // The cross-section mirrors the physics in Road.profileAt / World.sampleGround exactly:
@@ -113,8 +114,9 @@ export class RoadView {
   }
 
   /**
-   * Best surface class another road or the plaza offers at (x, z): 0 asphalt, 1 shoulder, 2 verge, 9 none.
-   * `exceptRoad` is the road asking; with `lowerOnly` only roads listed before it (and the plaza) count.
+   * Best surface class another road or a plaza offers at (x, z): 0 asphalt, 1 shoulder, 2 verge, 9 none.
+   * `exceptRoad` is the road asking (-1: a plaza is asking, so plazas do not count); with `lowerOnly`
+   * only roads listed before it (and the plazas) count.
    */
   coverClass(x, z, exceptRoad, lowerOnly = false) {
     let best = 9;
@@ -127,11 +129,12 @@ export class RoadView {
       const surfaceClass = a <= location.halfWidth ? 0 : a <= location.halfWidth + road.shoulderEdge ? 1 : a <= location.halfWidth + road.vergeEdge ? 2 : 9;
       if (surfaceClass < best) best = surfaceClass;
     }
-    const plaza = this.world.plaza;
-    if (plaza && exceptRoad !== -1) {
-      const distance = Math.hypot(x - plaza.x, z - plaza.z);
-      if (distance <= plaza.radius) best = 0;
-      else if (distance <= plaza.radius + this.config.verge && best > 2) best = 2;
+    if (exceptRoad !== -1) {
+      for (const plaza of this.world.plazas) {
+        const distance = Math.hypot(x - plaza.x, z - plaza.z);
+        if (distance <= plaza.radius) best = 0;
+        else if (distance <= plaza.radius + this.config.verge && best > 2) best = 2;
+      }
     }
     return best;
   }
@@ -255,8 +258,11 @@ export class RoadView {
   }
 
   buildPlazaSurfaces(asphalt, soft) {
-    const plaza = this.world.plaza;
-    if (!plaza) return;
+    for (const plaza of this.world.plazas) this.buildPlazaSurface(plaza, asphalt, soft);
+  }
+
+  /** One plaza's paving and verge ring, added to the shared asphalt and soft buffers. */
+  buildPlazaSurface(plaza, asphalt, soft) {
     const config = this.config;
     const steps = 96;
     const centre = asphalt.vertex(plaza.x, plaza.y, plaza.z, plaza.x / ASPHALT_TILE, plaza.z / ASPHALT_TILE, 0.97, 0.97, 0.97, 0, 1, 0);
@@ -284,7 +290,7 @@ export class RoadView {
       const angle = ((k + 0.5) / steps) * Math.PI * 2;
       const mx = plaza.x + Math.cos(angle) * (plaza.radius + config.verge * 0.5);
       const mz = plaza.z + Math.sin(angle) * (plaza.radius + config.verge * 0.5);
-      if (this.coverClass(mx, mz, -1) <= 1) continue; // the spur comes in here
+      if (this.coverClass(mx, mz, -1) <= 1) continue; // the road comes in here
       const a = softBase + k * 4;
       const b = softBase + next * 4;
       soft.quad(a, b, b + 1, a + 1);
@@ -349,9 +355,8 @@ export class RoadView {
       }
     }
 
-    // A white ring just inside the edge of the plaza, open where the road comes in.
-    const plaza = world.plaza;
-    if (plaza) {
+    // A white ring just inside the edge of each plaza, open where the road comes in.
+    for (const plaza of world.plazas) {
       const steps = 96;
       const inner = plaza.radius - 0.5;
       const outer = plaza.radius - 0.36;
@@ -418,9 +423,8 @@ export class RoadView {
       }
     }
 
-    // Ring around the plaza, open where the spur arrives.
-    const plaza = world.plaza;
-    if (plaza) {
+    // Ring around each plaza, open where its road arrives.
+    for (const plaza of world.plazas) {
       const steps = 72;
       const radius = plaza.radius + config.railOffset;
       const open = [];
@@ -561,39 +565,53 @@ export class RoadView {
 
   // ------------------------------------------------------------------ summit
 
+  /**
+   * A stone obelisk on a plinth at every plaza, with a sign naming it (plaza.label, else SUMMIT) and
+   * its displayed altitude. Plinths and obelisks are merged across plazas; each sign has its own texture.
+   */
   buildSummitMarker() {
     const world = this.world;
-    const plaza = world.plaza;
-    if (!plaza) return;
-    const spur = world.roads[world.roads.length - 1];
-    const last = spur.count - 1;
-    // Stand the marker on the far side of the plaza from the incoming road, facing arrivals.
-    const ax = spur.tx[last];
-    const az = spur.tz[last];
-    const x = plaza.x + ax * (plaza.radius - 4.5);
-    const z = plaza.z + az * (plaza.radius - 4.5);
-
+    const plazas = world.plazas;
+    this.summitSignMaterials = [];
+    if (!plazas.length) return;
     const stone = new MeshBuffer({ colors: true });
-    // Plinth squared up to the approach so the sign on its front face reads straight on.
-    stone.box(x, plaza.y + 0.6, z, az * 1.5, 0, -ax * 1.5, 0, 0.6, 0, ax * 1.5, 0, az * 1.5, 0.5, 0.5, 0.48);
-    stone.box(x, plaza.y + 1.3, z, az * 1.0, 0, -ax * 1.0, 0, 0.1, 0, ax * 1.0, 0, az * 1.0, 0.58, 0.58, 0.56);
-    const obelisk = new THREE.CylinderGeometry(0.12, 0.62, 5.2, 4, 1);
-    obelisk.rotateY(Math.atan2(ax, az) + Math.PI / 4);
-    obelisk.translate(x, plaza.y + 1.4 + 2.6, z);
+    const obelisks = [];
+    for (const plaza of plazas) {
+      const road = world.roads[plaza.roadId] || world.roads[world.roads.length - 1];
+      const last = road.count - 1;
+      // Stand the marker on the far side of the plaza from the incoming road, facing arrivals.
+      const ax = road.tx[last];
+      const az = road.tz[last];
+      const x = plaza.x + ax * (plaza.radius - 4.5);
+      const z = plaza.z + az * (plaza.radius - 4.5);
+
+      // Plinth squared up to the approach so the sign on its front face reads straight on.
+      stone.box(x, plaza.y + 0.6, z, az * 1.5, 0, -ax * 1.5, 0, 0.6, 0, ax * 1.5, 0, az * 1.5, 0.5, 0.5, 0.48);
+      stone.box(x, plaza.y + 1.3, z, az * 1.0, 0, -ax * 1.0, 0, 0.1, 0, ax * 1.0, 0, az * 1.0, 0.58, 0.58, 0.56);
+      const obelisk = new THREE.CylinderGeometry(0.12, 0.62, 5.2, 4, 1);
+      obelisk.rotateY(Math.atan2(ax, az) + Math.PI / 4);
+      obelisk.translate(x, plaza.y + 1.4 + 2.6, z);
+      obelisks.push(obelisk);
+
+      const altitude = Math.round(world.displayAltitude ? world.displayAltitude(plaza.y) : plaza.y);
+      const title = plaza.label ? plaza.label.toUpperCase() : 'SUMMIT';
+      const label = this.track(createLabelTexture([title, `${altitude} M`], { width: 512, height: 256 }));
+      const signMaterial = this.track(new THREE.MeshStandardMaterial({ map: label, roughness: 0.6, emissive: 0xffffff, emissiveMap: label, emissiveIntensity: this.night ? 0.7 : 0.12 }));
+      if (!this.signGeometry) this.signGeometry = this.track(new THREE.PlaneGeometry(2.0, 1.0));
+      const sign = new THREE.Mesh(this.signGeometry, signMaterial);
+      sign.name = `SummitSign_${plaza.id}`;
+      sign.position.set(x - ax * 1.52, plaza.y + 0.62, z - az * 1.52);
+      sign.rotation.y = Math.atan2(-ax, -az);
+      sign.castShadow = false;
+      this.group.add(sign);
+      this.summitSignMaterials.push(signMaterial);
+    }
     const stoneMaterial = this.track(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92 }));
     this.addMesh(this.track(stone.build()), stoneMaterial, 'SummitPlinth', { cast: true });
+    const obeliskGeometry = obelisks.length === 1 ? obelisks[0] : mergeGeometries(obelisks, false);
+    if (obelisks.length > 1) obelisks.forEach((geometry) => geometry.dispose());
     const obeliskMaterial = this.track(new THREE.MeshStandardMaterial({ color: 0x9a9b97, roughness: 0.85, flatShading: true }));
-    this.addMesh(this.track(obelisk), obeliskMaterial, 'SummitObelisk', { cast: true });
-
-    const label = this.track(createLabelTexture(['SUMMIT', `${Math.round(plaza.y)} M`], { width: 512, height: 256 }));
-    const signMaterial = this.track(new THREE.MeshStandardMaterial({ map: label, roughness: 0.6, emissive: 0xffffff, emissiveMap: label, emissiveIntensity: 0.12 }));
-    const sign = new THREE.Mesh(this.track(new THREE.PlaneGeometry(2.0, 1.0)), signMaterial);
-    sign.name = 'SummitSign';
-    sign.position.set(x - ax * 1.52, plaza.y + 0.62, z - az * 1.52);
-    sign.rotation.y = Math.atan2(-ax, -az);
-    sign.castShadow = false;
-    this.group.add(sign);
-    this.summitSignMaterial = signMaterial;
+    this.addMesh(this.track(obeliskGeometry), obeliskMaterial, 'SummitObelisk', { cast: true });
   }
 
   // ------------------------------------------------------------------ route gates
@@ -702,7 +720,7 @@ export class RoadView {
     this.night = Boolean(isNight);
     this.reflectorMaterial.emissiveIntensity = this.night ? 1.8 : 0.25;
     this.lightMaterial.emissiveIntensity = this.night ? 2.4 : 0.9;
-    if (this.summitSignMaterial) this.summitSignMaterial.emissiveIntensity = this.night ? 0.7 : 0.12;
+    for (const material of this.summitSignMaterials || []) material.emissiveIntensity = this.night ? 0.7 : 0.12;
     this.gates.traverse((node) => {
       if (node.userData.banner) node.material.emissiveIntensity = this.night ? 0.9 : 0.15;
     });

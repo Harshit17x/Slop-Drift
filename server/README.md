@@ -53,6 +53,29 @@ Logs: `npx wrangler tail`. Schema changes: edit `schema.sql` (keep it idempotent
 | `GET /api/ghost?mode=X&player=Y` | `{ghost}` (cached 60 s) |
 | `GET /api/online` | `{total, rooms}` (cached 15 s) |
 | `WS /parties/room/<modeId>?playerId&name&level&paint&rim&number&token` | realtime room, max 16 |
+| `WS /parties/room/party.<CODE>?…&instance&party=create\|join&partyMap&partyMode` | private party room, max 8 |
+
+`modeId` / `mode` / room names are track keys (`src/meta/trackKey.js`): the bare event id on the
+original Alpine map (`sprint`, `mountain`, ...), `<map>.<event>` on the others (`mussoorie.sprint`,
+`mussoorie.mountain`, ...). Each track key is its own leaderboard and room; no schema change is needed.
+
+## Party rooms (race with friends via code)
+
+`party.<CODE>` rooms are private: `CODE` is 5 characters from `ABCDEFGHJKMNPQRSTUVWXYZ23456789`
+(no 0/O, 1/I/L look-alikes), at most 8 drivers. They relay car state like any room and also run the
+party state machine in `src/net/party.js` (shared with the client's local-tab mode): the host picks an
+event of the party's map, `start` sets a shared start 5 s ahead, the room's Durable Object alarm moves
+it to racing at that time, finishes are collected, and 60 s after the first finisher (or 20 min after
+the start) everyone left is marked DNF and the results go out. The state is kept in DO storage, so
+hibernation loses nothing; an empty party is deleted.
+
+- Join with `party=create` (plus `partyMap`, `partyMode`) to make the party, `party=join` to enter an
+  existing one. Refusals: `{t:'party', error}` then close 4404 (no such party), 4409 (code taken),
+  4003 (full). `instance` is the client's member id (it gets one assigned if missing or malformed).
+- Client → room: `{t:'party', op:'select'|'ready'|'start'|'finish'|'rematch'|'sync', …}`.
+- Room → each member: `{t:'party', state, now, you}` after every change (`now` lets clients estimate
+  the clock offset for the synchronised countdown), `{t:'party', error, now}` for a refused op.
+- The host role passes to the earliest remaining member when the host leaves.
 
 Validation lives in `src/validate.js` (unit-tested from `tests/net.test.mjs`). The fastest believable
 time is 0.85 × the author medal and the highest believable drift score 1.6 × the author medal

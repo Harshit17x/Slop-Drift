@@ -1,6 +1,9 @@
 // Game-wide constants and persisted player settings.
 // Vehicle tuning lives in src/vehicle/tuning.js; world generation parameters in src/world/worldConfig.js.
 
+import { MAPS, DEFAULT_MAP } from './world/maps.js';
+import { LEGACY_MAP, trackKey } from './meta/trackKey.js';
+
 const STORAGE_KEY = 'slop-drift-settings-v2';
 const RECORDS_KEY = 'slop-drift-records-v1';
 
@@ -22,6 +25,9 @@ export const SURFACE_PROPS = Object.freeze([
  *  loop    - closed circuit around the mountain
  *  climb   - summit spur, driven uphill from the pass junction to the summit plaza
  *  descent - summit spur, driven downhill from the plaza to the junction
+ *  peak / peakdown - the Nag Tibba road (Mussoorie only), up to its plaza and back down
+ * A map offers only the modes whose route its world has (modesForWorld). `tab` is an optional short
+ * leaderboard-tab label (default: the first word of `label`).
  */
 export const MODES = Object.freeze([
   Object.freeze({ id: 'sprint', label: 'Mountain Loop', tagline: '1 lap · time trial', route: 'loop', laps: 1 }),
@@ -29,11 +35,22 @@ export const MODES = Object.freeze([
   Object.freeze({ id: 'climb', label: 'Summit Climb', tagline: 'Hill climb to the peak', route: 'climb', laps: 1 }),
   Object.freeze({ id: 'descent', label: 'Touge Descent', tagline: 'Summit to the pass, downhill', route: 'descent', laps: 1 }),
   Object.freeze({ id: 'drift', label: 'Drift Session', tagline: '120 s · score attack', route: 'loop', laps: 0, timeLimit: 120 }),
+  Object.freeze({ id: 'peak', label: 'Nag Tibba Hill Climb', tagline: 'Switchbacks to the top', route: 'peak', laps: 1, tab: 'Nag Tibba' }),
+  Object.freeze({ id: 'peakdown', label: 'Nag Tibba Descent', tagline: 'Hairpins all the way down', route: 'peakdown', laps: 1, tab: 'Nag Descent' }),
   Object.freeze({ id: 'roam', label: 'Free Roam', tagline: 'Explore the whole mountain', route: 'loop', laps: 0 }),
 ]);
 
 export function getMode(id) {
   return MODES.find((mode) => mode.id === id) || MODES[0];
+}
+
+/**
+ * The modes a built world can run: those whose route it has (e.g. no Nag Tibba events on Alpine).
+ * @param {{routes?: Object<string, object>}|null} world
+ */
+export function modesForWorld(world) {
+  const routes = world?.routes || {};
+  return MODES.filter((mode) => Object.prototype.hasOwnProperty.call(routes, mode.route));
 }
 
 export const PAINT_OPTIONS = Object.freeze([
@@ -67,6 +84,7 @@ export const HANDLING_PRESETS = Object.freeze(['Arcade', 'Balanced', 'Sim']);
 export const TIME_OF_DAY = Object.freeze(['dawn', 'day', 'sunset', 'night']);
 
 export const DEFAULT_SETTINGS = Object.freeze({
+  map: DEFAULT_MAP,
   quality: 'High',
   timeOfDay: 'day',
   paint: 'pearl',
@@ -104,6 +122,7 @@ export function getQualityPreset(name) {
 export function normalizeSettings(input = {}) {
   const merged = { ...DEFAULT_SETTINGS, ...(input || {}) };
   return {
+    map: MAPS[merged.map] ? merged.map : DEFAULT_SETTINGS.map,
     quality: QUALITY_PRESETS[merged.quality] ? merged.quality : DEFAULT_SETTINGS.quality,
     timeOfDay: TIME_OF_DAY.includes(merged.timeOfDay) ? merged.timeOfDay : DEFAULT_SETTINGS.timeOfDay,
     paint: PAINT_OPTIONS.some((option) => option.id === merged.paint) ? merged.paint : DEFAULT_SETTINGS.paint,
@@ -136,20 +155,42 @@ export function saveSettings(settings) {
   return normalized;
 }
 
-/** Best results per mode id: { [modeId]: { time?: seconds, score?: points } }. */
-export function loadRecords() {
+// Records of every map live in one stored object keyed by track key (src/meta/trackKey.js), so the
+// Alpine entries saved before maps existed (bare mode ids) are still the Alpine records.
+function readAllRecords() {
   try {
     const raw = globalThis.localStorage?.getItem(RECORDS_KEY);
     const parsed = raw ? JSON.parse(raw) : {};
-    return parsed && typeof parsed === 'object' ? parsed : {};
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
   } catch {
     return {};
   }
 }
 
-export function saveRecords(records) {
+/**
+ * Best results on one map, keyed by plain mode id: { [modeId]: { time?: seconds, score?: points } }.
+ * @param {string} [mapId]  Defaults to the Alpine map.
+ */
+export function loadRecords(mapId = LEGACY_MAP) {
+  const all = readAllRecords();
+  const records = {};
+  for (const mode of MODES) {
+    const record = all[trackKey(mapId, mode.id)];
+    if (record && typeof record === 'object') records[mode.id] = record;
+  }
+  return records;
+}
+
+/**
+ * Store one map's records (as returned by loadRecords) without touching other maps' entries.
+ * @param {Object<string, object>} records  Keyed by plain mode id.
+ * @param {string} [mapId]  Defaults to the Alpine map.
+ */
+export function saveRecords(records, mapId = LEGACY_MAP) {
+  const all = readAllRecords();
+  for (const [modeId, record] of Object.entries(records || {})) all[trackKey(mapId, modeId)] = record;
   try {
-    globalThis.localStorage?.setItem(RECORDS_KEY, JSON.stringify(records || {}));
+    globalThis.localStorage?.setItem(RECORDS_KEY, JSON.stringify(all));
   } catch {
     // See saveSettings.
   }

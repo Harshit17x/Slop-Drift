@@ -46,7 +46,10 @@ export class GhostRecorder {
     return this.recording;
   }
 
-  /** Begin a new recording; any previous one is dropped. */
+  /**
+   * Begin a new recording; any previous one is dropped.
+   * @param {string} modeId  Track key of the run (src/meta/trackKey.js); stored as the ghost's modeId.
+   */
   start(modeId, name = '', paint = '') {
     this.modeId = String(modeId ?? '');
     this.name = String(name ?? '');

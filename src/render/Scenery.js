@@ -235,13 +235,15 @@ export class Scenery {
     const clump = new Noise2D(config.seed + 211);
     const tint = new Noise2D(config.seed + 223);
     const bedClear = roadConfig.shoulder + roadConfig.verge + roadConfig.bedMargin;
-    const plaza = world.plaza;
-    const plazaClear = plaza ? plaza.radius + roadConfig.verge + roadConfig.bedMargin + 6 : 0;
+    const plazas = world.plazas || (world.plaza ? [world.plaza] : []);
     const span = grid.half - 24;
     const maxRadius = grid.half - 12;
 
     const clearOfRoads = (x, z, distanceToRoad, margin) => {
-      if (plaza && Math.hypot(x - plaza.x, z - plaza.z) < plazaClear) return false;
+      for (let p = 0; p < plazas.length; p += 1) {
+        if (Math.hypot(x - plazas[p].x, z - plazas[p].z) < plazas[p].radius + roadConfig.verge + roadConfig.bedMargin + 6) return false;
+      }
+      if (world.isReserved?.(x, z, margin)) return false; // buildings of an authored map
       if (distanceToRoad > 44) return true;
       for (let r = 0; r < world.roads.length; r += 1) {
         if (world.roads[r].locate(x, z, scratchLocation) && scratchLocation.distance < scratchLocation.halfWidth + bedClear + margin) return false;

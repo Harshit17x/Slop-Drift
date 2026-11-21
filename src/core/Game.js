@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 import {
-  CONFIG, MODES, SURFACE_PROPS, getMode, getQualityPreset,
+  CONFIG, MODES, SURFACE_PROPS, getMode, getQualityPreset, modesForWorld,
   loadRecords, loadSettings, normalizeSettings, saveRecords, saveSettings,
 } from '../config.js';
 import { clamp } from './math.js';
 import { nextFrame } from './yield.js';
 import { World } from '../world/World.js';
+import { getMap, loadMapData, MAPS } from '../world/maps.js';
+import { Landmarks } from '../render/Landmarks.js';
 import { Vehicle } from '../vehicle/Vehicle.js';
 import { DriftScorer } from '../vehicle/DriftScorer.js';
 import { RaceSession } from '../game/RaceSession.js';
@@ -25,6 +27,7 @@ import { MetaLayer } from '../game/MetaLayer.js';
 import { NetClient } from '../net/NetClient.js';
 import { Leaderboard } from '../net/Leaderboard.js';
 import { RemotePlayers } from '../render/RemotePlayers.js';
+import { PartyRace } from '../game/PartyRace.js';
 
 // Parks the car (menu, countdown). Handbrake only: holding the brake pedal at a standstill would
 // select reverse, and the race would then start in R.
@@ -39,7 +42,7 @@ export class Game {
   constructor(root) {
     this.root = root;
     this.settings = loadSettings();
-    this.records = loadRecords();
+    this.records = loadRecords(this.settings.map); // this map's records, keyed by mode id
     this.state = 'loading';
     this.mode = MODES[0];
     this.session = null;
@@ -97,17 +100,45 @@ export class Game {
     };
 
     const quality = getQualityPreset(this.settings.quality);
-    this.world = new World();
+    // The map is chosen once per page load; switching maps in settings reloads the page.
+    this.map = getMap(this.settings.map);
+    let mapData = null;
+    if (this.map.assets) {
+      mark('Reading the survey');
+      this.hud.showLoading(0.01, 'Reading the survey');
+      try {
+        mapData = await loadMapData(this.map);
+      } catch (error) {
+        console.error(`Could not load the ${this.map.label} map, falling back to ${MAPS.alpine.label}`, error);
+        this.map = MAPS.alpine;
+        this.records = loadRecords(this.map.id);
+      }
+    }
+    this.world = new World(this.map.config, mapData);
     await this.world.build((fraction, label) => {
       mark(label);
       this.hud.showLoading(fraction * 0.72, label);
     });
+    // Only the events this map has roads for (no Nag Tibba events on Alpine).
+    this.modes = modesForWorld(this.world);
+    this.hud.setModes(this.modes);
 
     // Views are built one per frame so the progress bar keeps moving.
     const stages = [
       ['Shaping the terrain', () => { this.terrain = new TerrainView({ world: this.world, quality }); this.scene.add(this.terrain.group); }],
       ['Filling the lake', () => { this.water = new WaterView({ world: this.world }); this.scene.add(this.water.group); }],
       ['Paving the roads', () => { this.roads = new RoadView({ world: this.world, quality }); this.scene.add(this.roads.group); }],
+      ['Building the town', async () => {
+        if (!this.map.assets) return;
+        this.landmarks = new Landmarks({ world: this.world, quality });
+        try {
+          await this.landmarks.load(this.map.assets.props);
+          this.scene.add(this.landmarks.group);
+        } catch (error) {
+          console.error('Could not load the map buildings', error);
+          this.landmarks = null;
+        }
+      }],
       ['Planting the forest', () => { this.scenery = new Scenery({ world: this.world, quality }); this.scene.add(this.scenery.group); }],
       ['Lighting the sky', () => { this.atmosphere = new Atmosphere({ scene: this.scene, renderer: this.renderer, world: this.world, quality }); }],
       ['Warming the engine', () => this.createVehicle()],
@@ -116,12 +147,12 @@ export class Game {
       mark(stages[i][0]);
       this.hud.showLoading(0.72 + (0.26 * i) / stages.length, stages[i][0]);
       await nextFrame();
-      stages[i][1]();
+      await stages[i][1]();
     }
     mark('Ready');
 
     this.hud.setTrack(this.world.getMapData());
-    this.meta = new MetaLayer({ career: this.career, hud: this.hud, scene: this.scene, wheelLayout: this.vehicle.wheelLayout, game: this });
+    this.meta = new MetaLayer({ career: this.career, hud: this.hud, scene: this.scene, wheelLayout: this.vehicle.wheelLayout, game: this, mapId: this.map.id });
     this.createNetwork();
     this.applySettings(this.settings, { save: false });
     this.meta.refreshAll();
@@ -133,6 +164,7 @@ export class Game {
     await nextFrame();
     this.hud.hideLoading();
     this.meta.welcome();
+    this.partyRace?.boot();
     this.lastTime = performance.now();
     this.frameHandle = requestAnimationFrame(this.onFrame);
     return this;
@@ -171,6 +203,8 @@ export class Game {
     this.remotePlayers = new RemotePlayers({ scene: this.scene, net: this.net, wheelLayout: this.vehicle.wheelLayout });
     this.meta.attachNetwork({ net: this.net, leaderboard: this.leaderboard });
     this.netExtras = { braking: false, boosting: false, drifting: false };
+    // Race with friends via code (private party rooms).
+    this.partyRace = new PartyRace({ game: this, net: this.net, hud: this.hud, meta: this.meta, mapId: this.map.id });
   }
 
   bindHud() {
@@ -215,8 +249,15 @@ export class Game {
   // ---------------------------------------------------------------- settings
 
   applySettings(settings, { save = true } = {}) {
+    const previousMap = this.settings.map;
     this.settings = normalizeSettings(settings);
     if (save) saveSettings(this.settings);
+    // A different map means a different world: rebuild by reloading the page.
+    if (save && this.map && this.settings.map !== previousMap && this.settings.map !== this.map.id) {
+      this.hud.showLoading?.(0, `Driving to ${getMap(this.settings.map).label}`);
+      window.location.reload();
+      return;
+    }
     const quality = getQualityPreset(this.settings.quality);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, quality.pixelRatio));
     this.terrain.setQuality(quality);
@@ -225,6 +266,7 @@ export class Game {
     this.atmosphere.setTimeOfDay(this.settings.timeOfDay);
     this.effects.setQuality(quality);
     this.roads.setNight?.(this.atmosphere.isNight);
+    this.landmarks?.setNight(this.atmosphere.isNight);
     this.terrain.setSun?.(this.atmosphere.sunDirection, this.atmosphere.sunColor, this.atmosphere.ambientColor);
     this.meta?.applyLook(this.car);
     this.car.setHeadlights(this.atmosphere.isNight || this.headlightsWanted);
@@ -245,6 +287,7 @@ export class Game {
   // ---------------------------------------------------------------- state changes
 
   enterMenu() {
+    this.partyRace?.onLeaveRun();
     this.meta?.leaveRun();
     this.meta?.leaveRoom();
     this.state = 'menu';
@@ -262,10 +305,24 @@ export class Game {
     this.cameraRig.startBlend();
   }
 
-  beginRun(modeId) {
+  /**
+   * Start an event. A mode whose route this map lacks (e.g. a Nag Tibba event on Alpine, from an old
+   * link or daily) is refused with a toast and nothing changes. Returns whether the run started.
+   * @param {string} modeId
+   * @param {{startAt?: number, party?: boolean}} [options]
+   *   startAt: epoch ms (local clock) the green light must show at; the countdown runs until then
+   *   instead of the usual 3 s (party races start everyone together). party: this is a party round.
+   */
+  beginRun(modeId, options = {}) {
+    const mode = getMode(modeId);
+    const route = this.world.routes[mode.route];
+    if (!route) {
+      this.hud.toast(`${mode.label} is not on ${this.map.label}`, 'warn');
+      return false;
+    }
+    this.partyRace?.onRunStart(modeId, options);
     this.audio.unlock();
-    this.mode = getMode(modeId);
-    const route = this.world.routes[this.mode.route];
+    this.mode = mode;
     this.session = new RaceSession({ world: this.world, mode: this.mode, records: this.records });
     this.vehicle.teleport(this.session.getStartPose(this.pose));
     this.meta.beginRun(this.mode.id, this.settings.timeOfDay);
@@ -287,11 +344,15 @@ export class Game {
       this.state = 'running';
       this.countdown = 0;
       this.input.setDrivingEnabled(true);
-      return;
+      return true;
     }
     this.input.setDrivingEnabled(false);
     this.state = 'countdown';
-    this.countdown = CONFIG.race.countdownSeconds;
+    this.countdownStartAt = Number.isFinite(options?.startAt) ? options.startAt : null;
+    this.countdown = this.countdownStartAt === null
+      ? CONFIG.race.countdownSeconds
+      : Math.max(0, (this.countdownStartAt - Date.now()) / 1000);
+    return true;
   }
 
   /** First launch: once the driver has a name, go straight onto the mountain instead of a menu. */
@@ -321,11 +382,12 @@ export class Game {
     this.state = 'finished';
     this.input.setDrivingEnabled(false);
     this.audio.finish();
-    saveRecords(this.records);
+    saveRecords(this.records, this.map.id);
     this.hud.setRecords(this.records);
     this.hud.setCountdown('');
     const rewards = this.meta.finish(result);
     this.hud.showFinish(result, rewards);
+    this.partyRace?.onFinish(result);
     this.cameraRig.startBlend();
   }
 
@@ -375,7 +437,9 @@ export class Game {
   }
 
   updateCountdown(dt) {
-    this.countdown -= dt;
+    // A shared start time follows the wall clock (it keeps counting through a pause or a slow frame).
+    if (this.countdownStartAt !== null && this.countdownStartAt !== undefined) this.countdown = (this.countdownStartAt - Date.now()) / 1000;
+    else this.countdown -= dt;
     const shown = this.countdown > 0 ? String(Math.ceil(this.countdown)) : 'GO';
     if (shown !== this.countdownShown) {
       this.countdownShown = shown;
@@ -500,7 +564,7 @@ export class Game {
     frame.position.x = state.position.x;
     frame.position.z = state.position.z;
     frame.heading = Math.atan2(state.forward.x, -state.forward.z);
-    frame.altitude = state.position.y - this.world.config.mountain.valleyFloor;
+    frame.altitude = this.world.displayAltitude(state.position.y);
     const location = this.world.locate(state.position.x, state.position.z, this.location);
     if (location.roadId >= 0 && location.distance < location.halfWidth + 6) {
       const along = location.tx * state.forward.x + location.tz * state.forward.z;
@@ -577,6 +641,7 @@ export class Game {
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.input?.destroy();
     this.meta?.dispose();
+    this.partyRace?.dispose();
     this.remotePlayers?.dispose();
     this.net?.dispose();
     this.audio?.dispose();

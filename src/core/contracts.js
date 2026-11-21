@@ -175,7 +175,8 @@
  * @property {{distanceKm:number, driveSeconds:number, runs:number, finishes:number, driftsBanked:number,
  *   bestCombo:number, topSpeedKmh:number, respawns:number, dailyStreak:number, dailyStreakBest:number,
  *   dailyCompleted:number}} stats
- * @property {Object<string, 'bronze'|'silver'|'gold'|'author'>} medals  Best medal per mode id.
+ * @property {Object<string, 'bronze'|'silver'|'gold'|'author'>} medals  Best medal per track key (src/meta/trackKey.js;
+ *   bare mode id on the Alpine map).
  * @property {Object<string, number>} achievements  Achievement id -> unlock time (ms since epoch).
  * @property {{paint:string, rim:string, number:string}} cosmetics  Selected cosmetics; number is 1-2 digits.
  * @property {{date:string, done:boolean, lastDoneDate:(string|null), streak:number}} daily
@@ -196,6 +197,7 @@
  * @typedef {Object} DailyChallenge
  * @property {string} date          UTC date 'YYYY-MM-DD'.
  * @property {string} modeId
+ * @property {string} trackKey      The mode on the current map (src/meta/trackKey.js); only runs there count.
  * @property {string} modeLabel
  * @property {string} text          e.g. "Finish under 1:52.0 with no resets".
  * @property {'time'|'score'} kind
@@ -236,7 +238,7 @@
  * localStorage and for upload (encodeGhost / decodeGhost in src/ghost/ghostCodec.js).
  * @typedef {Object} GhostData
  * @property {number} version
- * @property {string} modeId
+ * @property {string} modeId        Track key of the run (src/meta/trackKey.js): the bare mode id on Alpine.
  * @property {string} name          Driver name.
  * @property {number} time          Run time in seconds (or the time limit for drift).
  * @property {number} score         Drift score, 0 for timed events.
@@ -275,6 +277,63 @@
  * @property {boolean} hasGhost
  * @property {number} at            When it was set (ms since epoch).
  * @property {boolean} isMe
+ */
+
+/**
+ * One driver in a party, as the HUD shows it (src/game/PartyRace.js -> hud.setParty).
+ * @typedef {Object} PartyMemberView
+ * @property {string} id
+ * @property {string} name
+ * @property {number} level
+ * @property {string} paint      Paint id ('' when unknown).
+ * @property {boolean} isHost
+ * @property {boolean} isYou
+ * @property {boolean} ready
+ * @property {boolean} finished  Finished (or DNF) in the current round.
+ * @property {number} [time]     Finish time in seconds.
+ * @property {number} [score]    Drift points.
+ * @property {boolean} [dnf]
+ */
+
+/**
+ * The party panel. hud.setParty(view) with null when not in a party.
+ * @typedef {Object} PartyView
+ * @property {string} code         5-character party code.
+ * @property {'connecting'|'lobby'|'countdown'|'racing'|'results'|'error'|'closed'} status
+ * @property {string} [error]      Human-readable reason for 'error' / 'closed'.
+ * @property {boolean} isHost
+ * @property {string} mapId
+ * @property {string} mapLabel
+ * @property {string|null} modeId  Chosen event (null while connecting).
+ * @property {string} modeLabel
+ * @property {{id:string, label:string}[]} modes  Events the host can pick on this map.
+ * @property {PartyMemberView[]} members  In join order.
+ * @property {boolean} canStart    You are the host and the party is in the lobby (or results: rematch).
+ * @property {number} [startsIn]   Seconds to the green light, during 'countdown'.
+ * @property {string} shareUrl     location.origin + pathname + '?party=' + code.
+ * @property {number} round        1, 2, ... (rematches count up).
+ * @property {number} readyCount   Members ready (the host always counts).
+ * @property {boolean} allReady    Every member but the host is ready.
+ */
+
+/**
+ * One line of the live race standings. hud.setRaceStandings(rows) with null to hide.
+ * @typedef {Object} StandingRow
+ * @property {number} position  1-based.
+ * @property {string} name
+ * @property {boolean} isYou
+ * @property {string} detail    'FIN 1:23.45' | 'Lap 2/2' | '64%' (leader) | '+120 m' | '+1 lap' | 'DNF' | '—'.
+ */
+
+/**
+ * Shared results of a party round. hud.showPartyResults(results) with null to close.
+ * @typedef {Object} PartyResults
+ * @property {string} modeLabel
+ * @property {string} mapLabel
+ * @property {boolean} isScore   Drift: ranked by score instead of time.
+ * @property {number} round
+ * @property {boolean} isHost    Show the rematch button.
+ * @property {{position:number, name:string, isYou:boolean, time?:number, score?:number, dnf:boolean}[]} rows
  */
 
 export {};

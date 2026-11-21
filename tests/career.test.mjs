@@ -1,7 +1,10 @@
 // Career (progression) tests: node tests/career.test.mjs
 import { Career, formatTarget, sanitizeName } from '../src/meta/Career.js';
-import { ACHIEVEMENTS, MEDAL_TARGETS, UNLOCKS, XP, levelForXp, xpForLevel } from '../src/meta/catalog.js';
-import { PAINT_OPTIONS } from '../src/config.js';
+import {
+  ACHIEVEMENTS, MEDAL_TARGETS, MUSSOORIE_MEDAL_TARGETS, TRACK_MEDAL_TARGETS, UNLOCKS, XP, levelForXp, medalTargets, xpForLevel,
+} from '../src/meta/catalog.js';
+import { trackKey, parseTrackKey, modeOfTrack } from '../src/meta/trackKey.js';
+import { PAINT_OPTIONS, MODES } from '../src/config.js';
 
 let failures = 0;
 let passes = 0;
@@ -175,6 +178,79 @@ summary = career.finishRun(result('sprint', { time: 300, respawns: 1 }));
 check('respawn denies the clean-lap achievement', !career.profile.achievements['clean-lap']);
 check('night finish achievement', Boolean(career.profile.achievements['night-run']));
 check('respawn stat', career.profile.stats.respawns === 1);
+
+// --- track keys: progress is per map, Alpine keeps the bare mode ids
+check('alpine track key is the bare mode id', trackKey('alpine', 'climb') === 'climb' && trackKey(undefined, 'climb') === 'climb');
+check('other maps are namespaced', trackKey('mussoorie', 'climb') === 'mussoorie.climb');
+check('parseTrackKey inverts trackKey', ['alpine', 'mussoorie'].every((mapId) => MODES.every((m) => {
+  const parsed = parseTrackKey(trackKey(mapId, m.id));
+  return parsed.mapId === mapId && parsed.modeId === m.id;
+})));
+check('modeOfTrack', modeOfTrack('mussoorie.drift') === 'drift' && modeOfTrack('drift') === 'drift');
+check('mussoorie targets are ordered', Object.values(MUSSOORIE_MEDAL_TARGETS).every((t) => (t.kind === 'time' ? t.bronze > t.silver && t.silver > t.gold && t.gold > t.author : t.bronze < t.silver && t.silver < t.gold && t.gold < t.author)));
+check('mussoorie timed targets are quicker than alpine (shorter tracks)', ['sprint', 'circuit', 'climb', 'descent'].every((m) => MUSSOORIE_MEDAL_TARGETS[m].gold < MEDAL_TARGETS[m].gold));
+check('track targets resolve through the track key', medalTargets('sprint') === MEDAL_TARGETS.sprint && medalTargets('mussoorie.sprint') === MUSSOORIE_MEDAL_TARGETS.sprint);
+check('unranked tracks have no targets', medalTargets('roam') === null && medalTargets('mussoorie.roam') === null && medalTargets('toString') === null);
+check('every map ranks its own events', Object.keys(TRACK_MEDAL_TARGETS).length === Object.keys(MEDAL_TARGETS).length + Object.keys(MUSSOORIE_MEDAL_TARGETS).length);
+check('Nag Tibba is ranked on Mussoorie only', medalTargets('mussoorie.peak') && medalTargets('mussoorie.peakdown') && medalTargets('peak') === null && medalTargets('peakdown') === null);
+check('Nag Tibba targets are longer than the Lal Tibba climb', MUSSOORIE_MEDAL_TARGETS.peak.gold > MUSSOORIE_MEDAL_TARGETS.climb.gold && MUSSOORIE_MEDAL_TARGETS.peakdown.gold > MUSSOORIE_MEDAL_TARGETS.descent.gold);
+
+const mapStorage = memoryStorage();
+const alpine = new Career({ storage: mapStorage, now });
+alpine.beginRun({ modeId: 'climb' });
+alpine.finishRun(result('climb', { time: MEDAL_TARGETS.climb.gold - 0.5 }));
+check('alpine medal is stored under the bare mode id', alpine.profile.medals.climb === 'gold' && !alpine.profile.medals['mussoorie.climb']);
+const hills = new Career({ storage: mapStorage, now, mapId: 'mussoorie' });
+check('alpine medals do not show on mussoorie', hills.medalBoard().climb.medal === null);
+check('mussoorie next medal uses mussoorie targets', hills.nextMedal('climb').target === MUSSOORIE_MEDAL_TARGETS.climb.bronze);
+check('an alpine-gold time is no medal on mussoorie', hills.medalFor('climb', result('climb', { time: MEDAL_TARGETS.climb.gold - 0.5 })) === null);
+hills.beginRun({ modeId: 'climb' });
+summary = hills.finishRun(result('climb', { time: MUSSOORIE_MEDAL_TARGETS.climb.silver - 0.1 }));
+check('mussoorie medal is keyed by track', hills.profile.medals['mussoorie.climb'] === 'silver' && hills.profile.medals.climb === 'gold' && summary.medal?.tier === 'silver');
+check('achievements still use plain mode ids on any map', Boolean(hills.profile.achievements.summit));
+hills.beginRun({ modeId: 'peak' });
+summary = hills.finishRun(result('peak', { time: MUSSOORIE_MEDAL_TARGETS.peak.bronze - 0.1 }));
+check('finishing the Nag Tibba climb earns its achievement and a medal', Boolean(hills.profile.achievements['nag-tibba']) && hills.profile.medals['mussoorie.peak'] === 'bronze');
+hills.setMap('alpine');
+check('setMap switches the board back to alpine', hills.medalBoard().climb.medal === 'gold');
+
+// --- daily challenge follows the map
+const dailyAlpine = new Career({ storage: memoryStorage(), now }).daily();
+const dailyHills = new Career({ storage: memoryStorage(), now, mapId: 'mussoorie' }).daily();
+check('same event on every map that has it, keyed per map', (dailyAlpine.modeId === dailyHills.modeId || !new Career({ storage: memoryStorage(), now }).rankedModes().includes(dailyHills.modeId))
+  && dailyAlpine.trackKey === dailyAlpine.modeId && dailyHills.trackKey === `mussoorie.${dailyHills.modeId}`);
+{
+  const alpineDays = new Career({ storage: memoryStorage(), now: () => clock });
+  const hillDays = new Career({ storage: memoryStorage(), now: () => clock, mapId: 'mussoorie' });
+  const alpineModes = new Set();
+  const hillModes = new Set();
+  let agree = true;
+  for (let d = 0; d < 366; d += 1) {
+    clock = new Date(Date.UTC(2026, 0, 1 + d, 12));
+    const a = alpineDays.daily();
+    const h = hillDays.daily();
+    alpineModes.add(a.modeId);
+    hillModes.add(h.modeId);
+    if (alpineDays.rankedModes().includes(h.modeId) && a.modeId !== h.modeId) agree = false;
+  }
+  clock = new Date('2026-11-17T09:00:00Z');
+  check('alpine never rolls a Nag Tibba daily', !alpineModes.has('peak') && !alpineModes.has('peakdown'), [...alpineModes].join(','));
+  check('mussoorie dailies can be Nag Tibba events', hillModes.has('peak') && hillModes.has('peakdown'), [...hillModes].join(','));
+  check('maps agree on the daily whenever both have the event', agree);
+  check('ranked modes follow the map', alpineDays.rankedModes().join() === 'sprint,circuit,climb,descent,drift'
+    && hillDays.rankedModes().join() === 'sprint,circuit,climb,descent,drift,peak,peakdown');
+  check('mussoorie medal board lists the Nag Tibba events', 'peak' in hillDays.medalBoard() && !('peak' in alpineDays.medalBoard()));
+}
+check('daily label stays friendly', dailyHills.modeLabel === MODES.find((m) => m.id === dailyHills.modeId).label);
+const passFor = (d) => (d.kind === 'score' ? { score: d.target + 1, time: 120 } : { time: d.target - 0.1 });
+const wrongMap = new Career({ storage: memoryStorage(), now, mapId: 'mussoorie' });
+const challengeAlpine = { ...dailyAlpine, target: dailyAlpine.kind === 'score' ? 0 : 1e9 };
+check('a run on another map does not complete the daily', !wrongMap.dailyMet(challengeAlpine, result(dailyAlpine.modeId, passFor(challengeAlpine)), { timeOfDay: challengeAlpine.timeOfDay || 'day' }));
+const onMap = new Career({ storage: memoryStorage(), now, mapId: 'mussoorie' });
+onMap.beginRun({ modeId: dailyHills.modeId, timeOfDay: dailyHills.timeOfDay || 'day' });
+summary = onMap.finishRun(result(dailyHills.modeId, passFor(dailyHills)));
+check('a run on the daily\'s map completes it', summary.daily?.completed === true);
+if (dailyHills.kind === 'time') check('mussoorie daily target comes from mussoorie medals', dailyHills.target < dailyAlpine.target);
 
 console.log(`\n${passes} passed, ${failures} failed`);
 process.exit(failures ? 1 : 0);

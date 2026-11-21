@@ -625,7 +625,35 @@ hud.onStartDaily = () => startRace(daily.modeId);
 hud.onCosmetic = (slot, value) => { garageSel[slot] = value; pushGarage(); log(`onCosmetic(${slot}, ${value})`); };
 
 const CONNS = ['online', 'connecting', 'local', 'offline'];
+const PARTY_MODES = [{ id: 'sprint', label: 'Sprint' }, { id: 'circuit', label: 'Ridge Circuit' }, { id: 'climb', label: 'Hill Climb' }, { id: 'descent', label: 'Descent' }, { id: 'drift', label: 'Drift Session' }];
+const partyView = (over = {}) => ({
+  code: 'K7MPQ', status: 'lobby', isHost: true, mapId: 'mussoorie', mapLabel: 'Mussoorie', modeId: 'circuit', modeLabel: 'Ridge Circuit',
+  modes: PARTY_MODES, canStart: true, shareUrl: 'https://example.test/?party=K7MPQ', round: 1,
+  members: [
+    { id: 'a', name: 'Harshit', level: 9, paint: '#C8321E', isHost: true, isYou: true, ready: true, finished: false },
+    { id: 'b', name: 'Mussoorie Maverick', level: 14, paint: '#2A6FB0', isHost: false, isYou: false, ready: true, finished: false },
+    { id: 'c', name: 'Landour Lakhan', level: 3, paint: '#F2B01E', isHost: false, isYou: false, ready: false, finished: false },
+    { id: 'd', name: 'Priya', level: 6, paint: '#2E7D4F', isHost: false, isYou: false, ready: true, finished: false },
+  ],
+  ...over,
+});
+const PARTY_STANDINGS = [
+  { position: 1, name: 'Mussoorie Maverick', detail: 'Lap 2/2' }, { position: 2, name: 'Harshit', isYou: true, detail: '+2.4 s' },
+  { position: 3, name: 'Priya', detail: '+5.1 s' }, { position: 4, name: 'Landour Lakhan', detail: 'FIN 1:23.45' },
+  { position: 5, name: 'Rider Five', detail: '+9.0 s' }, { position: 6, name: 'Rider Six', detail: '+11.2 s' },
+  { position: 7, name: 'Rider Seven', detail: '+14.8 s' }, { position: 8, name: 'Rider Eight', detail: '+20.3 s' },
+];
 const extraButtons = {
+  'party-none': () => { hud.setParty(null); hud.openParty(); },
+  'party-lobby': () => { hud.setParty(partyView()); hud.openParty(); },
+  'party-guest': () => { hud.setParty(partyView({ isHost: false, canStart: false, members: partyView().members.map((m) => ({ ...m, isYou: m.id === 'b', ready: m.id !== 'c' })) })); hud.openParty(); },
+  'party-count': () => { hud.setParty(partyView({ status: 'countdown', startsIn: 3 })); hud.openParty(); },
+  'party-error': () => { hud.setParty(partyView({ status: 'error', error: 'Party K7MPQ not found.', members: [] })); hud.openParty(); },
+  'party-standings': () => { hud.showRace(); hud.setHudMode('race'); hud.setRaceStandings(PARTY_STANDINGS); },
+  'party-results': () => hud.showPartyResults({
+    modeLabel: 'Ridge Circuit', mapLabel: 'Mussoorie', isScore: false, round: 2, isHost: true,
+    rows: [{ position: 1, name: 'Harshit', isYou: true, time: 203.41 }, { position: 2, name: 'Mussoorie Maverick', time: 205.9 }, { position: 3, name: 'Priya', time: 211.02 }, { position: 4, name: 'Landour Lakhan', dnf: true }],
+  }),
   'name-prompt': () => hud.promptName('Driver 4821'),
   notify: () => {
     hud.notify({ type: 'achievement', title: 'Two Hundred', detail: 'Reach 200 km/h.', xp: 150 });
