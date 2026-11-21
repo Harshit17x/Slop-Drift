@@ -15,6 +15,26 @@
 
 import { SURFACE, SURFACE_PROPS } from '../config.js';
 
+const HAS_URL = typeof URL !== 'undefined' && typeof import.meta !== 'undefined' && Boolean(import.meta.url);
+const ENGINE_AUDIO_URL = HAS_URL ? new URL('../assets/audio/engine.wav', import.meta.url).href : '/audio/engine.wav';
+const SKID_AUDIO_URL = HAS_URL ? new URL('../assets/audio/skid.wav', import.meta.url).href : '/audio/skid.wav';
+
+let cachedEngineBuffer = null;
+let cachedSkidBuffer = null;
+let loadPromise = null;
+
+async function fetchAudioBuffer(ctx, url) {
+  if (!ctx || typeof ctx.decodeAudioData !== 'function' || typeof globalThis.fetch !== 'function' || !url) return null;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const arrayBuffer = await res.arrayBuffer();
+    return await ctx.decodeAudioData(arrayBuffer);
+  } catch {
+    return null;
+  }
+}
+
 const WATCHDOG = 0.3; // seconds after the last update() before beds fade out on their own
 const NOISE_SECONDS = 2;
 const EMPTY = Object.freeze([]);
@@ -79,6 +99,7 @@ export class AudioEngine {
         this.ctx = ctx;
         try {
           this._build();
+          this._loadSamples();
         } catch {
           this._teardown();
           return false;
@@ -421,7 +442,16 @@ export class AudioEngine {
     const nitroFilter = filter('highpass', 2600, 0.7, nitroGain);
     noiseSource(nitroFilter);
 
-    beds.push(engineAmp.gain, intakeGain.gain, squealGain.gain, rumbleGain.gain, crunchGain.gain, windGain.gain, nitroGain.gain);
+    // Authentic audio beds from car-sound samples (VEHCar_Car engine 2 & VEHSkid_Screeching tires 1).
+    const engineSampleGain = gain(0, limiterGate);
+    const engineSampleFilter = filter('lowpass', 1200, 1.2, engineSampleGain);
+    const skidSampleGain = gain(0, tireBus);
+    const skidSampleFilter = filter('bandpass', 1600, 1.8, skidSampleGain);
+
+    beds.push(
+      engineAmp.gain, intakeGain.gain, squealGain.gain, rumbleGain.gain,
+      crunchGain.gain, windGain.gain, nitroGain.gain, engineSampleGain.gain, skidSampleGain.gain,
+    );
 
     this._g = {
       output,
@@ -434,11 +464,17 @@ export class AudioEngine {
       engineFilter,
       engineDrive,
       engineOscs,
+      engineSampleGain,
+      engineSampleFilter,
+      engineSampleSrc: null,
       intakeGain,
       intakeFilter,
       squealGain,
       squealFilter,
       squealTone,
+      skidSampleGain,
+      skidSampleFilter,
+      skidSampleSrc: null,
       rumbleGain,
       rumbleFilter,
       crunchGain,
@@ -447,6 +483,67 @@ export class AudioEngine {
       windFilter,
       nitroGain,
     };
+  }
+
+  _loadSamples() {
+    if (!this._live() || !this.ctx || typeof this.ctx.decodeAudioData !== 'function' || typeof globalThis.fetch !== 'function') return;
+    if (cachedEngineBuffer && cachedSkidBuffer) {
+      this._attachSamples();
+      return;
+    }
+    if (!loadPromise) {
+      loadPromise = Promise.all([
+        fetchAudioBuffer(this.ctx, ENGINE_AUDIO_URL),
+        fetchAudioBuffer(this.ctx, SKID_AUDIO_URL),
+      ]).then(([eng, skid]) => {
+        cachedEngineBuffer = eng;
+        cachedSkidBuffer = skid;
+      }).catch(() => {});
+    }
+    loadPromise.then(() => {
+      this._attachSamples();
+    });
+  }
+
+  _attachSamples() {
+    if (!this._live()) return;
+    const ctx = this.ctx;
+    const g = this._g;
+    if (!g) return;
+
+    if (cachedEngineBuffer && !g.engineSampleSrc) {
+      try {
+        const src = ctx.createBufferSource();
+        src.buffer = cachedEngineBuffer;
+        src.loop = true;
+        src.loopStart = 0.8;
+        src.loopEnd = 4.8;
+        src.playbackRate.value = 1.0;
+        src.connect(g.engineSampleFilter);
+        src.start(0);
+        g.sources.push(src);
+        g.engineSampleSrc = src;
+      } catch {
+        // ignore
+      }
+    }
+
+    if (cachedSkidBuffer && !g.skidSampleSrc) {
+      try {
+        const src = ctx.createBufferSource();
+        src.buffer = cachedSkidBuffer;
+        src.loop = true;
+        src.loopStart = 0.1;
+        src.loopEnd = 2.0;
+        src.playbackRate.value = 1.0;
+        src.connect(g.skidSampleFilter);
+        src.start(0);
+        g.sources.push(src);
+        g.skidSampleSrc = src;
+      } catch {
+        // ignore
+      }
+    }
   }
 
   /** Bed gain: move toward value now, and schedule a fade-out in case update() stops arriving. */
@@ -489,7 +586,20 @@ export class AudioEngine {
     const cutoff = 260 + 1400 * rpmN + 2600 * load * (0.4 + 0.6 * rpmN) + (boosting ? 600 : 0);
     g.engineFilter.frequency.setTargetAtTime(cutoff, now, 0.05);
     g.engineFilter.Q.setTargetAtTime(1 + 2 * load * rpmN, now, 0.08);
-    const amp = (0.1 + 0.16 * rpmN) * (0.5 + 0.5 * load) * (1 - 0.35 * dip);
+
+    // Realistic car sound from VEHCar_Car engine 2
+    if (g.engineSampleSrc) {
+      const baseRpm = 2800;
+      const rate = Math.max(0.32, Math.min(2.7, rpm / baseRpm));
+      g.engineSampleSrc.playbackRate.setTargetAtTime(rate, now, dip > 0 ? 0.015 : 0.035);
+      const sampleAmp = (0.22 + 0.38 * rpmN) * (0.4 + 0.6 * load) * (1 - 0.35 * dip);
+      this._bed(g.engineSampleGain.gain, sampleAmp, 0.04, now);
+      const sampleCutoff = 800 + 2600 * rpmN + 3400 * load + (boosting ? 1000 : 0);
+      g.engineSampleFilter.frequency.setTargetAtTime(Math.min(18000, sampleCutoff), now, 0.05);
+    }
+
+    const hasSample = Boolean(g.engineSampleSrc);
+    const amp = (hasSample ? 0.2 : 1.0) * (0.1 + 0.16 * rpmN) * (0.5 + 0.5 * load) * (1 - 0.35 * dip);
     this._bed(g.engineAmp.gain, amp, 0.04, now);
     g.intakeFilter.frequency.setTargetAtTime(Math.min(4000, Math.max(200, firing * 4)), now, 0.05);
     this._bed(g.intakeGain.gain, 0.05 * load * (0.3 + rpmN), 0.05, now);
@@ -535,7 +645,18 @@ export class AudioEngine {
     let squealAmt = saturate(squeal / 2); // two wheels well past the limit = full squeal
     if (options.drifting && asphaltContact > 0 && squealAmt < 0.25) squealAmt = 0.25;
     const speedGate = saturate((speed - 2) / 8);
-    const squealLevel = 0.2 * Math.pow(squealAmt, 0.8) * speedGate;
+
+    // Realistic tire screech from VEHSkid_Screeching tires 1
+    if (g.skidSampleSrc) {
+      const skidRate = 0.82 + 0.36 * squealAmt + Math.min(0.2, speed * 0.005);
+      g.skidSampleSrc.playbackRate.setTargetAtTime(skidRate, now, 0.04);
+      const skidLevel = 0.75 * Math.pow(squealAmt, 0.75) * speedGate;
+      this._bed(g.skidSampleGain.gain, skidLevel, 0.04, now);
+      const skidCutoff = 1200 + 4000 * squealAmt;
+      g.skidSampleFilter.frequency.setTargetAtTime(Math.min(16000, skidCutoff), now, 0.05);
+    }
+
+    const squealLevel = (g.skidSampleSrc ? 0.2 : 1.0) * 0.2 * Math.pow(squealAmt, 0.8) * speedGate;
     const squealPitch = 720 + 480 * squealAmt + Math.min(240, speed * 3);
     g.squealFilter.frequency.setTargetAtTime(squealPitch, now, 0.06);
     g.squealTone.frequency.setTargetAtTime(squealPitch * 0.92, now, 0.06);
