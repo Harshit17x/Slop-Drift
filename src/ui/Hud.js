@@ -695,6 +695,7 @@ export class Hud {
             <span><kbd>Shift</kbd> Nitro</span>
             <span><kbd>Q</kbd><kbd>E</kbd> Shift gear</span>
             <span><kbd>C</kbd> Camera · <kbd>B</kbd> Look back</span>
+            <span><kbd>H</kbd> Lights · <kbd>G</kbd> Neon</span>
             <span><kbd>R</kbd> Respawn</span>
             <span><kbd>Esc</kbd> Pause</span>
           </div>
@@ -1524,6 +1525,8 @@ export class Hud {
         <div class="sdh-cos-grid" data-slot-grid="paint"></div>
         <div class="sdh-group-label">Rims</div>
         <div class="sdh-cos-grid" data-slot-grid="rim"></div>
+        <div class="sdh-group-label">Neon underglow <small class="sdh-group-hint">shines at night · G toggles</small></div>
+        <div class="sdh-cos-grid" data-slot-grid="neon"></div>
         <div class="sdh-group-label">Door number</div>
         <label class="sdh-number-field">
           <input class="sdh-number-input sdh-num" type="text" inputmode="numeric" maxlength="2" pattern="[0-9]{1,2}" aria-label="Door number">
@@ -1736,21 +1739,22 @@ export class Hud {
     }).join('');
   }
 
-  /** @param {{items:Array, selected:{paint:string, rim:string, number:string}}} garage */
+  /** @param {{items:Array, selected:{paint:string, rim:string, number:string, neon?:string}}} garage */
   setGarage(garage) {
     this.garage = garage || { items: [], selected: {} };
     const items = this.garage.items || [];
     const sel = this.garage.selected || {};
-    for (const slot of ['paint', 'rim']) {
+    for (const slot of ['paint', 'rim', 'neon']) {
       const grid = this.q(`[data-slot-grid="${slot}"]`);
       grid.innerHTML = items.filter((it) => it.slot === slot).map((it) => {
         const on = sel[slot] === it.value;
         const locked = !it.unlocked;
         const color = Number.isFinite(it.color) ? hex(it.color) : 'transparent';
+        const swatchKind = slot === 'rim' ? ' is-rim' : slot === 'neon' ? (it.value === 'rainbow' ? ' is-neon is-rainbow' : it.value === 'off' ? ' is-neon is-off' : ' is-neon') : '';
         return `
           <button type="button" class="sdh-cos${on ? ' is-selected' : ''}${locked ? ' is-locked' : ''}" data-act="cosmetic" data-slot="${esc(slot)}" data-value="${esc(it.value)}"
             aria-pressed="${on}" aria-disabled="${locked}" title="${esc(it.label)}${locked ? ` · ${esc(it.requirement || 'Locked')}` : ''}">
-            <span class="sdh-cos-swatch${slot === 'rim' ? ' is-rim' : ''}" style="--c:${color}">${locked ? ICON.lock : ''}</span>
+            <span class="sdh-cos-swatch${swatchKind}" style="--c:${color}">${locked ? ICON.lock : ''}</span>
             <span class="sdh-cos-label">${esc(it.label)}</span>
             <span class="sdh-cos-req">${locked ? esc(it.requirement || 'Locked') : on ? 'Equipped' : ''}</span>
           </button>`;

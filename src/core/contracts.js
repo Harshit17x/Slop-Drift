@@ -181,7 +181,7 @@
  * @property {Object<string, 'bronze'|'silver'|'gold'|'author'>} medals  Best medal per track key (src/meta/trackKey.js;
  *   bare mode id on the Alpine map).
  * @property {Object<string, number>} achievements  Achievement id -> unlock time (ms since epoch).
- * @property {{paint:string, rim:string, number:string}} cosmetics  Selected cosmetics; number is 1-2 digits.
+ * @property {{paint:string, rim:string, number:string, neon:string}} cosmetics  Selected cosmetics; number is 1-2 digits, neon is an underglow id ('off' for none).
  * @property {{date:string, done:boolean, lastDoneDate:(string|null), streak:number}} daily
  */
 

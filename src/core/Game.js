@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  CONFIG, MODES, SURFACE_PROPS, getMode, getQualityPreset, modesForWorld,
+  CONFIG, MODES, SURFACE_PROPS, getMode, getQualityPreset, modesForWorld, neonLevel,
   loadRecords, loadSettings, normalizeSettings, saveRecords, saveSettings,
 } from '../config.js';
 import { clamp } from './math.js';
@@ -27,7 +27,9 @@ import { MetaLayer } from '../game/MetaLayer.js';
 import { NetClient } from '../net/NetClient.js';
 import { Leaderboard } from '../net/Leaderboard.js';
 import { RemotePlayers } from '../render/RemotePlayers.js';
+import { patchUnderglowTree, underglowFrame } from '../render/underglowLight.js';
 import { PartyRace } from '../game/PartyRace.js';
+import { CrazyGamesPlatform } from '../platform/CrazyGames.js';
 
 // Parks the car (menu, countdown). Handbrake only: holding the brake pedal at a standstill would
 // select reverse, and the race would then start in R.
@@ -43,6 +45,7 @@ export class Game {
     this.root = root;
     this.settings = loadSettings();
     this.records = loadRecords(this.settings.map); // this map's records, keyed by mode id
+    this.platform = new CrazyGamesPlatform();
     this.state = 'loading';
     this.mode = MODES[0];
     this.session = null;
@@ -76,12 +79,15 @@ export class Game {
   // ---------------------------------------------------------------- startup
 
   async init() {
+    this.platform.loadingStart();
+    this.platform.init().catch(() => {});
     this.createRenderer();
     this.career = new Career();
     this.hud = new Hud(this.root, { settings: this.settings, modes: MODES, records: this.records });
     this.hud.showLoading(0, 'Starting up');
     this.input = new Input({ root: this.root, touchRoot: this.hud.touchRoot });
     this.audio = new AudioEngine({ volume: this.settings.volume });
+    this.platform.addMuteListener((muted) => this.audio.setMuted(muted));
     this.bindHud();
     this.bindAudioUnlock();
     await nextFrame();
@@ -163,8 +169,11 @@ export class Game {
     this.hud.showLoading(1, 'Ready');
     await nextFrame();
     this.hud.hideLoading();
+    this.platform.loadingStop();
     this.meta.welcome();
     this.partyRace?.boot();
+    // Every standard material in the world can be lit by the cars' neon underglow.
+    patchUnderglowTree(this.scene);
     this.lastTime = performance.now();
     this.frameHandle = requestAnimationFrame(this.onFrame);
     return this;
@@ -201,6 +210,7 @@ export class Game {
     this.net = new NetClient({ host, profile });
     this.leaderboard = new Leaderboard({ host, profile });
     this.remotePlayers = new RemotePlayers({ scene: this.scene, net: this.net, wheelLayout: this.vehicle.wheelLayout });
+    this.remotePlayers.setNeonLevel(neonLevel(this.settings.timeOfDay));
     this.meta.attachNetwork({ net: this.net, leaderboard: this.leaderboard });
     this.netExtras = { braking: false, boosting: false, drifting: false };
     // Race with friends via code (private party rooms).
@@ -209,11 +219,11 @@ export class Game {
 
   bindHud() {
     const hud = this.hud;
-    hud.onStart = (modeId) => this.beginRun(modeId);
+    hud.onStart = (modeId) => this.maybeShowMidgameAd(() => this.beginRun(modeId));
     hud.onPause = () => this.pause();
     hud.onResume = () => this.resume();
-    hud.onRestart = () => this.beginRun(this.mode.id);
-    hud.onMenu = () => this.enterMenu();
+    hud.onRestart = () => this.maybeShowMidgameAd(() => this.beginRun(this.mode.id));
+    hud.onMenu = () => this.maybeShowMidgameAd(() => this.enterMenu());
     hud.onRespawn = () => {
       if (this.state === 'paused') this.resume();
       this.respawn();
@@ -270,6 +280,8 @@ export class Game {
     this.terrain.setSun?.(this.atmosphere.sunDirection, this.atmosphere.sunColor, this.atmosphere.ambientColor);
     this.meta?.applyLook(this.car);
     this.car.setHeadlights(this.atmosphere.isNight || this.headlightsWanted);
+    this.car.setNeon({ level: neonLevel(this.settings.timeOfDay) });
+    this.remotePlayers?.setNeonLevel(neonLevel(this.settings.timeOfDay));
     this.vehicle.setHandling(this.settings.handling);
     this.vehicle.setAssists({ driftAssist: this.settings.driftAssist, abs: this.settings.abs, transmission: this.settings.transmission });
     this.input.setManualShift(this.settings.transmission === 'manual');
@@ -287,6 +299,7 @@ export class Game {
   // ---------------------------------------------------------------- state changes
 
   enterMenu() {
+    this.platform?.gameplayStop();
     this.partyRace?.onLeaveRun();
     this.meta?.leaveRun();
     this.meta?.leaveRoom();
@@ -314,12 +327,14 @@ export class Game {
    *   instead of the usual 3 s (party races start everyone together). party: this is a party round.
    */
   beginRun(modeId, options = {}) {
+    patchUnderglowTree(this.scene); // start gates and banners are built per run
     const mode = getMode(modeId);
     const route = this.world.routes[mode.route];
     if (!route) {
       this.hud.toast(`${mode.label} is not on ${this.map.label}`, 'warn');
       return false;
     }
+    this.platform?.gameplayStart();
     this.partyRace?.onRunStart(modeId, options);
     this.audio.unlock();
     this.mode = mode;
@@ -363,6 +378,7 @@ export class Game {
 
   pause() {
     if (this.state !== 'running' && this.state !== 'countdown') return;
+    this.platform?.gameplayStop();
     this.pausedFrom = this.state;
     this.state = 'paused';
     this.input.setDrivingEnabled(false);
@@ -372,6 +388,7 @@ export class Game {
 
   resume() {
     if (this.state !== 'paused') return;
+    this.platform?.gameplayStart();
     this.state = this.pausedFrom || 'running';
     if (this.session && !this.meta.room) this.meta.joinRoom(this.mode.id);
     this.hud.showRace();
@@ -380,15 +397,35 @@ export class Game {
 
   finish(result) {
     this.state = 'finished';
+    this.platform?.gameplayStop();
     this.input.setDrivingEnabled(false);
     this.audio.finish();
     saveRecords(this.records, this.map.id);
     this.hud.setRecords(this.records);
     this.hud.setCountdown('');
     const rewards = this.meta.finish(result);
+    if (result?.isRecord || rewards?.medal?.tier === 'gold') {
+      this.platform?.happytime();
+    }
     this.hud.showFinish(result, rewards);
     this.partyRace?.onFinish(result);
     this.cameraRig.startBlend();
+  }
+
+  maybeShowMidgameAd(action) {
+    if (this.state === 'finished') {
+      this.audio.silence();
+      this.platform.requestMidgameAd({
+        onStart: () => {
+          this.audio.silence();
+        },
+        onFinish: () => {
+          action();
+        },
+      });
+      return;
+    }
+    action();
   }
 
   respawn() {
@@ -426,6 +463,15 @@ export class Game {
     if (input.headlights) {
       this.headlightsWanted = !this.car.headlightsOn;
       this.car.setHeadlights(this.headlightsWanted);
+      this.audio.ui();
+    }
+    if (input.neon) {
+      if (this.car.hasNeon) {
+        this.car.setNeon({ on: !this.car.neonWanted });
+        this.hud.toast?.(this.car.neonWanted ? 'Underglow on' : 'Underglow off');
+      } else {
+        this.hud.toast?.('No underglow fitted. Pick a neon colour in the Garage');
+      }
       this.audio.ui();
     }
     if (input.respawn) this.respawn();
@@ -616,6 +662,10 @@ export class Game {
     const camera = this.cameraRig.camera;
     if (this.state !== 'running') this.meta.idle(camera, state.position);
     if (!paused) this.remotePlayers.update(dt, camera, performance.now());
+    underglowFrame.begin();
+    underglowFrame.push(this.car.model);
+    this.remotePlayers.pushUnderglow(underglowFrame, camera.position);
+    underglowFrame.end();
     if (!paused) {
       this.effects.update(dt);
       this.water.update(dt, camera);

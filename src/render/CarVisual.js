@@ -41,6 +41,9 @@ export class CarVisual {
     this.cockpit = new Cockpit({ paint: this.model.bodyMaterial, stripe: this.model.stripeMaterial });
     this.model.chassis.add(this.cockpit);
     this.interior = false;
+
+    this.neonWanted = true;
+    this.neonLevel = 0.2;
   }
 
   /** Switch between the exterior car and the interior seen from the driver's seat. */
@@ -53,6 +56,7 @@ export class CarVisual {
       if (child !== this.cockpit) child.visible = !on;
     }
     for (const pivot of this.model.wheelPivots.values()) pivot.visible = !on;
+    this.model.applyUnderglow(); // the loop above would have shown the tubes even when switched off
   }
 
   setColor(color) {
@@ -61,12 +65,28 @@ export class CarVisual {
 
   /**
    * Apply the player's cosmetics.
-   * @param {{paint?: {color:number, metalness?:number, roughness?:number}, rimColor?: number, number?: string}} look
+   * @param {{paint?: {color:number, metalness?:number, roughness?:number}, rimColor?: number, number?: string, neon?: {color:(number|null), cycle?:boolean}}} look
    */
-  setLook({ paint, rimColor, number } = {}) {
+  setLook({ paint, rimColor, number, neon } = {}) {
     if (paint) this.model.setPaint(paint);
     if (rimColor !== undefined) this.model.setRimColor(rimColor);
     if (number) this.model.setNumber(number);
+    if (neon !== undefined) this.model.setUnderglow(neon);
+  }
+
+  /**
+   * Underglow brightness for the time of day (see neonLevel in config.js), and the driver's own
+   * on/off switch (G). The colour comes from setLook.
+   */
+  setNeon({ level = this.neonLevel, on = this.neonWanted } = {}) {
+    this.neonLevel = level;
+    this.neonWanted = Boolean(on);
+    this.model.setUnderglowLevel(this.neonWanted ? level : 0);
+  }
+
+  /** True when an underglow colour is equipped (whether or not it is switched on). */
+  get hasNeon() {
+    return Boolean(this.model.underglow.option);
   }
 
   setHeadlights(on) {
@@ -91,6 +111,10 @@ export class CarVisual {
       this.model.setWheelSpin(WHEEL_KEYS[i], wheel.spinAngle);
     }
     if (this.interior) this.cockpit.update(state, dt);
+
+    let grounded = 0;
+    for (let i = 0; i < 4; i += 1) if (state.wheels[i].contact) grounded += 0.25;
+    this.model.updateUnderglow(dt, grounded);
   }
 
   dispose() {

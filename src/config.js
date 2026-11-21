@@ -111,6 +111,30 @@ function clamp01(value, fallback) {
   return Math.max(0, Math.min(1, number));
 }
 
+/** Neon underglow colours (unlocks in src/meta/catalog.js). `cycle` slowly runs through the hues. */
+export const NEON_OPTIONS = Object.freeze([
+  Object.freeze({ id: 'off', label: 'Off', color: null }),
+  Object.freeze({ id: 'cyan', label: 'Cyan', color: 0x18e0ff }),
+  Object.freeze({ id: 'magenta', label: 'Magenta', color: 0xff2bd0 }),
+  Object.freeze({ id: 'lime', label: 'Lime', color: 0x6dff2e }),
+  Object.freeze({ id: 'red', label: 'Red', color: 0xff2424 }),
+  Object.freeze({ id: 'amber', label: 'Amber', color: 0xffa014 }),
+  Object.freeze({ id: 'violet', label: 'Violet', color: 0x8443ff }),
+  Object.freeze({ id: 'ice', label: 'Ice White', color: 0xdff1ff }),
+  Object.freeze({ id: 'rainbow', label: 'Rainbow', color: null, cycle: true }),
+]);
+
+export function getNeon(id) {
+  return NEON_OPTIONS.find((neon) => neon.id === id) || NEON_OPTIONS[0];
+}
+
+/** Underglow brightness by time of day: full at night, half at dawn and dusk, faint by day. */
+export function neonLevel(timeOfDay) {
+  if (timeOfDay === 'night') return 1;
+  if (timeOfDay === 'dawn' || timeOfDay === 'sunset') return 0.55;
+  return 0.2;
+}
+
 export function getPaint(id) {
   return PAINT_OPTIONS.find((paint) => paint.id === id) || PAINT_OPTIONS[0];
 }

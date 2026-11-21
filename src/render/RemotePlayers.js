@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { ProceduralCar } from './ProceduralCar.js';
 import { NameTag } from './NameTag.js';
-import { getPaint } from '../config.js';
+import { getNeon, getPaint } from '../config.js';
 import { RIM_OPTIONS } from '../meta/catalog.js';
 
 const WHEEL_KEYS = ['frontLeft', 'frontRight', 'rearLeft', 'rearRight'];
@@ -17,7 +17,7 @@ function rimColor(id) {
 
 /** The peer's cosmetics as one comparable key, so the car is only repainted when something changed. */
 function lookKey(peer) {
-  return `${peer.paint}|${peer.rim}|${peer.number}`;
+  return `${peer.paint}|${peer.rim}|${peer.number}|${peer.neon}`;
 }
 
 /**
@@ -44,6 +44,24 @@ export class RemotePlayers {
       ? { wheelbase: Math.abs(wheelLayout[0].z - wheelLayout[2].z), track: Math.abs(wheelLayout[0].x) * 2, wheelCentreY: wheelLayout[0].y }
       : {};
     this.scratch = new THREE.Vector3();
+    this.neonLevel = 0.2;
+  }
+
+  /** Hand the nearest glowing remote cars to the underglow light, until its slots run out. */
+  pushUnderglow(frame, from) {
+    if (frame.full || !this.group.visible || !this.cars.size) return;
+    const near = [];
+    for (const entry of this.cars.values()) {
+      if (entry.car.visible && entry.car.underglowOn) near.push([entry.car.position.distanceToSquared(from), entry.car]);
+    }
+    near.sort((x, y) => x[0] - y[0]);
+    for (const [, car] of near) if (!frame.push(car) || frame.full) break;
+  }
+
+  /** Underglow brightness for the time of day, the same for every remote car. */
+  setNeonLevel(level) {
+    this.neonLevel = level;
+    for (const entry of this.cars.values()) entry.car.setUnderglowLevel(level);
   }
 
   /** Number of remote cars currently managed. */
@@ -84,6 +102,7 @@ export class RemotePlayers {
       for (const key of WHEEL_KEYS) entry.car.addWheelSpin(key, spin);
       entry.car.setBraking(sample.braking);
       entry.car.setReversing(sample.reversing);
+      entry.car.updateUnderglow(step, 1);
 
       if (camera) {
         entry.tag.update(camera);
@@ -116,6 +135,7 @@ export class RemotePlayers {
       entry.car.setPaint(getPaint(peer.paint));
       entry.car.setRimColor(rimColor(peer.rim));
       if (peer.number) entry.car.setNumber(peer.number);
+      entry.car.setUnderglow(getNeon(peer.neon)).setUnderglowLevel(this.neonLevel);
     }
   }
 

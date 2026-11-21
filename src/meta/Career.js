@@ -1,4 +1,4 @@
-import { MODES, PAINT_OPTIONS, getMode } from '../config.js';
+import { MODES, PAINT_OPTIONS, getMode, getNeon } from '../config.js';
 import { createRandom } from '../world/noise.js';
 import {
   ACHIEVEMENTS, DAILY_TEMPLATES, MEDAL_LABELS, MEDAL_TARGETS, MEDAL_TIERS, RIM_OPTIONS, UNLOCKS, XP,
@@ -71,7 +71,7 @@ function newProfile(now) {
     },
     medals: {},
     achievements: {},
-    cosmetics: { paint: 'pearl', rim: 'silver', number: '27' },
+    cosmetics: { paint: 'pearl', rim: 'silver', number: '27', neon: 'off' },
     daily: { date: '', done: false, lastDoneDate: null, streak: 0 },
   };
 }
@@ -305,10 +305,13 @@ export class Career {
       let color = null;
       if (def.slot === 'paint') color = PAINT_OPTIONS.find((paint) => paint.id === def.value)?.color ?? null;
       if (def.slot === 'rim') color = RIM_OPTIONS.find((rim) => rim.id === def.value)?.color ?? null;
+      if (def.slot === 'neon') color = getNeon(def.value).color;
       return { id: def.id, slot: def.slot, value: def.value, label: def.label, color, unlocked: this.isUnlocked(def), requirement: this.requirementText(def) };
     });
     // Silver rims are the default, not an unlock.
     items.splice(items.findIndex((item) => item.slot === 'rim'), 0, { id: 'rim:silver', slot: 'rim', value: 'silver', label: 'Silver rims', color: RIM_OPTIONS[0].color, unlocked: true, requirement: '' });
+    // No underglow is the default too.
+    items.splice(items.findIndex((item) => item.slot === 'neon'), 0, { id: 'neon:off', slot: 'neon', value: 'off', label: 'No neon', color: null, unlocked: true, requirement: '' });
     return { items, selected: { ...this.profile.cosmetics } };
   }
 
@@ -321,6 +324,8 @@ export class Career {
       this.profile.cosmetics.number = digits;
     } else if (slot === 'rim' && value === 'silver') {
       this.profile.cosmetics.rim = 'silver';
+    } else if (slot === 'neon' && value === 'off') {
+      this.profile.cosmetics.neon = 'off';
     } else {
       const def = UNLOCKS.find((entry) => entry.slot === slot && entry.value === value);
       if (!def || !this.isUnlocked(def)) return false;

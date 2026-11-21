@@ -1,5 +1,9 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { patchUnderglow } from './underglowLight.js';
+
+/** Underglow light output per metre of LED strip at full (night) level. */
+const UNDERGLOW_POWER = 10;
 
 const WHEEL_KEYS = ['frontLeft', 'frontRight', 'rearLeft', 'rearRight'];
 
@@ -125,10 +129,11 @@ export class ProceduralCar extends THREE.Group {
     this.paintMeshes = [];
     this.number = String(options.number ?? '27');
     this.build();
+    this.buildUnderglow();
   }
 
   material(parameters) {
-    const material = new THREE.MeshStandardMaterial(parameters);
+    const material = patchUnderglow(new THREE.MeshStandardMaterial(parameters));
     this.materials.push(material);
     return material;
   }
@@ -422,6 +427,114 @@ export class ProceduralCar extends THREE.Group {
     });
   }
 
+  /**
+   * Neon underglow: four LED strips tucked under the sills and bumpers. The strips themselves are
+   * thin emissive tubes; the light they throw on the road, verges and tyres is real shading (see
+   * underglowLight.js), fed from writeUnderglow every frame. Off until setUnderglow.
+   */
+  buildUnderglow() {
+    const { width, wheelbase } = this.dimensions;
+    this.underglow = { option: null, level: 0, grounded: 1, hue: 0 };
+    this.glowColor = new THREE.Color();
+    this.glowTube = new THREE.MeshBasicMaterial({ color: 0x000000, toneMapped: false });
+    // Strip end points in chassis space: between the wheel arches on each side, and across both bumpers.
+    const y = 0.07;
+    const side = width / 2 - 0.17;
+    const run = wheelbase / 2 - 0.47;
+    const front = -wheelbase / 2 - 0.62;
+    const rear = wheelbase / 2 + 0.56;
+    this.glowStrips = [
+      [new THREE.Vector3(-side, y, -run), new THREE.Vector3(-side, y, run)],
+      [new THREE.Vector3(side, y, -run), new THREE.Vector3(side, y, run)],
+      [new THREE.Vector3(-0.5, y, front), new THREE.Vector3(0.5, y, front)],
+      [new THREE.Vector3(-0.5, y, rear), new THREE.Vector3(0.5, y, rear)],
+    ];
+    const tubes = this.glowStrips.map(([a, b]) => {
+      const length = a.distanceTo(b);
+      const g = new THREE.CapsuleGeometry(0.012, length, 3, 6);
+      g.rotateZ(Math.PI / 2); // along x
+      if (Math.abs(b.z - a.z) > Math.abs(b.x - a.x)) g.rotateY(Math.PI / 2);
+      g.translate((a.x + b.x) / 2, y, (a.z + b.z) / 2);
+      return g;
+    });
+    this.glowTubes = new THREE.Mesh(mergeGeometries(tubes), this.glowTube);
+    tubes.forEach((g) => g.dispose());
+    this.glowTubes.name = 'UnderglowStrips';
+    this.glowTubes.visible = false;
+    this.chassis.add(this.glowTubes);
+    this.glowCentre = new THREE.Vector3(0, y, 0);
+  }
+
+  /** Underglow colour: { color, cycle? } (an entry of NEON_OPTIONS), or null / color null for off. */
+  setUnderglow(option) {
+    const on = Boolean(option && (option.cycle || Number.isFinite(option.color)));
+    this.underglow.option = on ? option : null;
+    if (on && !option.cycle) this.glowColor.setHex(option.color);
+    this.applyUnderglow();
+    return this;
+  }
+
+  /** How strongly it shows: 1 at night, low in daylight, 0 switched off. */
+  setUnderglowLevel(level) {
+    this.underglow.level = Math.max(0, Math.min(1, level));
+    this.applyUnderglow();
+    return this;
+  }
+
+  get underglowOn() {
+    return Boolean(this.underglow.option) && this.underglow.level > 0;
+  }
+
+  /**
+   * Per frame: the colour cycle, and the light dimming as the car leaves the ground (the road is
+   * simply further from the strips, which the inverse-square law already handles; this only avoids a
+   * glow that pops when a car lands).
+   * @param {number} dt
+   * @param {number} [grounded]  0..1, share of wheels touching the ground.
+   */
+  updateUnderglow(dt, grounded = 1) {
+    const glow = this.underglow;
+    if (!glow.option) return;
+    glow.grounded += (Math.max(0, Math.min(1, grounded)) * 0.4 + 0.6 - glow.grounded) * Math.min(1, dt * 8);
+    if (glow.option.cycle) {
+      glow.hue = (glow.hue + dt * 0.12) % 1;
+      this.glowColor.setHSL(glow.hue, 1, 0.5);
+      this.applyUnderglow();
+    }
+  }
+
+  applyUnderglow() {
+    const on = this.underglowOn;
+    this.glowTubes.visible = on;
+    if (on) this.glowTube.color.copy(this.glowColor).multiplyScalar(0.6 + 2.4 * this.underglow.level);
+  }
+
+  /**
+   * Write this car's strips (world space) for the underglow light. Returns false when it is not lit.
+   * @param {THREE.Vector4} sphere  Centre at strip height, and the radius beyond which it adds nothing.
+   * @param {THREE.Vector3} up      The car's up axis.
+   * @param {THREE.Color} color     Light colour times intensity.
+   * @param {THREE.Vector3[]} a     Segment starts (written at offset..offset+3).
+   * @param {THREE.Vector3[]} b     Segment ends.
+   * @param {number} offset
+   */
+  writeUnderglow(sphere, up, color, a, b, offset) {
+    if (!this.underglowOn || !this.visible) return false;
+    this.chassis.updateWorldMatrix(true, false);
+    const matrix = this.chassis.matrixWorld;
+    for (let k = 0; k < 4; k += 1) {
+      a[offset + k].copy(this.glowStrips[k][0]).applyMatrix4(matrix);
+      b[offset + k].copy(this.glowStrips[k][1]).applyMatrix4(matrix);
+    }
+    const centre = this.glowCentre.clone().applyMatrix4(matrix);
+    sphere.set(centre.x, centre.y, centre.z, 6.5);
+    up.setFromMatrixColumn(matrix, 1).normalize();
+    const glow = this.underglow;
+    // Light output per metre of strip. Squared level: dusk and day barely show it, night is vivid.
+    color.copy(this.glowColor).multiplyScalar(UNDERGLOW_POWER * glow.level * glow.level * glow.grounded);
+    return true;
+  }
+
   /** Paint finish: { color, metalness?, roughness? } (an entry of PAINT_OPTIONS). */
   setPaint(paint) {
     this.bodyMaterial.metalness = paint.metalness ?? 0.35;
@@ -508,6 +621,7 @@ export class ProceduralCar extends THREE.Group {
     geometries.forEach((geometry) => geometry.dispose());
     new Set(this.materials).forEach((material) => material.dispose());
     this.numberMaterial?.map?.dispose();
+    this.glowTube?.dispose();
     this.textures.forEach((texture) => texture.dispose());
     this.materials.length = 0;
   }

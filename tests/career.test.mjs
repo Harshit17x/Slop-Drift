@@ -129,7 +129,12 @@ career.addXp(xpForLevel(5));
 check('custom number after level 5', career.setCosmetic('number', '9x9') === true && career.profile.cosmetics.number === '99');
 check('silver rims always allowed', career.setCosmetic('rim', 'silver'));
 const garage = career.garage();
-check('garage lists every unlock plus silver rims', garage.items.length === UNLOCKS.length + 1 && garage.items.some((i) => i.id === 'rim:silver'));
+check('garage lists every unlock plus silver rims and no neon', garage.items.length === UNLOCKS.length + 2 && garage.items.some((i) => i.id === 'rim:silver') && garage.items.some((i) => i.id === 'neon:off'));
+check('neon is off by default and always switchable off', garage.selected.neon === 'off' && career.setCosmetic('neon', 'off'));
+check('cyan neon fits at level 5', career.setCosmetic('neon', 'cyan') && career.profile.cosmetics.neon === 'cyan');
+check('ice neon locked until level 12', career.setCosmetic('neon', 'ice') === false && career.profile.cosmetics.neon === 'cyan');
+check('rainbow neon needs the night achievement', career.setCosmetic('neon', 'rainbow') === false);
+check('unknown neon rejected', career.setCosmetic('neon', 'plaid') === false);
 check('garage locked items explain why', garage.items.filter((i) => !i.unlocked).every((i) => i.requirement.length > 0));
 
 // --- drifting and air

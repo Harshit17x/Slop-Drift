@@ -17,5 +17,10 @@ public/models/track.glb
 # Blender autosave backups
 *.blend1
 
+# Video recordings and build zip
+*.mov
+*.mp4
+slop-drift.zip
+
 # Standalone nested sub-projects
 my-game/

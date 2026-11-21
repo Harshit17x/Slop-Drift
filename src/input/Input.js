@@ -17,6 +17,7 @@ export const KEY_BINDINGS = Object.freeze({
   shiftDown: ['KeyQ'],
   transmission: ['KeyT'],
   headlights: ['KeyH'],
+  neon: ['KeyG'],
   mute: ['KeyM'],
   pause: ['KeyP', 'Escape'],
   debug: ['F1'],
@@ -41,7 +42,7 @@ export const PAD_BUTTONS = Object.freeze({
 });
 
 const EDGE_ACTIONS = Object.freeze([
-  'camera', 'respawn', 'transmission', 'headlights', 'mute', 'pause', 'debug', 'fullscreen', 'shiftUp', 'shiftDown',
+  'camera', 'respawn', 'transmission', 'headlights', 'neon', 'mute', 'pause', 'debug', 'fullscreen', 'shiftUp', 'shiftDown',
 ]);
 const DRIVING_KEYS = new Set(['throttle', 'brake', 'steerLeft', 'steerRight', 'handbrake', 'boost']);
 const PREVENT_DEFAULT = new Set(['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'F1']);
@@ -484,6 +485,7 @@ export class Input {
       respawn: edges.has('respawn') || Boolean(pad?.respawn),
       transmission: edges.has('transmission') || Boolean(pad?.transmission),
       headlights: edges.has('headlights') || Boolean(pad?.headlights),
+      neon: edges.has('neon'),
       mute: edges.has('mute'),
       pause: edges.has('pause') || Boolean(pad?.pause),
       debug: edges.has('debug'),

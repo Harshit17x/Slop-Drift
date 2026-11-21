@@ -74,7 +74,7 @@ export function sanitizeLevel(level) {
   return Number.isFinite(n) ? Math.max(1, Math.min(99, n)) : 1;
 }
 
-/** Cosmetic ids (paint, rim): short lowercase slugs. Door number: 1-2 digits. */
+/** Cosmetic ids (paint, rim, neon): short lowercase slugs. Door number: 1-2 digits. */
 export function sanitizeCosmetic(value, kind = 'id') {
   const text = typeof value === 'string' ? value : value == null ? '' : String(value);
   if (kind === 'number') return /^\d{1,2}$/.test(text) ? text : '';
@@ -251,6 +251,7 @@ export function parseJoinParams(searchParams) {
     paint: sanitizeCosmetic(get('paint')),
     rim: sanitizeCosmetic(get('rim')),
     number: sanitizeCosmetic(get('number'), 'number'),
+    neon: sanitizeCosmetic(get('neon')),
     modeId: get('modeId') || 'menu',
     token: get('token') || '',
   };

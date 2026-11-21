@@ -88,8 +88,8 @@ export function levelForXp(xp) {
 }
 
 /**
- * Cosmetics. `paint` entries extend PAINT_OPTIONS in src/config.js by id; `rim` and `number` are
- * new slots. `requires` is one of: { level }, { medalCount: { tier, count } }, { achievement }.
+ * Cosmetics. `paint` entries extend PAINT_OPTIONS in src/config.js by id, `neon` ones NEON_OPTIONS;
+ * `rim` and `number` are new slots. `requires` is one of: { level }, { medalCount: { tier, count } }, { achievement }.
  */
 export const UNLOCKS = Object.freeze([
   { id: 'paint:pearl', slot: 'paint', value: 'pearl', label: 'Pearl', requires: { level: 1 } },
@@ -105,6 +105,14 @@ export const UNLOCKS = Object.freeze([
   { id: 'paint:sunburst', slot: 'paint', value: 'sunburst', label: 'Sunburst', requires: { medalCount: { tier: 'gold', count: 3 } } },
   { id: 'rim:gold', slot: 'rim', value: 'gold', label: 'Gold rims', requires: { medalCount: { tier: 'gold', count: 5 } } },
   { id: 'paint:summit', slot: 'paint', value: 'summit', label: 'Summit Chrome', requires: { medalCount: { tier: 'author', count: 1 } } },
+  { id: 'neon:cyan', slot: 'neon', value: 'cyan', label: 'Cyan neon', requires: { level: 1 } },
+  { id: 'neon:magenta', slot: 'neon', value: 'magenta', label: 'Magenta neon', requires: { level: 2 } },
+  { id: 'neon:lime', slot: 'neon', value: 'lime', label: 'Lime neon', requires: { level: 3 } },
+  { id: 'neon:red', slot: 'neon', value: 'red', label: 'Red neon', requires: { level: 5 } },
+  { id: 'neon:amber', slot: 'neon', value: 'amber', label: 'Amber neon', requires: { level: 6 } },
+  { id: 'neon:violet', slot: 'neon', value: 'violet', label: 'Violet neon', requires: { level: 9 } },
+  { id: 'neon:ice', slot: 'neon', value: 'ice', label: 'Ice White neon', requires: { level: 12 } },
+  { id: 'neon:rainbow', slot: 'neon', value: 'rainbow', label: 'Rainbow neon', requires: { achievement: 'night-run' } },
   { id: 'paint:obsidian', slot: 'paint', value: 'obsidian', label: 'Obsidian', requires: { achievement: 'all-gold' } },
 ]);
 

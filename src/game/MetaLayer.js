@@ -1,4 +1,4 @@
-import { getMode, getPaint, MODES } from '../config.js';
+import { getMode, getNeon, getPaint, MODES } from '../config.js';
 import { RIM_OPTIONS, medalTargets } from '../meta/catalog.js';
 import { LEGACY_MAP, modeOfTrack, trackKey } from '../meta/trackKey.js';
 import { GhostRecorder } from '../ghost/GhostRecorder.js';
@@ -202,7 +202,7 @@ export class MetaLayer {
   /** Tell the network about name, level or cosmetic changes, and only then (each message costs quota). */
   syncNetProfile() {
     const profile = this.publicProfile();
-    const key = `${profile.name}|${profile.level}|${profile.cosmetics.paint}|${profile.cosmetics.rim}|${profile.cosmetics.number}`;
+    const key = `${profile.name}|${profile.level}|${profile.cosmetics.paint}|${profile.cosmetics.rim}|${profile.cosmetics.number}|${profile.cosmetics.neon}`;
     if (key === this.sentProfileKey) return;
     this.sentProfileKey = key;
     this.net?.updateProfile?.(profile);
@@ -230,6 +230,7 @@ export class MetaLayer {
       paint: getPaint(cosmetics.paint),
       rimColor: (RIM_OPTIONS.find((rim) => rim.id === cosmetics.rim) || RIM_OPTIONS[0]).color,
       number: cosmetics.number,
+      neon: getNeon(cosmetics.neon),
     });
   }
 
