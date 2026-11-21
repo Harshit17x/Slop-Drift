@@ -1,26 +1,46 @@
-// Fully synthesized game audio on the Web Audio API (no audio files).
+// Realistic, sample-based vehicle audio with Web Audio API synthesis fallback.
 //
-// Graph:
-//   engine (5 detuned oscillators -> drive -> waveshaper -> low-pass -> amp -> rev-limiter gate)  -> engineBus
-//   intake noise (band-pass tracking the firing frequency)                                         -> engine amp
-//   tire squeal (band-passed noise + wobbling tone), surface rumble (low-pass noise), gravel crunch -> tireBus
-//   wind (band-passed noise), nitro hiss (high-passed noise)                                        -> envBus
-//   one-shots (beeps, impacts, landings, pops, turbo flutter)                                       -> sfxBus
-//   buses -> mix -> glue compressor -> limiter -> output volume -> destination
+// Architecture:
+//   Engine: 6 continuous steady-state CC0 RPM loops (idle to redline), crossfaded
+//           and pitch-modulated smoothly by physics RPM and load. No looping rev-curves.
+//   Shift: mechanical gear lever click/clunk triggered on gear changes with clutch RPM dip.
+//   Exhaust: real backfire bangs at redline rev-limiter and overrun crackles on throttle lift-off.
+//   Nitro: authentic pressurized N2O boost bed with purge blast on boost engagement.
+//   Tire Skid: continuous asphalt screech loop tracking tire slip angle and speed.
+//   Impact: real chassis collision one-shot.
+//   Fallback: procedural synthesis (oscillators, waveshaper, noise) when assets are unavailable.
 //
 // Continuous beds are built once in unlock(); update() only moves AudioParams with setTargetAtTime.
-// Every bed gain also gets a scheduled fade-out a short time in the future that the next update() cancels,
-// so if update() stops being called (tab hidden, game loop stalled) the beds fade out on their own.
+// Every bed gain also gets a scheduled fade-out a short time in the future that the next update() cancels.
 // With no AudioContext, a context that failed to build, or after dispose(), every method is a silent no-op.
 
 import { SURFACE, SURFACE_PROPS } from '../config.js';
 
 const HAS_URL = typeof URL !== 'undefined' && typeof import.meta !== 'undefined' && Boolean(import.meta.url);
-const ENGINE_AUDIO_URL = HAS_URL ? new URL('../assets/audio/engine.wav', import.meta.url).href : '/audio/engine.wav';
-const SKID_AUDIO_URL = HAS_URL ? new URL('../assets/audio/skid.wav', import.meta.url).href : '/audio/skid.wav';
 
-let cachedEngineBuffer = null;
+const ENGINE_URLS = [
+  HAS_URL ? new URL('../assets/audio/engine_0.wav', import.meta.url).href : '/audio/engine_0.wav',
+  HAS_URL ? new URL('../assets/audio/engine_1.wav', import.meta.url).href : '/audio/engine_1.wav',
+  HAS_URL ? new URL('../assets/audio/engine_2.wav', import.meta.url).href : '/audio/engine_2.wav',
+  HAS_URL ? new URL('../assets/audio/engine_3.wav', import.meta.url).href : '/audio/engine_3.wav',
+  HAS_URL ? new URL('../assets/audio/engine_4.wav', import.meta.url).href : '/audio/engine_4.wav',
+  HAS_URL ? new URL('../assets/audio/engine_5.wav', import.meta.url).href : '/audio/engine_5.wav',
+];
+
+const SHIFT_URL = HAS_URL ? new URL('../assets/audio/shift.wav', import.meta.url).href : '/audio/shift.wav';
+const EXHAUST_POP_URL = HAS_URL ? new URL('../assets/audio/exhaust_pop.wav', import.meta.url).href : '/audio/exhaust_pop.wav';
+const EXHAUST_BURBLE_URL = HAS_URL ? new URL('../assets/audio/exhaust_burble.ogg', import.meta.url).href : '/audio/exhaust_burble.ogg';
+const NITRO_URL = HAS_URL ? new URL('../assets/audio/nitro.ogg', import.meta.url).href : '/audio/nitro.ogg';
+const SKID_URL = HAS_URL ? new URL('../assets/audio/skid.ogg', import.meta.url).href : '/audio/skid.ogg';
+const IMPACT_URL = HAS_URL ? new URL('../assets/audio/impact.ogg', import.meta.url).href : '/audio/impact.ogg';
+
+let cachedEngineBuffers = null;
+let cachedShiftBuffer = null;
+let cachedExhaustPopBuffer = null;
+let cachedExhaustBurbleBuffer = null;
+let cachedNitroBuffer = null;
 let cachedSkidBuffer = null;
+let cachedImpactBuffer = null;
 let loadPromise = null;
 
 async function fetchAudioBuffer(ctx, url) {
@@ -39,11 +59,11 @@ const WATCHDOG = 0.3; // seconds after the last update() before beds fade out on
 const NOISE_SECONDS = 2;
 const EMPTY = Object.freeze([]);
 
-// Engine oscillator layers relative to the firing frequency.
+// Fallback synthetic engine oscillator layers relative to the firing frequency.
 const ENGINE_LAYERS = [
   { type: 'sawtooth', mult: 1, detune: -7, level: 0.42 },
   { type: 'sawtooth', mult: 1, detune: 6, level: 0.42 },
-  { type: 'square', mult: 0.5, detune: 0, level: 0.3 }, // crank-order rumble
+  { type: 'square', mult: 0.5, detune: 0, level: 0.3 },
   { type: 'sawtooth', mult: 2, detune: 4, level: 0.16 },
   { type: 'triangle', mult: 3, detune: -3, level: 0.08 },
 ];
@@ -182,10 +202,27 @@ export class AudioEngine {
   }
 
   shift() {
-    if (!this._canPlay() || !this._cooldown('shift', 0.06)) return;
+    if (!this._canPlay() || !this._cooldown('shift', 0.08)) return;
     this._safe(() => {
-      this._noise({ dur: 0.05, vol: 0.1, filter: 'lowpass', freq: 900, attack: 0.002 });
-      this._tone({ freq: 150, freqEnd: 90, dur: 0.07, vol: 0.09, type: 'triangle', attack: 0.002 });
+      if (cachedShiftBuffer) {
+        const src = this.ctx.createBufferSource();
+        src.buffer = cachedShiftBuffer;
+        src.playbackRate.setValueAtTime(0.96 + Math.random() * 0.08, this.ctx.currentTime);
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.36, this.ctx.currentTime);
+        src.connect(gain);
+        gain.connect(this._g.sfxBus);
+        src.start();
+        src.onended = () => {
+          try {
+            src.disconnect();
+            gain.disconnect();
+          } catch {}
+        };
+      } else {
+        this._noise({ dur: 0.05, vol: 0.1, filter: 'lowpass', freq: 900, attack: 0.002 });
+        this._tone({ freq: 150, freqEnd: 90, dur: 0.07, vol: 0.09, type: 'triangle', attack: 0.002 });
+      }
     });
   }
 
@@ -223,9 +260,26 @@ export class AudioEngine {
     if (strength < 0.5 || !this._canPlay() || !this._cooldown('impact', 0.07)) return;
     this._safe(() => {
       const s = saturate((strength - 0.5) / 14);
-      this._noise({ dur: 0.1 + 0.2 * s, vol: 0.08 + 0.32 * s, filter: 'lowpass', freq: 900 + 2200 * s, freqEnd: 300, attack: 0.002 });
-      this._tone({ freq: 95, freqEnd: 38, dur: 0.18 + 0.1 * s, vol: 0.1 + 0.3 * s, type: 'sine', attack: 0.002 });
-      if (s > 0.2) this._noise({ dur: 0.08 + 0.1 * s, vol: 0.1 * s, filter: 'bandpass', freq: 3200, freqEnd: 2200, q: 5, attack: 0.002 });
+      if (cachedImpactBuffer) {
+        const src = this.ctx.createBufferSource();
+        src.buffer = cachedImpactBuffer;
+        src.playbackRate.setValueAtTime(0.9 + 0.2 * Math.random(), this.ctx.currentTime);
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.18 + 0.42 * s, this.ctx.currentTime);
+        src.connect(gain);
+        gain.connect(this._g.sfxBus);
+        src.start();
+        src.onended = () => {
+          try {
+            src.disconnect();
+            gain.disconnect();
+          } catch {}
+        };
+      } else {
+        this._noise({ dur: 0.1 + 0.2 * s, vol: 0.08 + 0.32 * s, filter: 'lowpass', freq: 900 + 2200 * s, freqEnd: 300, attack: 0.002 });
+        this._tone({ freq: 95, freqEnd: 38, dur: 0.18 + 0.1 * s, vol: 0.1 + 0.3 * s, type: 'sine', attack: 0.002 });
+        if (s > 0.2) this._noise({ dur: 0.08 + 0.1 * s, vol: 0.1 * s, filter: 'bandpass', freq: 3200, freqEnd: 2200, q: 5, attack: 0.002 });
+      }
     });
   }
 
@@ -379,12 +433,12 @@ export class AudioEngine {
       src.buffer = noiseBuffer;
       src.loop = true;
       src.connect(to);
-      src.start(0, Math.random() * NOISE_SECONDS * 0.9); // offsets decorrelate the beds
+      src.start(0, Math.random() * NOISE_SECONDS * 0.9);
       sources.push(src);
       return src;
     };
 
-    // Engine.
+    // Fallback procedural engine.
     const limiterGate = gain(1, engineBus);
     const engineAmp = gain(0, limiterGate);
     const engineFilter = filter('lowpass', 600, 1, engineAmp);
@@ -409,6 +463,15 @@ export class AudioEngine {
     const intakeFilter = filter('bandpass', 400, 1.6, intakeGain);
     noiseSource(intakeFilter);
 
+    // Authentic sample engine bed: 6 RPM steady crossfade layers.
+    const engineSampleBus = gain(1.0, limiterGate);
+    const engineSampleGains = [];
+    for (let i = 0; i < ENGINE_URLS.length; i += 1) {
+      const g = gain(0, engineSampleBus);
+      engineSampleGains.push(g);
+      beds.push(g.gain);
+    }
+
     // Tire squeal: band-passed noise plus a tone whose pitch wobbles.
     const squealGain = gain(0, tireBus);
     const squealFilter = filter('bandpass', 900, 7, squealGain);
@@ -426,6 +489,10 @@ export class AudioEngine {
     wobble.start();
     sources.push(squealTone, wobble);
 
+    // Authentic sample tire screech.
+    const skidSampleGain = gain(0, tireBus);
+    const skidSampleFilter = filter('bandpass', 1600, 1.8, skidSampleGain);
+
     // Surface rumble and loose-surface crunch.
     const rumbleGain = gain(0, tireBus);
     const rumbleFilter = filter('lowpass', 160, 0.8, rumbleGain);
@@ -434,23 +501,18 @@ export class AudioEngine {
     const crunchFilter = filter('bandpass', 1500, 0.9, crunchGain);
     noiseSource(crunchFilter);
 
-    // Wind and nitro.
+    // Wind, synthetic nitro hiss, and authentic sample nitro boost bed.
     const windGain = gain(0, envBus);
     const windFilter = filter('bandpass', 400, 0.6, windGain);
     noiseSource(windFilter);
     const nitroGain = gain(0, envBus);
     const nitroFilter = filter('highpass', 2600, 0.7, nitroGain);
     noiseSource(nitroFilter);
-
-    // Authentic audio beds from car-sound samples (VEHCar_Car engine 2 & VEHSkid_Screeching tires 1).
-    const engineSampleGain = gain(0, limiterGate);
-    const engineSampleFilter = filter('lowpass', 1200, 1.2, engineSampleGain);
-    const skidSampleGain = gain(0, tireBus);
-    const skidSampleFilter = filter('bandpass', 1600, 1.8, skidSampleGain);
+    const nitroSampleGain = gain(0, envBus);
 
     beds.push(
       engineAmp.gain, intakeGain.gain, squealGain.gain, rumbleGain.gain,
-      crunchGain.gain, windGain.gain, nitroGain.gain, engineSampleGain.gain, skidSampleGain.gain,
+      crunchGain.gain, windGain.gain, nitroGain.gain, skidSampleGain.gain, nitroSampleGain.gain,
     );
 
     this._g = {
@@ -464,9 +526,9 @@ export class AudioEngine {
       engineFilter,
       engineDrive,
       engineOscs,
-      engineSampleGain,
-      engineSampleFilter,
-      engineSampleSrc: null,
+      engineSampleBus,
+      engineSampleGains,
+      engineSampleSources: null,
       intakeGain,
       intakeFilter,
       squealGain,
@@ -482,22 +544,34 @@ export class AudioEngine {
       windGain,
       windFilter,
       nitroGain,
+      nitroSampleGain,
+      nitroSampleSrc: null,
     };
   }
 
   _loadSamples() {
     if (!this._live() || !this.ctx || typeof this.ctx.decodeAudioData !== 'function' || typeof globalThis.fetch !== 'function') return;
-    if (cachedEngineBuffer && cachedSkidBuffer) {
+    if (cachedEngineBuffers && cachedShiftBuffer && cachedNitroBuffer) {
       this._attachSamples();
       return;
     }
     if (!loadPromise) {
       loadPromise = Promise.all([
-        fetchAudioBuffer(this.ctx, ENGINE_AUDIO_URL),
-        fetchAudioBuffer(this.ctx, SKID_AUDIO_URL),
-      ]).then(([eng, skid]) => {
-        cachedEngineBuffer = eng;
-        cachedSkidBuffer = skid;
+        Promise.all(ENGINE_URLS.map((u) => fetchAudioBuffer(this.ctx, u))),
+        fetchAudioBuffer(this.ctx, SHIFT_URL),
+        fetchAudioBuffer(this.ctx, EXHAUST_POP_URL),
+        fetchAudioBuffer(this.ctx, EXHAUST_BURBLE_URL),
+        fetchAudioBuffer(this.ctx, NITRO_URL),
+        fetchAudioBuffer(this.ctx, SKID_URL),
+        fetchAudioBuffer(this.ctx, IMPACT_URL),
+      ]).then(([engBuffers, shift, exhPop, exhBurble, nitro, skid, impact]) => {
+        if (engBuffers && engBuffers.every(Boolean)) cachedEngineBuffers = engBuffers;
+        if (shift) cachedShiftBuffer = shift;
+        if (exhPop) cachedExhaustPopBuffer = exhPop;
+        if (exhBurble) cachedExhaustBurbleBuffer = exhBurble;
+        if (nitro) cachedNitroBuffer = nitro;
+        if (skid) cachedSkidBuffer = skid;
+        if (impact) cachedImpactBuffer = impact;
       }).catch(() => {});
     }
     loadPromise.then(() => {
@@ -511,23 +585,43 @@ export class AudioEngine {
     const g = this._g;
     if (!g) return;
 
-    if (cachedEngineBuffer && !g.engineSampleSrc) {
+    // Attach 6 RPM steady engine sample loops
+    if (cachedEngineBuffers && g.engineSampleGains && !g.engineSampleSources) {
       try {
-        const src = ctx.createBufferSource();
-        src.buffer = cachedEngineBuffer;
-        src.loop = true;
-        src.loopStart = 0.8;
-        src.loopEnd = 4.8;
-        src.playbackRate.value = 1.0;
-        src.connect(g.engineSampleFilter);
-        src.start(0);
-        g.sources.push(src);
-        g.engineSampleSrc = src;
+        const sources = [];
+        for (let i = 0; i < cachedEngineBuffers.length; i += 1) {
+          const src = ctx.createBufferSource();
+          src.buffer = cachedEngineBuffers[i];
+          src.loop = true;
+          src.playbackRate.value = 1.0;
+          src.connect(g.engineSampleGains[i]);
+          src.start(0);
+          g.sources.push(src);
+          sources.push(src);
+        }
+        g.engineSampleSources = sources;
       } catch {
         // ignore
       }
     }
 
+    // Attach authentic nitro boost loop
+    if (cachedNitroBuffer && !g.nitroSampleSrc) {
+      try {
+        const src = ctx.createBufferSource();
+        src.buffer = cachedNitroBuffer;
+        src.loop = true;
+        src.playbackRate.value = 1.0;
+        src.connect(g.nitroSampleGain);
+        src.start(0);
+        g.sources.push(src);
+        g.nitroSampleSrc = src;
+      } catch {
+        // ignore
+      }
+    }
+
+    // Attach authentic tire screech loop
     if (cachedSkidBuffer && !g.skidSampleSrc) {
       try {
         const src = ctx.createBufferSource();
@@ -564,7 +658,7 @@ export class AudioEngine {
     if (dt < 0) dt = 0;
     if (dt > 0.25) dt = 0.25;
 
-    // ---- engine
+    // ---- vehicle telemetry
     const rpmMax = finite(state.rpmMax, 0) > 1000 ? state.rpmMax : 7500;
     const idle = Math.min(900, rpmMax * 0.15);
     const rpm = Math.max(0, finite(state.rpm, idle));
@@ -573,38 +667,61 @@ export class AudioEngine {
     const speed = Math.max(0, finite(state.speed, 0));
     const boosting = options.boosting !== undefined ? Boolean(options.boosting) : Boolean(state.boosting);
 
-    if (state.shifted) this._shiftDip = 1;
-    else this._shiftDip = Math.max(0, this._shiftDip - dt / 0.16);
+    // Mechanical gear shift detection & clutch dip
+    if (state.shifted) {
+      this._shiftDip = 1;
+      this.shift();
+    } else {
+      this._shiftDip = Math.max(0, this._shiftDip - dt / 0.16);
+    }
     const dip = this._shiftDip;
-
-    const firing = Math.max(16, (rpm / 60) * 2) * (1 - 0.1 * dip); // 4-cylinder: two firings per revolution
-    for (let i = 0; i < g.engineOscs.length; i += 1) {
-      g.engineOscs[i].frequency.setTargetAtTime(firing * ENGINE_LAYERS[i].mult, now, dip > 0 ? 0.015 : 0.03);
-    }
     const load = throttle * (1 - 0.85 * dip);
-    g.engineDrive.gain.setTargetAtTime(0.8 + 2.2 * load + 0.6 * rpmN, now, 0.05);
-    const cutoff = 260 + 1400 * rpmN + 2600 * load * (0.4 + 0.6 * rpmN) + (boosting ? 600 : 0);
-    g.engineFilter.frequency.setTargetAtTime(cutoff, now, 0.05);
-    g.engineFilter.Q.setTargetAtTime(1 + 2 * load * rpmN, now, 0.08);
 
-    // Realistic car sound from VEHCar_Car engine 2
-    if (g.engineSampleSrc) {
-      const baseRpm = 2800;
-      const rate = Math.max(0.32, Math.min(2.7, rpm / baseRpm));
-      g.engineSampleSrc.playbackRate.setTargetAtTime(rate, now, dip > 0 ? 0.015 : 0.035);
-      const sampleAmp = (0.22 + 0.38 * rpmN) * (0.4 + 0.6 * load) * (1 - 0.35 * dip);
-      this._bed(g.engineSampleGain.gain, sampleAmp, 0.04, now);
-      const sampleCutoff = 800 + 2600 * rpmN + 3400 * load + (boosting ? 1000 : 0);
-      g.engineSampleFilter.frequency.setTargetAtTime(Math.min(18000, sampleCutoff), now, 0.05);
+    // ---- Engine audio model
+    if (g.engineSampleSources && g.engineSampleSources.length > 0) {
+      // Crossfade across the 6 steady RPM sample layers
+      const numLayers = g.engineSampleSources.length;
+      const idx = rpmN * (numLayers - 1);
+      const lower = Math.floor(idx);
+      const upper = Math.min(numLayers - 1, lower + 1);
+      const t = idx - lower;
+
+      const totalGain = (0.28 + 0.46 * load + 0.26 * rpmN) * (1 - 0.3 * dip);
+      for (let i = 0; i < numLayers; i += 1) {
+        let layerGain = 0;
+        if (i === lower) layerGain = (1 - t) * totalGain;
+        else if (i === upper) layerGain = t * totalGain;
+        this._bed(g.engineSampleGains[i].gain, layerGain, 0.04, now);
+      }
+
+      // Smooth pitch modulation tracking throttle & RPM smoothly with no audible stepping
+      const baseRate = 0.88 + 0.28 * (idx - lower) + 0.12 * load - 0.12 * dip;
+      const playRate = Math.max(0.5, Math.min(2.2, baseRate));
+      for (let i = 0; i < numLayers; i += 1) {
+        g.engineSampleSources[i].playbackRate.setTargetAtTime(playRate, now, dip > 0 ? 0.015 : 0.04);
+      }
+
+      // Completely silence fake procedural oscillators when real samples are active
+      this._bed(g.engineAmp.gain, 0, 0.04, now);
+      this._bed(g.intakeGain.gain, 0, 0.05, now);
+    } else {
+      // Fallback procedural engine synthesis
+      const firing = Math.max(16, (rpm / 60) * 2) * (1 - 0.1 * dip);
+      for (let i = 0; i < g.engineOscs.length; i += 1) {
+        g.engineOscs[i].frequency.setTargetAtTime(firing * ENGINE_LAYERS[i].mult, now, dip > 0 ? 0.015 : 0.03);
+      }
+      g.engineDrive.gain.setTargetAtTime(0.8 + 2.2 * load + 0.6 * rpmN, now, 0.05);
+      const cutoff = 260 + 1400 * rpmN + 2600 * load * (0.4 + 0.6 * rpmN) + (boosting ? 600 : 0);
+      g.engineFilter.frequency.setTargetAtTime(cutoff, now, 0.05);
+      g.engineFilter.Q.setTargetAtTime(1 + 2 * load * rpmN, now, 0.08);
+
+      const amp = (0.1 + 0.16 * rpmN) * (0.5 + 0.5 * load) * (1 - 0.35 * dip);
+      this._bed(g.engineAmp.gain, amp, 0.04, now);
+      g.intakeFilter.frequency.setTargetAtTime(Math.min(4000, Math.max(200, firing * 4)), now, 0.05);
+      this._bed(g.intakeGain.gain, 0.05 * load * (0.3 + rpmN), 0.05, now);
     }
 
-    const hasSample = Boolean(g.engineSampleSrc);
-    const amp = (hasSample ? 0.2 : 1.0) * (0.1 + 0.16 * rpmN) * (0.5 + 0.5 * load) * (1 - 0.35 * dip);
-    this._bed(g.engineAmp.gain, amp, 0.04, now);
-    g.intakeFilter.frequency.setTargetAtTime(Math.min(4000, Math.max(200, firing * 4)), now, 0.05);
-    this._bed(g.intakeGain.gain, 0.05 * load * (0.3 + rpmN), 0.05, now);
-
-    // Rev limiter: chop the engine output in short bursts near the redline.
+    // Rev limiter: realistic backfire pop at redline
     if (rpm >= rpmMax * 0.975 && throttle > 0.5) {
       if (now >= this._limiterNext || this._limiterNext - now > 1) {
         const gate = g.limiterGate.gain;
@@ -612,13 +729,23 @@ export class AudioEngine {
         gate.setTargetAtTime(0.15, now, 0.005);
         gate.setTargetAtTime(1, now + 0.035, 0.012);
         this._limiterNext = now + 0.075 + Math.random() * 0.025;
-        if (Math.random() < 0.2) this._pop(0.5);
+        if (Math.random() < 0.45) this._pop(0.85);
       }
     }
 
-    // Lift-off: turbo flutter after boost or high revs, then the occasional overrun crackle.
-    if (this._prevThrottle > 0.7 && throttle < 0.2 && (this._prevBoost || rpmN > 0.6)) this._flutter();
-    if (throttle < 0.1 && rpmN > 0.55 && speed > 8 && Math.random() < dt * 4 * rpmN) this._pop(0.25 + 0.3 * Math.random());
+    // Throttle lift-off: turbo flutter + overrun exhaust crackle & burble
+    if (this._prevThrottle > 0.7 && throttle < 0.2 && (this._prevBoost || rpmN > 0.55)) {
+      this._flutter();
+      this._pop(0.7);
+    }
+    if (throttle < 0.15 && rpmN > 0.45 && speed > 6 && Math.random() < dt * 6 * rpmN) {
+      this._pop(0.3 + 0.4 * Math.random());
+    }
+
+    // Nitro boost engagement: initial purge burst
+    if (!this._prevBoost && boosting) {
+      this._purge();
+    }
     this._prevThrottle = throttle;
     this._prevBoost = boosting;
 
@@ -642,11 +769,11 @@ export class AudioEngine {
         if (isLoose(surface)) crunch += props.roughness * (1 + saturate(slip - 0.5));
       }
     }
-    let squealAmt = saturate(squeal / 2); // two wheels well past the limit = full squeal
+    let squealAmt = saturate(squeal / 2);
     if (options.drifting && asphaltContact > 0 && squealAmt < 0.25) squealAmt = 0.25;
     const speedGate = saturate((speed - 2) / 8);
 
-    // Realistic tire screech from VEHSkid_Screeching tires 1
+    // Realistic tire screech from sample
     if (g.skidSampleSrc) {
       const skidRate = 0.82 + 0.36 * squealAmt + Math.min(0.2, speed * 0.005);
       g.skidSampleSrc.playbackRate.setTargetAtTime(skidRate, now, 0.04);
@@ -654,13 +781,14 @@ export class AudioEngine {
       this._bed(g.skidSampleGain.gain, skidLevel, 0.04, now);
       const skidCutoff = 1200 + 4000 * squealAmt;
       g.skidSampleFilter.frequency.setTargetAtTime(Math.min(16000, skidCutoff), now, 0.05);
+      this._bed(g.squealGain.gain, 0, 0.05, now);
+    } else {
+      const squealLevel = 0.2 * Math.pow(squealAmt, 0.8) * speedGate;
+      const squealPitch = 720 + 480 * squealAmt + Math.min(240, speed * 3);
+      g.squealFilter.frequency.setTargetAtTime(squealPitch, now, 0.06);
+      g.squealTone.frequency.setTargetAtTime(squealPitch * 0.92, now, 0.06);
+      this._bed(g.squealGain.gain, squealLevel, 0.05, now);
     }
-
-    const squealLevel = (g.skidSampleSrc ? 0.2 : 1.0) * 0.2 * Math.pow(squealAmt, 0.8) * speedGate;
-    const squealPitch = 720 + 480 * squealAmt + Math.min(240, speed * 3);
-    g.squealFilter.frequency.setTargetAtTime(squealPitch, now, 0.06);
-    g.squealTone.frequency.setTargetAtTime(squealPitch * 0.92, now, 0.06);
-    this._bed(g.squealGain.gain, squealLevel, 0.05, now);
 
     const roughAmt = saturate(rough / 4 / 0.5);
     this._bed(g.rumbleGain.gain, 0.3 * roughAmt * saturate(speed / 25), 0.08, now);
@@ -672,23 +800,83 @@ export class AudioEngine {
     const windN = saturate(speed / 70);
     this._bed(g.windGain.gain, 0.2 * windN * windN, 0.15, now);
     g.windFilter.frequency.setTargetAtTime(280 + speed * 18, now, 0.15);
-    this._bed(g.nitroGain.gain, boosting ? 0.08 : 0, boosting ? 0.04 : 0.12, now);
 
-    // ---- per-step events from the vehicle
+    // Authentic nitro boost
+    if (boosting) {
+      this._bed(g.nitroSampleGain.gain, 0.55, 0.05, now);
+      if (g.nitroSampleSrc) {
+        g.nitroSampleSrc.playbackRate.setTargetAtTime(0.95 + 0.25 * (speed / 80), now, 0.05);
+      }
+      this._bed(g.nitroGain.gain, 0.04, 0.04, now);
+    } else {
+      this._bed(g.nitroSampleGain.gain, 0, 0.12, now);
+      this._bed(g.nitroGain.gain, 0, 0.12, now);
+    }
+
+    // ---- per-step collision events
     const impact = finite(state.impact, 0);
     if (impact > 1.5) this.impact(impact);
     const landing = finite(state.landing, 0);
     if (landing > 2) this.landing(landing);
   }
 
-  _pop(intensity) {
-    if (!this._canPlay() || !this._cooldown('pop', 0.09)) return;
-    this._noise({ dur: 0.05, vol: 0.14 * intensity, filter: 'lowpass', freq: 1300, freqEnd: 400, attack: 0.001 });
-    this._tone({ freq: 130 + Math.random() * 40, freqEnd: 40, dur: 0.07, vol: 0.16 * intensity, type: 'triangle', attack: 0.001 });
+  _purge() {
+    if (!this._canPlay() || !this._cooldown('purge', 0.25)) return;
+    this._safe(() => {
+      const buf = cachedExhaustBurbleBuffer || cachedExhaustPopBuffer;
+      if (buf) {
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        src.playbackRate.setValueAtTime(1.35 + Math.random() * 0.2, this.ctx.currentTime);
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.38, this.ctx.currentTime);
+        src.connect(gain);
+        gain.connect(this._g.sfxBus);
+        src.start();
+        src.onended = () => {
+          try {
+            src.disconnect();
+            gain.disconnect();
+          } catch {}
+        };
+      } else {
+        this._noise({ dur: 0.12, vol: 0.16, filter: 'highpass', freq: 3000, attack: 0.002 });
+      }
+    });
+  }
+
+  _pop(intensity = 0.5) {
+    if (!this._canPlay() || !this._cooldown('pop', 0.08)) return;
+    this._safe(() => {
+      const buffer = (intensity > 0.4 && cachedExhaustPopBuffer)
+        ? cachedExhaustPopBuffer
+        : (cachedExhaustBurbleBuffer || cachedExhaustPopBuffer);
+      if (buffer) {
+        const src = this.ctx.createBufferSource();
+        src.buffer = buffer;
+        const rate = 0.88 + Math.random() * 0.28;
+        src.playbackRate.setValueAtTime(rate, this.ctx.currentTime);
+        const gain = this.ctx.createGain();
+        const vol = Math.min(0.65, 0.22 + 0.38 * saturate(intensity));
+        gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+        src.connect(gain);
+        gain.connect(this._g.sfxBus);
+        src.start();
+        src.onended = () => {
+          try {
+            src.disconnect();
+            gain.disconnect();
+          } catch {}
+        };
+      } else {
+        this._noise({ dur: 0.05, vol: 0.14 * intensity, filter: 'lowpass', freq: 1300, freqEnd: 400, attack: 0.001 });
+        this._tone({ freq: 130 + Math.random() * 40, freqEnd: 40, dur: 0.07, vol: 0.16 * intensity, type: 'triangle', attack: 0.001 });
+      }
+    });
   }
 
   _flutter() {
-    if (!this._canPlay() || !this._cooldown('flutter', 0.5)) return;
+    if (!this._canPlay() || !this._cooldown('flutter', 0.45)) return;
     const chirps = [1720, 1360, 1080, 840];
     for (let i = 0; i < chirps.length; i += 1) {
       this._noise({ dur: 0.05, vol: 0.07 * Math.pow(0.7, i), filter: 'bandpass', freq: chirps[i], freqEnd: chirps[i] * 0.75, q: 4, when: i * 0.065, attack: 0.008 });
