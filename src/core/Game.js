@@ -607,7 +607,8 @@ export class Game {
       if (this.goTimer <= 0) this.hud.setCountdown('');
     }
 
-    this.car.sync(state);
+    this.car.setInteriorView(this.cameraRig.mode === 'cockpit' && (this.state === 'running' || this.state === 'countdown' || paused));
+    this.car.sync(state, dt);
     if (this.state === 'menu') this.cameraRig.orbit(dt, state.position, { radius: 11, height: 3.4, speed: 0.1 });
     else if (this.state === 'finished') this.cameraRig.orbit(dt, state.position, { radius: 8, height: 2.6, speed: 0.22 });
     else if (!paused) this.cameraRig.follow(dt, state, input);

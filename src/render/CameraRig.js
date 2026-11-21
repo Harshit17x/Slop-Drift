@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { COCKPIT_EYE } from './Cockpit.js';
 import { CONFIG } from '../config.js';
 import { clamp, damp, smoothstep, wrapAngle } from '../core/math.js';
 
@@ -113,9 +114,12 @@ export class CameraRig {
       // Bolted to the chassis; a fast slerp takes the harshness out of bumps without feeling detached.
       this.interiorQuaternion.slerp(state.quaternion, 1 - Math.exp(-22 * dt));
       if (this.mode === 'hood') offset.set(0, 1.3, -0.6);
-      else offset.set(-0.37, 1.2, 0.12);
+      // Driver's eye in the seat (chassis space plus the chassis' 0.13 m ride height).
+      else offset.set(COCKPIT_EYE.x, COCKPIT_EYE.y + 0.13, COCKPIT_EYE.z);
       position.copy(offset).applyQuaternion(state.quaternion).add(state.position);
-      euler.set(freeLook ? freeLook.y : 0, (freeLook ? freeLook.x : 0) + (lookBack ? Math.PI : 0), 0, 'YXZ');
+      // In the seat the head tips a little down, so the dash, the wheel and the hands sit in view.
+      const headTilt = this.mode === 'cockpit' && !lookBack ? -0.1 : 0;
+      euler.set((freeLook ? freeLook.y : 0) + headTilt, (freeLook ? freeLook.x : 0) + (lookBack ? Math.PI : 0), 0, 'YXZ');
       desiredQuaternion.copy(this.interiorQuaternion).multiply(lookQuaternion.setFromEuler(euler));
       fovTarget += this.mode === 'cockpit' ? 8 : 4;
     } else {
@@ -187,6 +191,12 @@ export class CameraRig {
 
   finish(dt, fovTarget) {
     const camera = this.camera;
+    // The steering wheel and hands are a few tens of centimetres from the eye.
+    const near = this.mode === 'cockpit' ? 0.06 : 0.12;
+    if (camera.near !== near) {
+      camera.near = near;
+      camera.updateProjectionMatrix();
+    }
     if (this.blendTime < 1) {
       this.blendTime = Math.min(1, this.blendTime + dt / CONFIG.camera.blendSeconds);
       const t = this.blendTime * this.blendTime * (3 - 2 * this.blendTime);

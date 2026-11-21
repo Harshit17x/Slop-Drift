@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { ProceduralCar } from './ProceduralCar.js';
+import { Cockpit } from './Cockpit.js';
 
 const WHEEL_KEYS = ['frontLeft', 'frontRight', 'rearLeft', 'rearRight'];
 
@@ -34,6 +35,24 @@ export class CarVisual {
       this.headlights.push(light);
     }
     this.headlightsOn = false;
+
+    // The drift-car interior for the cockpit camera. Built once, shown only in that view, when the
+    // exterior shell (which would otherwise fill the windscreen from inside) is hidden.
+    this.cockpit = new Cockpit({ paint: this.model.bodyMaterial, stripe: this.model.stripeMaterial });
+    this.model.chassis.add(this.cockpit);
+    this.interior = false;
+  }
+
+  /** Switch between the exterior car and the interior seen from the driver's seat. */
+  setInteriorView(on) {
+    on = Boolean(on);
+    if (on === this.interior) return;
+    this.interior = on;
+    this.cockpit.visible = on;
+    for (const child of this.model.chassis.children) {
+      if (child !== this.cockpit) child.visible = !on;
+    }
+    for (const pivot of this.model.wheelPivots.values()) pivot.visible = !on;
   }
 
   setColor(color) {
@@ -55,8 +74,11 @@ export class CarVisual {
     for (const light of this.headlights) light.intensity = this.headlightsOn ? 260 : 0;
   }
 
-  /** @param {import('../core/contracts.js').VehicleState} state */
-  sync(state) {
+  /**
+   * @param {import('../core/contracts.js').VehicleState} state
+   * @param {number} [dt]  Frame time, for the interior animation.
+   */
+  sync(state, dt = 1 / 60) {
     this.model.position.copy(state.position);
     this.model.quaternion.copy(state.quaternion);
     this.model.setSteering(state.steerAngle);
@@ -68,9 +90,11 @@ export class CarVisual {
       this.model.setSuspension(WHEEL_KEYS[i], wheel.compression);
       this.model.setWheelSpin(WHEEL_KEYS[i], wheel.spinAngle);
     }
+    if (this.interior) this.cockpit.update(state, dt);
   }
 
   dispose() {
+    this.cockpit.dispose();
     this.model.parent?.remove(this.model);
     this.model.dispose();
   }
