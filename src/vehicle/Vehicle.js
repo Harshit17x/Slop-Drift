@@ -90,6 +90,8 @@ export class Vehicle {
     this.gLat = 0;
     this.frameImpact = 0;
     this.frameLanding = 0;
+    this.frameScrape = 0;
+    this.frameContact = { x: 0, y: 0, z: 0, nx: 0, nz: 0, strength: -1 };
     this.frameShifted = false;
     this.pendingShift = 0;
     this.hillHold = false;
@@ -134,7 +136,8 @@ export class Vehicle {
       steerAngle: 0, throttle: 0, brake: 0, handbrake: false, boosting: false,
       rpm: 0, rpmMax: 7200, gear: 1, shifted: false,
       wheelsOnGround: 0, airborne: false, surface: SURFACE.ASPHALT,
-      gLong: 0, gLat: 0, impact: 0, landing: 0, upsideDown: false,
+      gLong: 0, gLat: 0, impact: 0, landing: 0, scrape: 0, upsideDown: false,
+      impactPoint: { x: 0, y: 0, z: 0 }, impactNormal: { x: 0, z: 0 },
       wheels: this.wheels.map((w) => w.state),
     };
 
@@ -346,6 +349,8 @@ export class Vehicle {
     this.accumulator += dt;
     this.frameImpact = 0;
     this.frameLanding = 0;
+    this.frameScrape = 0;
+    this.frameContact.strength = -1;
     this.frameShifted = false;
     this.pendingShift = Math.sign(num(controls?.shift));
     let n = 0;
@@ -854,6 +859,18 @@ export class Vehicle {
     const vc2 = this._pointVelocity(_e, _b);
     _c.copy(vc2).addScaledVector(_d, -vc2.dot(_d));
     const vt = _c.length();
+    // Remember where the body touched (world space) for sparks, and how fast it slides along the wall for scrape audio.
+    // Scrape speed: how fast the car's body travels along the wall (horizontal), steadier than the
+    // contact-point velocity, which spikes with the spin an impact imparts.
+    const vel = this.velocity;
+    const along = Math.hypot(vel.x - nx * (vel.x * nx + vel.z * nz), vel.z - nz * (vel.x * nx + vel.z * nz));
+    this.frameScrape = Math.max(this.frameScrape, along);
+    const contactStrength = -vn + vt * 0.25;
+    if (contactStrength > this.frameContact.strength) {
+      const fc = this.frameContact;
+      fc.x = this.position.x + _e.x; fc.y = this.position.y + _e.y; fc.z = this.position.z + _e.z;
+      fc.nx = nx; fc.nz = nz; fc.strength = contactStrength;
+    }
     if (vt > 1e-5) {
       _c.multiplyScalar(1 / vt);
       const mt = this._effectiveMass(_e, _c);
@@ -922,6 +939,12 @@ export class Vehicle {
     s.gLat = this.gLat;
     s.impact = this.frameImpact;
     s.landing = this.frameLanding;
+    s.scrape = this.frameContact.strength >= 0 ? this.frameScrape : 0;
+    if (this.frameContact.strength >= 0) {
+      const fc = this.frameContact;
+      s.impactPoint.x = fc.x; s.impactPoint.y = fc.y; s.impactPoint.z = fc.z;
+      s.impactNormal.x = fc.nx; s.impactNormal.z = fc.nz;
+    }
     s.upsideDown = this.up.y < 0;
     return s;
   }

@@ -120,6 +120,9 @@
  * @property {number} gLat           Lateral acceleration in g (+ to the right).
  * @property {number} impact         Strength of a collision this step in m/s (0 when none), for sparks, audio and camera shake.
  * @property {number} landing        Vertical speed absorbed on touchdown this step in m/s (0 when none).
+ * @property {number} scrape         Speed in m/s the body slides along a wall while touching it this step (0 when not touching).
+ * @property {{x:number,y:number,z:number}} impactPoint  World point of the latest wall contact (valid while impact or scrape > 0).
+ * @property {{x:number,z:number}} impactNormal          Horizontal wall normal at that contact, pointing away from the wall.
  * @property {boolean} upsideDown    Chassis up points below the horizon.
  * @property {WheelState[]} wheels
  */

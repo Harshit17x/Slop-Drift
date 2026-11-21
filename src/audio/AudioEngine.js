@@ -1,72 +1,52 @@
-// Realistic, sample-based vehicle audio with Web Audio API synthesis fallback.
+// Sample-based vehicle audio (Web Audio API).
 //
-// Architecture:
-//   Engine: 6 continuous steady-state CC0 RPM loops (idle to redline), crossfaded
-//           and pitch-modulated smoothly by physics RPM and load. No looping rev-curves.
-//   Shift: mechanical gear lever click/clunk triggered on gear changes with clutch RPM dip.
-//   Exhaust: real backfire bangs at redline rev-limiter and overrun crackles on throttle lift-off.
-//   Nitro: authentic pressurized N2O boost bed with purge blast on boost engagement.
-//   Tire Skid: continuous asphalt screech loop tracking tire slip angle and speed.
-//   Impact: real chassis collision one-shot.
-//   Fallback: procedural synthesis (oscillators, waveshaper, noise) when assets are unavailable.
+// Every car sound is a real recording or is cut / re-synthesised offline from one. The derived
+// sprites are built by tools/audio/build_car_audio.py from the originals in car-sound/:
 //
-// Continuous beds are built once in unlock(); update() only moves AudioParams with setTargetAtTime.
+//   engine.m4a  16 seamless engine loops: 8 rpm points (900..7600) x on-load / off-load.
+//               Source: "Car engine 2" (ID 0291), BigSoundBank.com (free licence, royalty-free).
+//               Every engine cycle of the recording's two throttle ramps (on-load) and closed-throttle
+//               decays (off-load) is cut into a pitch-synchronous grain; each layer is a TD-PSOLA
+//               re-synthesis at an exact firing rate (rpm / 15 Hz) with natural cycle-to-cycle variation.
+//   loops.m4a   skid       - Kenney "Racing Pack" skid (CC0)
+//               skidHeavy  - "Screeching tires 1" (ID 2368), BigSoundBank.com
+//               nitro      - nitro.ogg recorded N2O hiss (origin unknown, supplied with the project)
+//               gravel     - granular stream of tiny Kenney impact transients (CC0)
+//               scrape     - granular Kenney impact metal ring over chattered recorded hiss
+//   sfx.m4a     crackle0-7 / brap0-2 - real overrun crackles cut from the BigSoundBank engine decays
+//               clunkUp / clunkDown  - gear-shift.wav mechanical click (origin unknown) + Kenney thud
+//               solenoid / purge     - gear-shift.wav tick, nitro.ogg hiss burst
+//               impactLight / impact / impactBody / debris / landing - Kenney impact (CC0), processed
+//               chirp                - onset of the BigSoundBank tyre screech
+//
+// Engine model (the classic rpm-indexed loop crossfade used by racing games, fed by granular-built
+// loops): the two layers bracketing the rpm play with playbackRate = rpm / layerRpm and an equal-power
+// crossfade in log-rpm; on-load and off-load sets crossfade by effective load (throttle, minus shift
+// cuts and limiter cuts, plus idle support). Load also drives a soft-clip drive path, the tone
+// low-pass and an intake band. Shifts cut the throttle, clunk, and blat (up) or blip (down); the rev
+// limiter cuts the ignition in a ~14 Hz bounce with backfires; lift-off at high rpm crackles.
+//
+// Continuous beds are built once in unlock(); update() only moves AudioParams (no nodes per frame).
 // Every bed gain also gets a scheduled fade-out a short time in the future that the next update() cancels.
 // With no AudioContext, a context that failed to build, or after dispose(), every method is a silent no-op.
 
 import { SURFACE, SURFACE_PROPS } from '../config.js';
+import { SPRITES } from './audioSprites.js';
 
 const HAS_URL = typeof URL !== 'undefined' && typeof import.meta !== 'undefined' && Boolean(import.meta.url);
-
-const ENGINE_URLS = [
-  HAS_URL ? new URL('../assets/audio/engine_0.wav', import.meta.url).href : '/audio/engine_0.wav',
-  HAS_URL ? new URL('../assets/audio/engine_1.wav', import.meta.url).href : '/audio/engine_1.wav',
-  HAS_URL ? new URL('../assets/audio/engine_2.wav', import.meta.url).href : '/audio/engine_2.wav',
-  HAS_URL ? new URL('../assets/audio/engine_3.wav', import.meta.url).href : '/audio/engine_3.wav',
-  HAS_URL ? new URL('../assets/audio/engine_4.wav', import.meta.url).href : '/audio/engine_4.wav',
-  HAS_URL ? new URL('../assets/audio/engine_5.wav', import.meta.url).href : '/audio/engine_5.wav',
-];
-
-const SHIFT_URL = HAS_URL ? new URL('../assets/audio/shift.wav', import.meta.url).href : '/audio/shift.wav';
-const EXHAUST_POP_URL = HAS_URL ? new URL('../assets/audio/exhaust_pop.wav', import.meta.url).href : '/audio/exhaust_pop.wav';
-const EXHAUST_BURBLE_URL = HAS_URL ? new URL('../assets/audio/exhaust_burble.ogg', import.meta.url).href : '/audio/exhaust_burble.ogg';
-const NITRO_URL = HAS_URL ? new URL('../assets/audio/nitro.ogg', import.meta.url).href : '/audio/nitro.ogg';
-const SKID_URL = HAS_URL ? new URL('../assets/audio/skid.ogg', import.meta.url).href : '/audio/skid.ogg';
-const IMPACT_URL = HAS_URL ? new URL('../assets/audio/impact.ogg', import.meta.url).href : '/audio/impact.ogg';
-
-let cachedEngineBuffers = null;
-let cachedShiftBuffer = null;
-let cachedExhaustPopBuffer = null;
-let cachedExhaustBurbleBuffer = null;
-let cachedNitroBuffer = null;
-let cachedSkidBuffer = null;
-let cachedImpactBuffer = null;
-let loadPromise = null;
-
-async function fetchAudioBuffer(ctx, url) {
-  if (!ctx || typeof ctx.decodeAudioData !== 'function' || typeof globalThis.fetch !== 'function' || !url) return null;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const arrayBuffer = await res.arrayBuffer();
-    return await ctx.decodeAudioData(arrayBuffer);
-  } catch {
-    return null;
-  }
-}
+const ENGINE_URL = HAS_URL ? new URL('../assets/audio/engine.m4a', import.meta.url).href : '';
+const LOOPS_URL = HAS_URL ? new URL('../assets/audio/loops.m4a', import.meta.url).href : '';
+const SFX_URL = HAS_URL ? new URL('../assets/audio/sfx.m4a', import.meta.url).href : '';
 
 const WATCHDOG = 0.3; // seconds after the last update() before beds fade out on their own
 const NOISE_SECONDS = 2;
 const EMPTY = Object.freeze([]);
+const CRACKLES = ['crackle0', 'crackle1', 'crackle2', 'crackle3', 'crackle4', 'crackle5', 'crackle6', 'crackle7'];
+const BRAPS = ['brap0', 'brap1', 'brap2'];
 
-// Fallback synthetic engine oscillator layers relative to the firing frequency.
-const ENGINE_LAYERS = [
-  { type: 'sawtooth', mult: 1, detune: -7, level: 0.42 },
-  { type: 'sawtooth', mult: 1, detune: 6, level: 0.42 },
-  { type: 'square', mult: 0.5, detune: 0, level: 0.3 },
-  { type: 'sawtooth', mult: 2, detune: 4, level: 0.16 },
-  { type: 'triangle', mult: 3, detune: -3, level: 0.08 },
-];
+// Decoded sample bank, shared by every AudioEngine instance (AudioBuffers are context-independent).
+const bank = { engine: null, loops: null, sfx: null };
+let loadPromise = null;
 
 function saturate(v) {
   return v < 0 ? 0 : v > 1 ? 1 : v;
@@ -77,7 +57,78 @@ function finite(v, fallback) {
 }
 
 function isLoose(surface) {
-  return surface === SURFACE.GRAVEL || surface === SURFACE.DIRT || surface === SURFACE.ROCK || surface === SURFACE.SNOW;
+  return surface === SURFACE.GRAVEL || surface === SURFACE.DIRT || surface === SURFACE.SNOW;
+}
+
+function gearNumber(g) {
+  if (g === 'R') return -1;
+  if (g === 'N') return 0;
+  return finite(Number(g), 1);
+}
+
+async function fetchDecoded(ctx, url) {
+  if (!url || typeof globalThis.fetch !== 'function') return null;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.arrayBuffer();
+    return await new Promise((resolve, reject) => {
+      const p = ctx.decodeAudioData(data, resolve, reject);
+      if (p && typeof p.then === 'function') p.then(resolve, reject);
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Copy [start, start + length) seconds of channel 0 into a new buffer; optionally trim leading silence. */
+function slice(ctx, buf, start, length, trimLead) {
+  const sr = buf.sampleRate;
+  const src = buf.getChannelData(0);
+  let a = Math.max(0, Math.min(src.length - 1, Math.round(start * sr)));
+  let n = Math.max(1, Math.min(src.length - a, Math.round(length * sr)));
+  if (trimLead) {
+    let peak = 0;
+    for (let i = a; i < a + n; i += 1) peak = Math.max(peak, Math.abs(src[i]));
+    const thr = peak * 0.03;
+    let first = a;
+    while (first < a + n - 1 && Math.abs(src[first]) < thr) first += 1;
+    const b = Math.max(a, first - Math.round(0.0015 * sr));
+    n -= b - a;
+    a = b;
+  }
+  const out = ctx.createBuffer(1, n, sr);
+  out.getChannelData(0).set(src.subarray(a, a + n));
+  return out;
+}
+
+function buildBank(ctx, engineBuf, loopsBuf, sfxBuf) {
+  if (engineBuf && !bank.engine) {
+    const E = SPRITES.engine;
+    const on = [];
+    const off = [];
+    const rpm = [];
+    for (const layer of E.layers) {
+      // Loops are stored as two periods + margin: one exact period from the middle is seamless
+      // whatever delay the AAC decoder adds.
+      const b = slice(ctx, engineBuf, layer.start + E.loop * 0.5, E.loop, false);
+      if (layer.load === 'on') {
+        on.push(b);
+        rpm.push(layer.rpm);
+      } else off.push(b);
+    }
+    if (on.length > 1 && on.length === off.length) bank.engine = { on, off, rpm };
+  }
+  if (loopsBuf && !bank.loops) {
+    const loops = {};
+    for (const [name, s] of Object.entries(SPRITES.loops)) loops[name] = slice(ctx, loopsBuf, s.start + s.loop * 0.5, s.loop, false);
+    bank.loops = loops;
+  }
+  if (sfxBuf && !bank.sfx) {
+    const sfx = {};
+    for (const [name, s] of Object.entries(SPRITES.sfx)) sfx[name] = slice(ctx, sfxBuf, s.start, s.length, true);
+    bank.sfx = sfx;
+  }
 }
 
 export class AudioEngine {
@@ -88,11 +139,8 @@ export class AudioEngine {
     this._muted = false;
     this._disposed = false;
     this._cool = Object.create(null);
-    this._shiftDip = 0;
-    this._limiterNext = 0;
-    this._prevThrottle = 0;
-    this._prevBoost = false;
     this._onVisibility = null;
+    this._resetDrive();
   }
 
   get muted() {
@@ -166,7 +214,7 @@ export class AudioEngine {
     }
   }
 
-  /** Fade the engine, tire, wind and nitro beds to zero (menus, pause). */
+  /** Fade the engine, tyre, wind, scrape and nitro beds to zero (menus, pause). */
   silence() {
     if (!this._live()) return;
     try {
@@ -178,6 +226,7 @@ export class AudioEngine {
       const gate = this._g.limiterGate.gain;
       gate.cancelScheduledValues(now);
       gate.setTargetAtTime(1, now, 0.02);
+      this._resetDrive();
     } catch {
       // ignore
     }
@@ -201,27 +250,16 @@ export class AudioEngine {
     this._safe(() => this._tone({ freq: 720, freqEnd: 820, dur: 0.06, vol: 0.08, type: 'sine', attack: 0.003 }));
   }
 
+  /**
+   * Gear change. update() already handles state.shifted with the full sequence (it knows the gear
+   * direction and rpm), so a call in the same frame is ignored; a bare call plays the clunk.
+   */
   shift() {
+    if (this._shiftFrame) return;
     if (!this._canPlay() || !this._cooldown('shift', 0.08)) return;
     this._safe(() => {
-      if (cachedShiftBuffer) {
-        const src = this.ctx.createBufferSource();
-        src.buffer = cachedShiftBuffer;
-        src.playbackRate.setValueAtTime(0.96 + Math.random() * 0.08, this.ctx.currentTime);
-        const gain = this.ctx.createGain();
-        gain.gain.setValueAtTime(0.36, this.ctx.currentTime);
-        src.connect(gain);
-        gain.connect(this._g.sfxBus);
-        src.start();
-        src.onended = () => {
-          try {
-            src.disconnect();
-            gain.disconnect();
-          } catch {}
-        };
-      } else {
-        this._noise({ dur: 0.05, vol: 0.1, filter: 'lowpass', freq: 900, attack: 0.002 });
-        this._tone({ freq: 150, freqEnd: 90, dur: 0.07, vol: 0.09, type: 'triangle', attack: 0.002 });
+      if (!this._shot('clunkUp', 0.34, 0.96 + Math.random() * 0.08)) {
+        this._noise({ dur: 0.05, vol: 0.08, filter: 'lowpass', freq: 900, attack: 0.002 });
       }
     });
   }
@@ -254,32 +292,29 @@ export class AudioEngine {
     });
   }
 
-  /** Collision. strengthMps: closing speed in m/s. */
+  /** Collision. strengthMps: closing speed in m/s. Light taps, solid hits and heavy crashes layer differently. */
   impact(strengthMps) {
     const strength = finite(strengthMps, 0);
-    if (strength < 0.5 || !this._canPlay() || !this._cooldown('impact', 0.07)) return;
+    if (strength < 0.5 || !this._canPlay()) return;
+    const s = saturate((strength - 0.5) / 14);
+    // Within the cooldown only a clearly harder hit gets through.
+    const now = this.ctx.currentTime;
+    if (now - finite(this._cool.impact, -1) < 0.07 && s < this._lastImpact + 0.2) return;
+    this._cool.impact = now;
+    this._lastImpact = s;
     this._safe(() => {
-      const s = saturate((strength - 0.5) / 14);
-      if (cachedImpactBuffer) {
-        const src = this.ctx.createBufferSource();
-        src.buffer = cachedImpactBuffer;
-        src.playbackRate.setValueAtTime(0.9 + 0.2 * Math.random(), this.ctx.currentTime);
-        const gain = this.ctx.createGain();
-        gain.gain.setValueAtTime(0.18 + 0.42 * s, this.ctx.currentTime);
-        src.connect(gain);
-        gain.connect(this._g.sfxBus);
-        src.start();
-        src.onended = () => {
-          try {
-            src.disconnect();
-            gain.disconnect();
-          } catch {}
-        };
-      } else {
-        this._noise({ dur: 0.1 + 0.2 * s, vol: 0.08 + 0.32 * s, filter: 'lowpass', freq: 900 + 2200 * s, freqEnd: 300, attack: 0.002 });
-        this._tone({ freq: 95, freqEnd: 38, dur: 0.18 + 0.1 * s, vol: 0.1 + 0.3 * s, type: 'sine', attack: 0.002 });
-        if (s > 0.2) this._noise({ dur: 0.08 + 0.1 * s, vol: 0.1 * s, filter: 'bandpass', freq: 3200, freqEnd: 2200, q: 5, attack: 0.002 });
+      const rate = (0.93 + Math.random() * 0.14) * (1.06 - 0.16 * s);
+      if (!bank.sfx) {
+        this._noise({ dur: 0.1 + 0.2 * s, vol: 0.06 + 0.24 * s, filter: 'lowpass', freq: 700 + 2200 * s, freqEnd: 250, attack: 0.002 });
+        return;
       }
+      if (s < 0.2) {
+        this._shot('impactLight', 0.16 + 1.1 * s, rate * 1.1);
+        return;
+      }
+      this._shot('impact', 0.26 + 0.5 * s, rate);
+      this._shot('impactBody', 0.18 + 0.6 * s, rate * 0.95);
+      if (s > 0.45) this._shot('debris', 0.12 + 0.45 * (s - 0.45) / 0.55, 0.9 + Math.random() * 0.25, 0.012 + Math.random() * 0.03);
     });
   }
 
@@ -289,8 +324,12 @@ export class AudioEngine {
     if (strength < 1 || !this._canPlay() || !this._cooldown('landing', 0.12)) return;
     this._safe(() => {
       const s = saturate((strength - 1) / 10);
-      this._tone({ freq: 72, freqEnd: 34, dur: 0.22, vol: 0.12 + 0.3 * s, type: 'sine', attack: 0.003 });
-      this._noise({ dur: 0.14, vol: 0.05 + 0.15 * s, filter: 'lowpass', freq: 500, freqEnd: 180, attack: 0.003 });
+      if (!bank.sfx) {
+        this._noise({ dur: 0.14, vol: 0.05 + 0.15 * s, filter: 'lowpass', freq: 400, freqEnd: 150, attack: 0.003 });
+        return;
+      }
+      this._shot('landing', 0.2 + 0.55 * s, 0.94 + Math.random() * 0.14);
+      if (s > 0.45) this._shot('impactBody', 0.3 * s, 0.85 + Math.random() * 0.1, 0.01);
     });
   }
 
@@ -300,6 +339,25 @@ export class AudioEngine {
   }
 
   // ------------------------------------------------------------------ internals
+
+  _resetDrive() {
+    this._load = 0;
+    this._prevThrottle = 0;
+    this._prevBoost = false;
+    this._prevGear = null;
+    this._shiftFrame = false;
+    this._cut = 0; // seconds of shift throttle cut left
+    this._blip = 0; // downshift blip, 1 -> 0
+    this._overrun = 0; // crackle energy after a lift-off
+    this._limiterNext = 0;
+    this._limiterCutEnd = 0;
+    this._jit = 0;
+    this._lope = 0;
+    this._skidAmt = 0;
+    this._skidLow = 0; // time since the screech was last quiet (for the onset chirp)
+    this._lastImpact = 0;
+    this._lastCrackle = -1;
+  }
 
   _live() {
     return !this._disposed && this.ctx !== null && this._g !== null && this.ctx.state !== 'closed';
@@ -416,14 +474,14 @@ export class AudioEngine {
     // Master chain.
     const output = gain(this._muted ? 0 : this._volume, ctx.destination);
     const limiter = compressor(-2, 0, 20, 0.002, 0.12, output);
-    const glue = compressor(-16, 10, 3.5, 0.006, 0.2, limiter);
-    const mix = gain(0.85, glue);
-    const engineBus = gain(0.8, mix);
-    const tireBus = gain(0.75, mix);
-    const envBus = gain(0.6, mix);
-    const sfxBus = gain(0.85, mix);
+    const glue = compressor(-18, 10, 3, 0.008, 0.25, limiter);
+    const mix = gain(0.9, glue);
+    const engineBus = gain(0.85, mix);
+    const tireBus = gain(0.7, mix);
+    const envBus = gain(0.55, mix);
+    const sfxBus = gain(0.9, mix);
 
-    // Shared white noise.
+    // Shared white noise (wind, road roar, grass: physically broadband noise sources).
     const length = Math.max(1, Math.floor(ctx.sampleRate * NOISE_SECONDS));
     const noiseBuffer = ctx.createBuffer(1, length, ctx.sampleRate);
     const data = noiseBuffer.getChannelData(0);
@@ -438,205 +496,139 @@ export class AudioEngine {
       return src;
     };
 
-    // Fallback procedural engine.
-    const limiterGate = gain(1, engineBus);
-    const engineAmp = gain(0, limiterGate);
-    const engineFilter = filter('lowpass', 600, 1, engineAmp);
+    // ---- engine: layers -> on/off buses -> clean + soft-clipped drive -> tone -> exhaust body -> limiter gate
+    const engineAmp = gain(0, engineBus);
+    const limiterGate = gain(1, engineAmp);
+    const body = filter('peaking', 95, 0.9, limiterGate);
+    body.gain.value = 0;
+    const tone = filter('lowpass', 6000, 0.6, body);
+    const clean = gain(1, tone);
+    const driveMix = gain(0, tone);
     const shaper = ctx.createWaveShaper();
-    shaper.curve = makeDriveCurve(2.2);
+    shaper.curve = makeDriveCurve(2.4);
     shaper.oversample = '2x';
-    shaper.connect(engineFilter);
-    const engineDrive = gain(1, shaper);
-    const engineMix = gain(0.6, engineDrive);
-    const engineOscs = [];
-    for (const layer of ENGINE_LAYERS) {
-      const osc = ctx.createOscillator();
-      osc.type = layer.type;
-      osc.frequency.value = 30 * layer.mult;
-      osc.detune.value = layer.detune;
-      osc.connect(gain(layer.level, engineMix));
-      osc.start();
-      sources.push(osc);
-      engineOscs.push(osc);
-    }
-    const intakeGain = gain(0, engineAmp);
-    const intakeFilter = filter('bandpass', 400, 1.6, intakeGain);
-    noiseSource(intakeFilter);
+    shaper.connect(driveMix);
+    const drivePre = gain(2.2, shaper);
+    const engineIn = gain(1, clean);
+    engineIn.connect(drivePre);
+    const onBus = gain(0, engineIn);
+    const offBus = gain(0, engineIn);
+    const intakeGain = gain(0, limiterGate);
+    const intakeFilter = filter('bandpass', 900, 1.1, intakeGain);
+    onBus.connect(intakeFilter);
+    // Minimal quiet fallback while / if the engine recording is unavailable.
+    const fallbackGain = gain(0, engineIn);
+    const fallbackTone = filter('lowpass', 500, 0.7, fallbackGain);
+    const fallbackOsc = ctx.createOscillator();
+    fallbackOsc.type = 'triangle';
+    fallbackOsc.frequency.value = 60;
+    fallbackOsc.connect(fallbackTone);
+    fallbackOsc.start();
+    sources.push(fallbackOsc);
 
-    // Authentic sample engine bed: 6 RPM steady crossfade layers.
-    const engineSampleBus = gain(1.0, limiterGate);
-    const engineSampleGains = [];
-    for (let i = 0; i < ENGINE_URLS.length; i += 1) {
-      const g = gain(0, engineSampleBus);
-      engineSampleGains.push(g);
-      beds.push(g.gain);
-    }
+    // ---- tyres and surfaces
+    const skidFilter = filter('lowpass', 6000, 0.5, tireBus);
+    const skidGain = gain(0, skidFilter);
+    const skidHeavyGain = gain(0, skidFilter);
+    const gravelGain = gain(0, tireBus);
+    const gravelFilter = filter('lowpass', 5000, 0.5, gravelGain);
+    const roadGain = gain(0, tireBus);
+    const roadFilter = filter('lowpass', 400, 0.7, roadGain);
+    noiseSource(roadFilter);
+    const grassGain = gain(0, tireBus);
+    const grassFilter = filter('bandpass', 1800, 0.6, grassGain);
+    noiseSource(grassFilter);
+    const scrapeGain = gain(0, tireBus);
+    const scrapeFilter = filter('bandpass', 2000, 0.6, scrapeGain);
 
-    // Tire squeal: band-passed noise plus a tone whose pitch wobbles.
-    const squealGain = gain(0, tireBus);
-    const squealFilter = filter('bandpass', 900, 7, squealGain);
-    noiseSource(squealFilter);
-    const squealTone = ctx.createOscillator();
-    squealTone.type = 'triangle';
-    squealTone.frequency.value = 820;
-    squealTone.connect(gain(0.35, squealGain));
-    const wobble = ctx.createOscillator();
-    wobble.type = 'sine';
-    wobble.frequency.value = 7.3;
-    const wobbleDepth = gain(28, squealTone.frequency);
-    wobble.connect(wobbleDepth);
-    squealTone.start();
-    wobble.start();
-    sources.push(squealTone, wobble);
-
-    // Authentic sample tire screech.
-    const skidSampleGain = gain(0, tireBus);
-    const skidSampleFilter = filter('bandpass', 1600, 1.8, skidSampleGain);
-
-    // Surface rumble and loose-surface crunch.
-    const rumbleGain = gain(0, tireBus);
-    const rumbleFilter = filter('lowpass', 160, 0.8, rumbleGain);
-    noiseSource(rumbleFilter);
-    const crunchGain = gain(0, tireBus);
-    const crunchFilter = filter('bandpass', 1500, 0.9, crunchGain);
-    noiseSource(crunchFilter);
-
-    // Wind, synthetic nitro hiss, and authentic sample nitro boost bed.
+    // ---- wind and nitro
     const windGain = gain(0, envBus);
-    const windFilter = filter('bandpass', 400, 0.6, windGain);
+    const windFilter = filter('bandpass', 400, 0.5, windGain);
     noiseSource(windFilter);
+    const buffetGain = gain(0, envBus);
+    const buffetFilter = filter('lowpass', 110, 0.7, buffetGain);
+    noiseSource(buffetFilter);
     const nitroGain = gain(0, envBus);
-    const nitroFilter = filter('highpass', 2600, 0.7, nitroGain);
-    noiseSource(nitroFilter);
-    const nitroSampleGain = gain(0, envBus);
+    const nitroFilter = filter('highpass', 300, 0.6, nitroGain);
 
     beds.push(
-      engineAmp.gain, intakeGain.gain, squealGain.gain, rumbleGain.gain,
-      crunchGain.gain, windGain.gain, nitroGain.gain, skidSampleGain.gain, nitroSampleGain.gain,
+      engineAmp.gain, intakeGain.gain, fallbackGain.gain, skidGain.gain, skidHeavyGain.gain, gravelGain.gain,
+      roadGain.gain, grassGain.gain, scrapeGain.gain, windGain.gain, buffetGain.gain, nitroGain.gain,
     );
 
     this._g = {
-      output,
-      sfxBus,
-      noiseBuffer,
-      sources,
-      beds,
-      limiterGate,
-      engineAmp,
-      engineFilter,
-      engineDrive,
-      engineOscs,
-      engineSampleBus,
-      engineSampleGains,
-      engineSampleSources: null,
-      intakeGain,
-      intakeFilter,
-      squealGain,
-      squealFilter,
-      squealTone,
-      skidSampleGain,
-      skidSampleFilter,
-      skidSampleSrc: null,
-      rumbleGain,
-      rumbleFilter,
-      crunchGain,
-      crunchFilter,
-      windGain,
-      windFilter,
-      nitroGain,
-      nitroSampleGain,
-      nitroSampleSrc: null,
+      output, sfxBus, noiseBuffer, sources, beds,
+      engineAmp, limiterGate, body, tone, driveMix, onBus, offBus, intakeGain, intakeFilter,
+      fallbackGain, fallbackTone, fallbackOsc,
+      layers: null, // { rpm, on: [{src, gain}], off: [...] }
+      skidFilter, skidGain, skidHeavyGain, skidSrc: null, skidHeavySrc: null,
+      gravelGain, gravelFilter, gravelSrc: null,
+      roadGain, roadFilter, grassGain, scrapeGain, scrapeFilter, scrapeSrc: null,
+      windGain, windFilter, buffetGain, nitroGain, nitroFilter, nitroSrc: null,
     };
   }
 
   _loadSamples() {
-    if (!this._live() || !this.ctx || typeof this.ctx.decodeAudioData !== 'function' || typeof globalThis.fetch !== 'function') return;
-    if (cachedEngineBuffers && cachedShiftBuffer && cachedNitroBuffer) {
+    if (!this._live() || typeof this.ctx.decodeAudioData !== 'function' || typeof this.ctx.createBuffer !== 'function') return;
+    if (bank.engine && bank.loops && bank.sfx) {
       this._attachSamples();
       return;
     }
+    if (typeof globalThis.fetch !== 'function') return;
     if (!loadPromise) {
+      const ctx = this.ctx;
       loadPromise = Promise.all([
-        Promise.all(ENGINE_URLS.map((u) => fetchAudioBuffer(this.ctx, u))),
-        fetchAudioBuffer(this.ctx, SHIFT_URL),
-        fetchAudioBuffer(this.ctx, EXHAUST_POP_URL),
-        fetchAudioBuffer(this.ctx, EXHAUST_BURBLE_URL),
-        fetchAudioBuffer(this.ctx, NITRO_URL),
-        fetchAudioBuffer(this.ctx, SKID_URL),
-        fetchAudioBuffer(this.ctx, IMPACT_URL),
-      ]).then(([engBuffers, shift, exhPop, exhBurble, nitro, skid, impact]) => {
-        if (engBuffers && engBuffers.every(Boolean)) cachedEngineBuffers = engBuffers;
-        if (shift) cachedShiftBuffer = shift;
-        if (exhPop) cachedExhaustPopBuffer = exhPop;
-        if (exhBurble) cachedExhaustBurbleBuffer = exhBurble;
-        if (nitro) cachedNitroBuffer = nitro;
-        if (skid) cachedSkidBuffer = skid;
-        if (impact) cachedImpactBuffer = impact;
-      }).catch(() => {});
+        fetchDecoded(ctx, ENGINE_URL),
+        fetchDecoded(ctx, LOOPS_URL),
+        fetchDecoded(ctx, SFX_URL),
+      ]).then(([engine, loops, sfx]) => {
+        try {
+          buildBank(ctx, engine, loops, sfx);
+        } catch {
+          // keep whatever was built
+        }
+        if (!(bank.engine && bank.loops && bank.sfx)) loadPromise = null; // allow a retry on the next unlock
+      }).catch(() => {
+        loadPromise = null;
+      });
     }
-    loadPromise.then(() => {
-      this._attachSamples();
-    });
+    loadPromise.then(() => this._attachSamples()).catch(() => {});
+  }
+
+  _loopSource(buffer, to, rate = 1) {
+    const src = this.ctx.createBufferSource();
+    src.buffer = buffer;
+    src.loop = true;
+    src.playbackRate.value = rate;
+    src.connect(to);
+    src.start(0, Math.random() * buffer.duration * 0.95);
+    this._g.sources.push(src);
+    return src;
   }
 
   _attachSamples() {
     if (!this._live()) return;
-    const ctx = this.ctx;
     const g = this._g;
-    if (!g) return;
-
-    // Attach 6 RPM steady engine sample loops
-    if (cachedEngineBuffers && g.engineSampleGains && !g.engineSampleSources) {
-      try {
-        const sources = [];
-        for (let i = 0; i < cachedEngineBuffers.length; i += 1) {
-          const src = ctx.createBufferSource();
-          src.buffer = cachedEngineBuffers[i];
-          src.loop = true;
-          src.playbackRate.value = 1.0;
-          src.connect(g.engineSampleGains[i]);
-          src.start(0);
-          g.sources.push(src);
-          sources.push(src);
-        }
-        g.engineSampleSources = sources;
-      } catch {
-        // ignore
+    try {
+      if (bank.engine && !g.layers) {
+        const make = (buffers, bus) => buffers.map((b) => {
+          const gn = this.ctx.createGain();
+          gn.gain.value = 0;
+          gn.connect(bus);
+          return { src: this._loopSource(b, gn), gain: gn };
+        });
+        g.layers = { rpm: bank.engine.rpm, on: make(bank.engine.on, g.onBus), off: make(bank.engine.off, g.offBus) };
       }
-    }
-
-    // Attach authentic nitro boost loop
-    if (cachedNitroBuffer && !g.nitroSampleSrc) {
-      try {
-        const src = ctx.createBufferSource();
-        src.buffer = cachedNitroBuffer;
-        src.loop = true;
-        src.playbackRate.value = 1.0;
-        src.connect(g.nitroSampleGain);
-        src.start(0);
-        g.sources.push(src);
-        g.nitroSampleSrc = src;
-      } catch {
-        // ignore
+      if (bank.loops && !g.skidSrc) {
+        const L = bank.loops;
+        if (L.skid) g.skidSrc = this._loopSource(L.skid, g.skidGain);
+        if (L.skidHeavy) g.skidHeavySrc = this._loopSource(L.skidHeavy, g.skidHeavyGain);
+        if (L.gravel) g.gravelSrc = this._loopSource(L.gravel, g.gravelFilter);
+        if (L.scrape) g.scrapeSrc = this._loopSource(L.scrape, g.scrapeFilter);
+        if (L.nitro) g.nitroSrc = this._loopSource(L.nitro, g.nitroFilter);
       }
-    }
-
-    // Attach authentic tire screech loop
-    if (cachedSkidBuffer && !g.skidSampleSrc) {
-      try {
-        const src = ctx.createBufferSource();
-        src.buffer = cachedSkidBuffer;
-        src.loop = true;
-        src.loopStart = 0.1;
-        src.loopEnd = 2.0;
-        src.playbackRate.value = 1.0;
-        src.connect(g.skidSampleFilter);
-        src.start(0);
-        g.sources.push(src);
-        g.skidSampleSrc = src;
-      } catch {
-        // ignore
-      }
+    } catch {
+      // ignore: whatever attached keeps working
     }
   }
 
@@ -648,6 +640,7 @@ export class AudioEngine {
   }
 
   _update(dt, state, options) {
+    this._shiftFrame = false;
     if (!state || options.paused) {
       this.silence();
       return;
@@ -659,159 +652,144 @@ export class AudioEngine {
     if (dt > 0.25) dt = 0.25;
 
     // ---- vehicle telemetry
-    const rpmMax = finite(state.rpmMax, 0) > 1000 ? state.rpmMax : 7500;
-    const idle = Math.min(900, rpmMax * 0.15);
-    const rpm = Math.max(0, finite(state.rpm, idle));
+    const rpmMax = finite(state.rpmMax, 0) > 1000 ? state.rpmMax : 7200;
+    const idle = Math.min(900, rpmMax * 0.125);
+    const rpm = Math.min(rpmMax * 1.08, Math.max(idle * 0.85, finite(state.rpm, idle)));
     const rpmN = saturate((rpm - idle) / (rpmMax - idle));
     const throttle = saturate(finite(state.throttle, 0));
     const speed = Math.max(0, finite(state.speed, 0));
     const boosting = options.boosting !== undefined ? Boolean(options.boosting) : Boolean(state.boosting);
+    const gear = gearNumber(state.gear);
 
-    // Mechanical gear shift detection & clutch dip
+    // ---- gear change sequence
     if (state.shifted) {
-      this._shiftDip = 1;
-      this.shift();
+      this._shiftFrame = true;
+      this._onShift(gear, rpmN, throttle);
+    }
+    this._prevGear = gear;
+    this._cut = Math.max(0, this._cut - dt);
+    this._blip = Math.max(0, this._blip - dt / 0.2);
+
+    // ---- rev limiter: ignition cut bounce (~14 Hz) with the odd backfire
+    const limiting = rpm >= rpmMax * 1.012 && throttle > 0.5;
+    if (limiting && (now >= this._limiterNext || this._limiterNext - now > 1)) {
+      const gate = g.limiterGate.gain;
+      gate.cancelScheduledValues(now);
+      gate.setTargetAtTime(0.28, now, 0.004);
+      gate.setTargetAtTime(1, now + 0.032, 0.01);
+      this._limiterCutEnd = now + 0.032;
+      this._limiterNext = now + 0.064 + Math.random() * 0.018;
+      if (Math.random() < 0.3) this._crackle(0.45 + 0.35 * Math.random(), Math.random() < 0.15);
+    }
+    const inCut = limiting && now < this._limiterCutEnd;
+
+    // ---- effective engine load (what the cylinders are doing, not the pedal)
+    let loadTarget = this._cut > 0 || inCut ? 0 : throttle;
+    loadTarget = Math.max(loadTarget, 0.85 * this._blip, 0.35 * (1 - saturate((rpm - idle) / 700)));
+    if (boosting && this._cut <= 0) loadTarget = 1;
+    const tc = loadTarget > this._load ? 0.035 : 0.07;
+    this._load += (loadTarget - this._load) * (1 - Math.exp(-dt / tc));
+    const load = this._load;
+
+    // ---- audio rpm: physics rpm + cycle jitter, idle lope, limiter dip, downshift blip
+    this._jit += (Math.random() * 2 - 1) * 0.35 * Math.sqrt(dt * 60) - this._jit * Math.min(1, dt * 8);
+    this._lope += dt * (1.1 + 0.5 * Math.random()) * Math.PI * 2;
+    const idleness = 1 - saturate((rpm - idle) / 600);
+    let rpmA = rpm * (1 + this._jit * (0.003 - 0.002 * rpmN) + idleness * 0.012 * Math.sin(this._lope));
+    if (inCut) rpmA *= 0.985;
+    rpmA *= 1 + 0.05 * this._blip;
+
+    this._engine(rpmA, rpmN, load, boosting, now);
+
+    // ---- overrun: crackle and burble when the throttle is shut at high rpm
+    if (this._prevThrottle > 0.6 && throttle < 0.15 && rpmN > 0.45) {
+      this._overrun = 0.5 + 0.5 * rpmN;
+      if (Math.random() < 0.7) this._crackle(0.5 + 0.3 * rpmN, rpmN > 0.65 && Math.random() < 0.35);
+    }
+    this._overrun *= Math.exp(-dt / 1.1);
+    if (throttle < 0.15 && rpmN > 0.3 && !limiting && this._cut <= 0) {
+      const rate = (0.8 + 8 * this._overrun) * rpmN;
+      if (Math.random() < rate * dt) this._crackle((0.15 + 0.3 * Math.random()) * (0.6 + this._overrun));
+    }
+
+    // ---- nitro: solenoid click, pressurised hiss bed, purge release
+    if (!this._prevBoost && boosting) this._shot('solenoid', 0.32, 0.95 + Math.random() * 0.1);
+    if (this._prevBoost && !boosting) {
+      this._shot('purge', 0.42, 0.95 + Math.random() * 0.12);
+      this._shot('solenoid', 0.22, 0.9 + Math.random() * 0.1);
+    }
+    if (boosting) {
+      this._bed(g.nitroGain.gain, 0.5, 0.04, now);
+      if (g.nitroSrc) g.nitroSrc.playbackRate.setTargetAtTime(0.96 + 0.12 * rpmN, now, 0.1);
     } else {
-      this._shiftDip = Math.max(0, this._shiftDip - dt / 0.16);
-    }
-    const dip = this._shiftDip;
-    const load = throttle * (1 - 0.85 * dip);
-
-    // ---- Engine audio model
-    if (g.engineSampleSources && g.engineSampleSources.length > 0) {
-      // Crossfade across the 6 steady RPM sample layers
-      const numLayers = g.engineSampleSources.length;
-      const idx = rpmN * (numLayers - 1);
-      const lower = Math.floor(idx);
-      const upper = Math.min(numLayers - 1, lower + 1);
-      const t = idx - lower;
-
-      const totalGain = (0.28 + 0.46 * load + 0.26 * rpmN) * (1 - 0.3 * dip);
-      for (let i = 0; i < numLayers; i += 1) {
-        let layerGain = 0;
-        if (i === lower) layerGain = (1 - t) * totalGain;
-        else if (i === upper) layerGain = t * totalGain;
-        this._bed(g.engineSampleGains[i].gain, layerGain, 0.04, now);
-      }
-
-      // Smooth pitch modulation tracking throttle & RPM smoothly with no audible stepping
-      const baseRate = 0.88 + 0.28 * (idx - lower) + 0.12 * load - 0.12 * dip;
-      const playRate = Math.max(0.5, Math.min(2.2, baseRate));
-      for (let i = 0; i < numLayers; i += 1) {
-        g.engineSampleSources[i].playbackRate.setTargetAtTime(playRate, now, dip > 0 ? 0.015 : 0.04);
-      }
-
-      // Completely silence fake procedural oscillators when real samples are active
-      this._bed(g.engineAmp.gain, 0, 0.04, now);
-      this._bed(g.intakeGain.gain, 0, 0.05, now);
-    } else {
-      // Fallback procedural engine synthesis
-      const firing = Math.max(16, (rpm / 60) * 2) * (1 - 0.1 * dip);
-      for (let i = 0; i < g.engineOscs.length; i += 1) {
-        g.engineOscs[i].frequency.setTargetAtTime(firing * ENGINE_LAYERS[i].mult, now, dip > 0 ? 0.015 : 0.03);
-      }
-      g.engineDrive.gain.setTargetAtTime(0.8 + 2.2 * load + 0.6 * rpmN, now, 0.05);
-      const cutoff = 260 + 1400 * rpmN + 2600 * load * (0.4 + 0.6 * rpmN) + (boosting ? 600 : 0);
-      g.engineFilter.frequency.setTargetAtTime(cutoff, now, 0.05);
-      g.engineFilter.Q.setTargetAtTime(1 + 2 * load * rpmN, now, 0.08);
-
-      const amp = (0.1 + 0.16 * rpmN) * (0.5 + 0.5 * load) * (1 - 0.35 * dip);
-      this._bed(g.engineAmp.gain, amp, 0.04, now);
-      g.intakeFilter.frequency.setTargetAtTime(Math.min(4000, Math.max(200, firing * 4)), now, 0.05);
-      this._bed(g.intakeGain.gain, 0.05 * load * (0.3 + rpmN), 0.05, now);
-    }
-
-    // Rev limiter: realistic backfire pop at redline
-    if (rpm >= rpmMax * 0.975 && throttle > 0.5) {
-      if (now >= this._limiterNext || this._limiterNext - now > 1) {
-        const gate = g.limiterGate.gain;
-        gate.cancelScheduledValues(now);
-        gate.setTargetAtTime(0.15, now, 0.005);
-        gate.setTargetAtTime(1, now + 0.035, 0.012);
-        this._limiterNext = now + 0.075 + Math.random() * 0.025;
-        if (Math.random() < 0.45) this._pop(0.85);
-      }
-    }
-
-    // Throttle lift-off: turbo flutter + overrun exhaust crackle & burble
-    if (this._prevThrottle > 0.7 && throttle < 0.2 && (this._prevBoost || rpmN > 0.55)) {
-      this._flutter();
-      this._pop(0.7);
-    }
-    if (throttle < 0.15 && rpmN > 0.45 && speed > 6 && Math.random() < dt * 6 * rpmN) {
-      this._pop(0.3 + 0.4 * Math.random());
-    }
-
-    // Nitro boost engagement: initial purge burst
-    if (!this._prevBoost && boosting) {
-      this._purge();
+      this._bed(g.nitroGain.gain, 0, 0.07, now);
     }
     this._prevThrottle = throttle;
     this._prevBoost = boosting;
 
-    // ---- tires and surfaces
+    // ---- tyres and surfaces
     const wheels = Array.isArray(state.wheels) ? state.wheels : EMPTY;
-    let squeal = 0;
-    let asphaltContact = 0;
+    let screech = 0;
+    let asphalt = 0;
     let rough = 0;
     let crunch = 0;
+    let grass = 0;
     for (let i = 0; i < wheels.length; i += 1) {
       const w = wheels[i];
       if (!w || !w.contact) continue;
       const surface = finite(w.surface, SURFACE.ASPHALT) | 0;
       const props = SURFACE_PROPS[surface] || SURFACE_PROPS[SURFACE.ASPHALT];
       const slip = Math.max(0, finite(w.slip, 0));
-      if (surface === SURFACE.ASPHALT) {
-        asphaltContact += 1;
-        squeal += saturate((slip - 1) / 1.2);
+      if (surface === SURFACE.ASPHALT || surface === SURFACE.ROCK) {
+        asphalt += 1;
+        screech += saturate((slip - 0.9) / 1.3) * (surface === SURFACE.ROCK ? 0.5 : 1);
+        if (surface === SURFACE.ROCK) rough += props.roughness;
       } else {
         rough += props.roughness;
-        if (isLoose(surface)) crunch += props.roughness * (1 + saturate(slip - 0.5));
+        if (isLoose(surface)) crunch += props.roughness * (1 + 1.5 * saturate(slip - 0.5));
+        if (surface === SURFACE.GRASS) grass += 1 + saturate(slip - 0.5);
       }
     }
-    let squealAmt = saturate(squeal / 2);
-    if (options.drifting && asphaltContact > 0 && squealAmt < 0.25) squealAmt = 0.25;
-    const speedGate = saturate((speed - 2) / 8);
-
-    // Realistic tire screech from sample
-    if (g.skidSampleSrc) {
-      const skidRate = 0.82 + 0.36 * squealAmt + Math.min(0.2, speed * 0.005);
-      g.skidSampleSrc.playbackRate.setTargetAtTime(skidRate, now, 0.04);
-      const skidLevel = 0.75 * Math.pow(squealAmt, 0.75) * speedGate;
-      this._bed(g.skidSampleGain.gain, skidLevel, 0.04, now);
-      const skidCutoff = 1200 + 4000 * squealAmt;
-      g.skidSampleFilter.frequency.setTargetAtTime(Math.min(16000, skidCutoff), now, 0.05);
-      this._bed(g.squealGain.gain, 0, 0.05, now);
-    } else {
-      const squealLevel = 0.2 * Math.pow(squealAmt, 0.8) * speedGate;
-      const squealPitch = 720 + 480 * squealAmt + Math.min(240, speed * 3);
-      g.squealFilter.frequency.setTargetAtTime(squealPitch, now, 0.06);
-      g.squealTone.frequency.setTargetAtTime(squealPitch * 0.92, now, 0.06);
-      this._bed(g.squealGain.gain, squealLevel, 0.05, now);
+    let skid = saturate(screech / 2);
+    if (options.drifting && asphalt > 0 && skid < 0.25) skid = 0.25;
+    const speedGate = saturate((speed - 1.5) / 6);
+    skid *= speedGate;
+    this._skidAmt += (skid - this._skidAmt) * (1 - Math.exp(-dt / 0.04));
+    const sk = this._skidAmt;
+    const heavy = saturate((sk - 0.35) / 0.5);
+    this._bed(g.skidGain.gain, 0.55 * Math.pow(sk, 0.7) * (1 - 0.6 * heavy), 0.04, now);
+    this._bed(g.skidHeavyGain.gain, 0.6 * Math.pow(sk, 0.7) * heavy, 0.04, now);
+    if (g.skidSrc) g.skidSrc.playbackRate.setTargetAtTime(0.88 + 0.22 * sk + Math.min(0.12, speed * 0.003), now, 0.05);
+    if (g.skidHeavySrc) g.skidHeavySrc.playbackRate.setTargetAtTime(0.9 + 0.15 * sk, now, 0.05);
+    g.skidFilter.frequency.setTargetAtTime(2500 + 9000 * sk, now, 0.05);
+    // Drift chirp on a fresh break of traction.
+    if (sk < 0.12) this._skidLow = 0;
+    else this._skidLow += dt;
+    if (skid > 0.4 && this._skidLow < 0.25 && speed > 5 && this._cooldown('chirp', 0.7)) {
+      this._shot('chirp', 0.22 + 0.25 * skid, 0.9 + Math.random() * 0.25);
     }
 
+    const crunchAmt = saturate(crunch / 4 / 0.4) * saturate(speed / 18);
+    this._bed(g.gravelGain.gain, 0.6 * crunchAmt, 0.06, now);
+    if (g.gravelSrc) g.gravelSrc.playbackRate.setTargetAtTime(0.75 + 0.55 * saturate(speed / 30), now, 0.1);
+    g.gravelFilter.frequency.setTargetAtTime(2500 + 7000 * saturate(speed / 30), now, 0.1);
     const roughAmt = saturate(rough / 4 / 0.5);
-    this._bed(g.rumbleGain.gain, 0.3 * roughAmt * saturate(speed / 25), 0.08, now);
-    g.rumbleFilter.frequency.setTargetAtTime(110 + Math.min(260, speed * 5), now, 0.1);
-    this._bed(g.crunchGain.gain, 0.14 * saturate(crunch / 4 / 0.4) * saturate(speed / 20), 0.06, now);
-    g.crunchFilter.frequency.setTargetAtTime(1100 + Math.min(1600, speed * 30), now, 0.1);
+    this._bed(g.roadGain.gain, (0.05 + 0.3 * roughAmt) * saturate(speed / 35), 0.08, now);
+    g.roadFilter.frequency.setTargetAtTime(160 + Math.min(700, speed * 12), now, 0.1);
+    this._bed(g.grassGain.gain, 0.06 * Math.min(2, grass / 2) * saturate(speed / 20), 0.08, now);
 
-    // ---- wind and nitro
+    // ---- body scraping along a wall / barrier
+    const scrape = Math.max(0, finite(state.scrape, 0));
+    const sc = saturate(scrape / 12);
+    this._bed(g.scrapeGain.gain, sc > 0.01 ? 0.65 * Math.pow(sc, 0.6) : 0, 0.03, now);
+    if (g.scrapeSrc) g.scrapeSrc.playbackRate.setTargetAtTime(0.75 + 0.5 * saturate(scrape / 25), now, 0.05);
+    g.scrapeFilter.frequency.setTargetAtTime(1200 + 2800 * saturate(scrape / 25), now, 0.08);
+
+    // ---- wind
     const windN = saturate(speed / 70);
-    this._bed(g.windGain.gain, 0.2 * windN * windN, 0.15, now);
-    g.windFilter.frequency.setTargetAtTime(280 + speed * 18, now, 0.15);
-
-    // Authentic nitro boost
-    if (boosting) {
-      this._bed(g.nitroSampleGain.gain, 0.55, 0.05, now);
-      if (g.nitroSampleSrc) {
-        g.nitroSampleSrc.playbackRate.setTargetAtTime(0.95 + 0.25 * (speed / 80), now, 0.05);
-      }
-      this._bed(g.nitroGain.gain, 0.04, 0.04, now);
-    } else {
-      this._bed(g.nitroSampleGain.gain, 0, 0.12, now);
-      this._bed(g.nitroGain.gain, 0, 0.12, now);
-    }
+    this._bed(g.windGain.gain, 0.22 * windN * windN, 0.15, now);
+    g.windFilter.frequency.setTargetAtTime(300 + speed * 16, now, 0.15);
+    this._bed(g.buffetGain.gain, 0.12 * windN * windN, 0.2, now);
 
     // ---- per-step collision events
     const impact = finite(state.impact, 0);
@@ -820,70 +798,120 @@ export class AudioEngine {
     if (landing > 2) this.landing(landing);
   }
 
-  _purge() {
-    if (!this._canPlay() || !this._cooldown('purge', 0.25)) return;
-    this._safe(() => {
-      const buf = cachedExhaustBurbleBuffer || cachedExhaustPopBuffer;
-      if (buf) {
-        const src = this.ctx.createBufferSource();
-        src.buffer = buf;
-        src.playbackRate.setValueAtTime(1.35 + Math.random() * 0.2, this.ctx.currentTime);
-        const gain = this.ctx.createGain();
-        gain.gain.setValueAtTime(0.38, this.ctx.currentTime);
-        src.connect(gain);
-        gain.connect(this._g.sfxBus);
-        src.start();
-        src.onended = () => {
-          try {
-            src.disconnect();
-            gain.disconnect();
-          } catch {}
-        };
-      } else {
-        this._noise({ dur: 0.12, vol: 0.16, filter: 'highpass', freq: 3000, attack: 0.002 });
+  /** Crossfade the rpm layers and shape the tone. */
+  _engine(rpmA, rpmN, load, boosting, now) {
+    const g = this._g;
+    const L = g.layers;
+    const level = (0.3 + 0.7 * Math.pow(rpmN, 0.9)) * (0.5 + 0.5 * load) * (boosting ? 1.15 : 1);
+    this._bed(g.engineAmp.gain, 0.9 * level, 0.03, now);
+    const onW = Math.sin(load * Math.PI / 2);
+    const offW = Math.cos(load * Math.PI / 2);
+    g.onBus.gain.setTargetAtTime(onW, now, 0.02);
+    g.offBus.gain.setTargetAtTime(offW * 0.85, now, 0.02);
+
+    if (L) {
+      const rpms = L.rpm;
+      const n = rpms.length;
+      let i = 0;
+      while (i < n - 2 && rpmA >= rpms[i + 1]) i += 1;
+      const t = saturate(Math.log(rpmA / rpms[i]) / Math.log(rpms[i + 1] / rpms[i]));
+      const lo = Math.cos(t * Math.PI / 2);
+      const hi = Math.sin(t * Math.PI / 2);
+      for (let k = 0; k < n; k += 1) {
+        const w = k === i ? lo : k === i + 1 ? hi : 0;
+        const on = L.on[k];
+        const off = L.off[k];
+        on.gain.gain.setTargetAtTime(w, now, 0.012);
+        off.gain.gain.setTargetAtTime(w, now, 0.012);
+        if (k >= i - 1 && k <= i + 2) {
+          const rate = Math.max(0.25, Math.min(4, rpmA / rpms[k]));
+          on.src.playbackRate.setTargetAtTime(rate, now, 0.012);
+          off.src.playbackRate.setTargetAtTime(rate, now, 0.012);
+        }
       }
-    });
+      this._bed(g.fallbackGain.gain, 0, 0.05, now);
+    } else {
+      g.fallbackOsc.frequency.setTargetAtTime(rpmA / SPRITES.engine.rpmPerHz, now, 0.02);
+      g.fallbackTone.frequency.setTargetAtTime(300 + 1500 * rpmN * (0.4 + 0.6 * load), now, 0.05);
+      this._bed(g.fallbackGain.gain, 0.12, 0.05, now);
+    }
+
+    // Load and nitro: brighter, more driven, more intake; coasting is darker and cleaner.
+    const cutoff = 1500 + 9500 * (0.25 + 0.75 * load) * (0.3 + 0.7 * rpmN) + (boosting ? 3500 : 0);
+    g.tone.frequency.setTargetAtTime(Math.min(16000, cutoff), now, 0.04);
+    g.driveMix.gain.setTargetAtTime(0.05 + 0.35 * load * rpmN + (boosting ? 0.3 : 0), now, 0.05);
+    g.body.gain.setTargetAtTime(4 * load * (1 - 0.6 * rpmN), now, 0.06);
+    this._bed(g.intakeGain.gain, (0.12 * load * (0.2 + 0.8 * rpmN)) * (boosting ? 1.4 : 1), 0.04, now);
+    g.intakeFilter.frequency.setTargetAtTime(500 + 1600 * rpmN, now, 0.05);
   }
 
-  _pop(intensity = 0.5) {
-    if (!this._canPlay() || !this._cooldown('pop', 0.08)) return;
-    this._safe(() => {
-      const buffer = (intensity > 0.4 && cachedExhaustPopBuffer)
-        ? cachedExhaustPopBuffer
-        : (cachedExhaustBurbleBuffer || cachedExhaustPopBuffer);
-      if (buffer) {
-        const src = this.ctx.createBufferSource();
-        src.buffer = buffer;
-        const rate = 0.88 + Math.random() * 0.28;
-        src.playbackRate.setValueAtTime(rate, this.ctx.currentTime);
-        const gain = this.ctx.createGain();
-        const vol = Math.min(0.65, 0.22 + 0.38 * saturate(intensity));
-        gain.gain.setValueAtTime(vol, this.ctx.currentTime);
-        src.connect(gain);
-        gain.connect(this._g.sfxBus);
-        src.start();
-        src.onended = () => {
-          try {
-            src.disconnect();
-            gain.disconnect();
-          } catch {}
-        };
-      } else {
-        this._noise({ dur: 0.05, vol: 0.14 * intensity, filter: 'lowpass', freq: 1300, freqEnd: 400, attack: 0.001 });
-        this._tone({ freq: 130 + Math.random() * 40, freqEnd: 40, dur: 0.07, vol: 0.16 * intensity, type: 'triangle', attack: 0.001 });
+  _onShift(gear, rpmN, throttle) {
+    if (!this._live()) return;
+    const prev = this._prevGear;
+    const up = prev === null ? true : gear > prev;
+    if (up && gear > 1) {
+      this._cut = 0.11; // ignition / throttle cut while the dog rings engage
+      this._shot('clunkUp', 0.3 + 0.1 * Math.random(), 0.95 + Math.random() * 0.1);
+      if (rpmN > 0.55 && throttle > 0.6 && Math.random() < 0.75) {
+        this._crackle(0.45 + 0.25 * rpmN, Math.random() < 0.6, 0.015);
       }
-    });
+    } else if (!up) {
+      this._shot('clunkDown', 0.3 + 0.1 * Math.random(), 0.95 + Math.random() * 0.1);
+      if (throttle < 0.6 && gear >= 1) {
+        this._blip = 1; // rev-matching blip
+        if (Math.random() < 0.4) this._crackle(0.3 + 0.2 * Math.random(), false, 0.16);
+      }
+    } else {
+      this._shot('clunkDown', 0.2, 1.05);
+    }
+    this._cool.shift = this.ctx.currentTime;
   }
 
-  _flutter() {
-    if (!this._canPlay() || !this._cooldown('flutter', 0.45)) return;
-    const chirps = [1720, 1360, 1080, 840];
-    for (let i = 0; i < chirps.length; i += 1) {
-      this._noise({ dur: 0.05, vol: 0.07 * Math.pow(0.7, i), filter: 'bandpass', freq: chirps[i], freqEnd: chirps[i] * 0.75, q: 4, when: i * 0.065, attack: 0.008 });
+  /** A real overrun crackle (or a multi-crackle "brap") with random pitch and level. */
+  _crackle(intensity, brap = false, delay = 0) {
+    if (!this._canPlay() || !bank.sfx || !this._cooldown('crackle', brap ? 0.12 : 0.045)) return;
+    let name;
+    if (brap) name = BRAPS[Math.floor(Math.random() * BRAPS.length)];
+    else {
+      let k = Math.floor(Math.random() * CRACKLES.length);
+      if (k === this._lastCrackle) k = (k + 1) % CRACKLES.length;
+      this._lastCrackle = k;
+      name = CRACKLES[k];
+    }
+    this._shot(name, Math.min(0.8, (brap ? 0.5 : 0.42) * saturate(intensity) + 0.08), 0.85 + Math.random() * 0.35, delay);
+  }
+
+  /** Play a decoded one-shot. Returns false if it is not available. */
+  _shot(name, vol, rate = 1, delay = 0) {
+    if (!this._canPlay() || !bank.sfx) return false;
+    const buffer = bank.sfx[name];
+    if (!buffer) return false;
+    try {
+      const ctx = this.ctx;
+      const t = ctx.currentTime + Math.max(0, delay);
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.playbackRate.setValueAtTime(rate, t);
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(Math.max(0, vol), t);
+      src.connect(env);
+      env.connect(this._g.sfxBus);
+      src.onended = () => {
+        try {
+          src.disconnect();
+          env.disconnect();
+        } catch {
+          // ignore
+        }
+      };
+      src.start(t);
+      return true;
+    } catch {
+      return false;
     }
   }
 
-  /** Enveloped oscillator one-shot. */
+  /** Enveloped oscillator one-shot (UI cues only). */
   _tone({ freq, freqEnd, dur, vol, type = 'sine', when = 0, attack = 0.006 }) {
     const ctx = this.ctx;
     const t = ctx.currentTime + when;
@@ -909,7 +937,7 @@ export class AudioEngine {
     osc.stop(t + dur + 0.05);
   }
 
-  /** Enveloped, filtered noise one-shot. */
+  /** Enveloped, filtered noise one-shot (UI cues and the no-sample fallback). */
   _noise({ dur, vol, filter = 'lowpass', freq = 1000, freqEnd, q = 0.8, when = 0, attack = 0.004 }) {
     const ctx = this.ctx;
     const t = ctx.currentTime + when;
@@ -941,7 +969,7 @@ export class AudioEngine {
   }
 }
 
-/** Soft-clipping curve (tanh) for the engine waveshaper. */
+/** Soft-clipping curve (tanh) for the engine drive path. */
 function makeDriveCurve(k) {
   const n = 1024;
   const curve = new Float32Array(n);
