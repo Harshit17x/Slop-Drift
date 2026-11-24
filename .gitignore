@@ -23,6 +23,7 @@ public/models/track.glb
 # The homepage map flyovers are small bundled assets, not recordings.
 !src/assets/maps/previews/*.mp4
 slop-drift.zip
+slop-drift-*.zip
 
 # Standalone nested sub-projects
 my-game/

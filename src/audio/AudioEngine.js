@@ -146,6 +146,8 @@ export class AudioEngine {
     this._g = null; // graph nodes
     this._volume = saturate(finite(volume, 0.8));
     this._muted = false;
+    this._platformMuted = false;
+    this._adMuted = false;
     this._disposed = false;
     this._cool = Object.create(null);
     this._onVisibility = null;
@@ -155,7 +157,7 @@ export class AudioEngine {
   }
 
   get muted() {
-    return this._muted;
+    return this._muted || this._platformMuted || this._adMuted;
   }
 
   get volume() {
@@ -213,7 +215,21 @@ export class AudioEngine {
   setMuted(value) {
     this._muted = Boolean(value);
     this._applyOutput();
-    return this._muted;
+    return this.muted;
+  }
+
+  setPlatformMuted(value) {
+    this._platformMuted = Boolean(value);
+    if (this._platformMuted) this.silence();
+    this._applyOutput();
+    return this.muted;
+  }
+
+  setAdMuted(value) {
+    this._adMuted = Boolean(value);
+    if (this._adMuted) this.silence();
+    this._applyOutput();
+    return this.muted;
   }
 
   toggleMute() {
@@ -381,7 +397,7 @@ export class AudioEngine {
 
   /** One-shots only while the context is actually running, so nothing piles up while suspended. */
   _canPlay() {
-    return this._live() && !this._muted && this.ctx.state === 'running';
+    return this._live() && !this.muted && this.ctx.state === 'running';
   }
 
   _safe(fn) {
@@ -406,7 +422,7 @@ export class AudioEngine {
       const g = this._g.output.gain;
       const now = this.ctx.currentTime;
       g.cancelScheduledValues(now);
-      g.setTargetAtTime(this._muted ? 0 : this._volume, now, 0.05);
+      g.setTargetAtTime(this.muted ? 0 : this._volume, now, 0.05);
     } catch {
       // ignore
     }
@@ -488,7 +504,7 @@ export class AudioEngine {
     };
 
     // Master chain.
-    const output = gain(this._muted ? 0 : this._volume, ctx.destination);
+    const output = gain(this.muted ? 0 : this._volume, ctx.destination);
     const limiter = compressor(-2, 0, 20, 0.002, 0.12, output);
     const glue = compressor(-18, 10, 3, 0.008, 0.25, limiter);
     const mix = gain(0.9, glue);

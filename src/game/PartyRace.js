@@ -246,9 +246,11 @@ export class PartyRace {
     }
     let code = null;
     try {
+      const cgInvite = this.game.platform?.getInviteParam?.('party');
+      if (cgInvite) code = normalizePartyCode(cgInvite) || null;
       const url = new URL(globalThis.location.href);
       const linked = url.searchParams.get('party');
-      if (linked !== null) {
+      if (!code && linked !== null) {
         code = normalizePartyCode(linked) || null;
         url.searchParams.delete('party');
         globalThis.history?.replaceState(globalThis.history.state, '', `${url.pathname}${url.search}${url.hash}`);
@@ -374,7 +376,10 @@ export class PartyRace {
   }
 
   async copyLink() {
-    const url = this.shareUrl;
+    const cgUrl = this.code
+      ? await this.game.platform?.inviteLink?.({ party: this.code, map: this.mapId })
+      : null;
+    const url = cgUrl || this.shareUrl;
     if (!url) return false;
     try {
       await globalThis.navigator.clipboard.writeText(url);

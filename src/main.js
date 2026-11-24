@@ -1,7 +1,10 @@
 import { inject } from '@vercel/analytics';
 import { Game } from './core/Game.js';
 
-inject();
+const host = typeof window !== 'undefined' ? window.location.hostname : '';
+if (typeof window !== 'undefined' && !window.CrazyGames && /(^|\.)slopdrift\.xyz$|\.vercel\.app$/i.test(host)) {
+  inject();
+}
 
 const root = document.querySelector('#app');
 const game = new Game(root);

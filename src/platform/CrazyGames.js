@@ -13,6 +13,11 @@ export class CrazyGamesPlatform {
     this.lastAdTime = 0;
     // CrazyGames recommends at least 3 minutes between midgame ads
     this.adCooldown = 180000;
+    this._muteListeners = new Set();
+    this._settingsListener = null;
+    this._loadingState = null; // 'start' | 'stop'
+    this._gameplayState = null; // 'start' | 'stop'
+    this._gameplaySent = null; // 'start' | 'stop'
   }
 
   /**
@@ -28,6 +33,37 @@ export class CrazyGamesPlatform {
       await this.sdk.init();
       this.initialized = true;
       console.info('[CrazyGames] Initialized. Environment:', this.sdk.environment);
+
+      // Flush deferred lifecycle events if init completed after startup/menu calls.
+      if (this._loadingState === 'start') {
+        try { this.sdk.game?.loadingStart?.(); } catch {}
+      } else if (this._loadingState === 'stop') {
+        try { this.sdk.game?.loadingStart?.(); } catch {}
+        try { this.sdk.game?.loadingStop?.(); } catch {}
+      }
+      if (this._gameplayState === 'start') {
+        try { this.sdk.game?.gameplayStart?.(); } catch {}
+        this._gameplaySent = 'start';
+      }
+
+      // Enforce CrazyGames SDK v3 muteAudio setting and subscribe to live toggles.
+      const notifyMute = (muted) => {
+        const flag = Boolean(muted);
+        for (const cb of this._muteListeners) {
+          try { cb(flag); } catch {}
+        }
+      };
+      if (this.sdk.game?.settings && 'muteAudio' in this.sdk.game.settings) {
+        notifyMute(this.sdk.game.settings.muteAudio);
+      }
+      if (typeof this.sdk.game?.addSettingsChangeListener === 'function') {
+        this._settingsListener = (settings) => {
+          if (settings && 'muteAudio' in settings) notifyMute(settings.muteAudio);
+        };
+        this.sdk.game.addSettingsChangeListener(this._settingsListener);
+      } else if (typeof this.sdk.audio?.addMuteListener === 'function') {
+        this.sdk.audio.addMuteListener(notifyMute);
+      }
     } catch (err) {
       console.warn('[CrazyGames] SDK init error:', err);
     }
@@ -35,6 +71,9 @@ export class CrazyGamesPlatform {
 
   /** Tell CrazyGames loading has started */
   loadingStart() {
+    if (this._loadingState === 'start' || this._loadingState === 'stop') return;
+    this._loadingState = 'start';
+    if (!this.initialized) return;
     try {
       this.sdk?.game?.loadingStart();
     } catch {}
@@ -42,27 +81,41 @@ export class CrazyGamesPlatform {
 
   /** Tell CrazyGames loading has finished and the game is interactive */
   loadingStop() {
+    if (this._loadingState === 'stop') return;
+    const hadStart = this._loadingState === 'start';
+    this._loadingState = 'stop';
+    if (!this.initialized) return;
     try {
+      if (!hadStart) this.sdk?.game?.loadingStart?.();
       this.sdk?.game?.loadingStop();
     } catch {}
   }
 
   /** Call when player enters active driving / gameplay */
   gameplayStart() {
+    if (this._gameplayState === 'start') return;
+    this._gameplayState = 'start';
+    if (!this.initialized) return;
     try {
       this.sdk?.game?.gameplayStart();
+      this._gameplaySent = 'start';
     } catch {}
   }
 
   /** Call when player leaves gameplay (pause, menu, crash, or race finish) */
   gameplayStop() {
+    if (this._gameplayState !== 'start') return;
+    this._gameplayState = 'stop';
+    if (!this.initialized || this._gameplaySent !== 'start') return;
     try {
       this.sdk?.game?.gameplayStop();
+      this._gameplaySent = 'stop';
     } catch {}
   }
 
   /** Call on milestone / celebratory moments (new record, gold medal, achievement) */
   happytime() {
+    if (!this.initialized) return;
     try {
       this.sdk?.game?.happytime();
     } catch {}
@@ -70,15 +123,36 @@ export class CrazyGamesPlatform {
 
   /**
    * Listen for CrazyGames site-wide mute/unmute toggles from the player.
+   * Also invokes immediately if SDK settings already specify muteAudio.
    * @param {(muted: boolean) => void} callback
    */
   addMuteListener(callback) {
+    if (typeof callback !== 'function') return;
+    this._muteListeners.add(callback);
+    if (this.initialized && this.sdk?.game?.settings && 'muteAudio' in this.sdk.game.settings) {
+      try { callback(Boolean(this.sdk.game.settings.muteAudio)); } catch {}
+    }
+  }
+
+  /** Read an invite query parameter via SDK when running inside CrazyGames. */
+  getInviteParam(key) {
+    if (!this.initialized) return null;
     try {
-      this.sdk?.audio?.addMuteListener((muted) => {
-        callback(Boolean(muted));
-      });
-    } catch (e) {
-      console.warn('[CrazyGames] Failed to register mute listener:', e);
+      return this.sdk?.game?.getInviteParam?.(key) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Generate a shareable CrazyGames multiplayer invite URL when supported by environment. */
+  async inviteLink(params = {}) {
+    if (!this.initialized || this.sdk?.environment !== 'crazygames' || typeof this.sdk?.game?.inviteLink !== 'function') {
+      return null;
+    }
+    try {
+      return await this.sdk.game.inviteLink(params);
+    } catch {
+      return null;
     }
   }
 

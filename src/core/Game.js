@@ -92,7 +92,7 @@ export class Game {
     this.hud.showLoading(0, 'Starting up');
     this.input = new Input({ root: this.root, touchRoot: this.hud.touchRoot });
     this.audio = new AudioEngine({ volume: this.settings.volume });
-    this.platform.addMuteListener((muted) => this.audio.setMuted(muted));
+    this.platform.addMuteListener((muted) => this.audio.setPlatformMuted(muted));
     this.bindHud();
     this.bindAudioUnlock();
     await nextFrame();
@@ -492,9 +492,10 @@ export class Game {
       this.audio.silence();
       this.platform.requestMidgameAd({
         onStart: () => {
-          this.audio.silence();
+          this.audio.setAdMuted(true);
         },
         onFinish: () => {
+          this.audio.setAdMuted(false);
           action();
         },
       });
