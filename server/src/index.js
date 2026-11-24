@@ -25,7 +25,7 @@ const GHOST_TTL = 60;
 const MAX_BODY = 100_000;
 
 /** Primary lobby rooms where public players connect; checked for presence. */
-const PRIMARY_ROOMS = ['mountain', 'mussoorie.mountain'];
+const PRIMARY_ROOMS = ['mountain', 'mussoorie.mountain', 'jungle.mountain'];
 
 /** Ephemeral set of rooms with recent connection activity, avoiding waking up empty rooms. */
 const activeRooms = new Set(PRIMARY_ROOMS);
