@@ -51,6 +51,11 @@ function keyedByTrack(mapId, targets) {
  * bare mode ids of MEDAL_TARGETS. Its keys are exactly the tracks with medals and leaderboards.
  */
 export const TRACK_MEDAL_TARGETS = Object.freeze({
+  ...keyedByTrack('jungle', {
+    sprint: { kind: 'time', bronze: 310, silver: 270, gold: 235, author: 210 },
+    circuit: { kind: 'time', bronze: 620, silver: 540, gold: 470, author: 420 },
+    drift: MEDAL_TARGETS.drift,
+  }),
   ...keyedByTrack('alpine', MEDAL_TARGETS),
   ...keyedByTrack('mussoorie', MUSSOORIE_MEDAL_TARGETS),
 });

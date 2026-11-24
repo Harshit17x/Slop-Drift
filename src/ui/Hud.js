@@ -1763,7 +1763,7 @@ export class Hud {
           shot.animate([{ opacity: 0.25 }, { opacity: 1 }], { duration: 240, easing: 'ease-out' });
         }
       }
-      shot.alt = `${map.label} from above`;
+      shot.alt = map.previewAlt || `${map.label} from above`;
     }
     // The still is the poster and the fallback; the flyover fades in over it once it can play.
     const clip = this.q('.sdh-map-clip');

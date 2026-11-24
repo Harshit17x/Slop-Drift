@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { smoothstep } from '../core/math.js';
+import { JungleRoad } from './JungleRoad.js';
 import { MeshBuffer } from './road/MeshBuffer.js';
 import { createAsphaltTexture, createGrainTexture, createChevronTexture, createLabelTexture, createCheckerTexture } from './road/textures.js';
 
@@ -74,13 +75,17 @@ export class RoadView {
     this.steelMaterial = this.track(new THREE.MeshStandardMaterial({ color: 0xb9c0c6, roughness: 0.42, metalness: 0.75, side: THREE.DoubleSide }));
     this.darkMaterial = this.track(new THREE.MeshStandardMaterial({ color: 0x23272c, roughness: 0.6, metalness: 0.5 }));
 
-    this.buildSurfaces();
-    this.buildMarkings();
-    this.buildRails();
-    this.buildDelineators();
-    this.buildReflectors();
-    this.buildChevrons();
-    this.buildSummitMarker();
+    if (world.bridge) {
+      this.jungle = new JungleRoad(this);
+    } else {
+      this.buildSurfaces();
+      this.buildMarkings();
+      this.buildRails();
+      this.buildDelineators();
+      this.buildReflectors();
+      this.buildChevrons();
+      this.buildSummitMarker();
+    }
 
     this.stats = { buildMs: performance.now() - started, triangles: 0, drawCalls: 0 };
     this.group.traverse((node) => {
@@ -728,6 +733,7 @@ export class RoadView {
 
   dispose() {
     this.clearGates();
+    this.jungle?.ropes.dispose();
     this.disposables.forEach((resource) => resource.dispose());
     this.disposables = [];
     this.group.removeFromParent();

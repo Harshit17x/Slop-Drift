@@ -8,7 +8,7 @@ const STORAGE_KEY = 'slop-drift-settings-v2';
 const RECORDS_KEY = 'slop-drift-records-v1';
 
 /** Surface ids returned by World.sampleGround(). Index into SURFACE_PROPS. */
-export const SURFACE = Object.freeze({ ASPHALT: 0, GRAVEL: 1, GRASS: 2, DIRT: 3, ROCK: 4, SNOW: 5, WATER: 6 });
+export const SURFACE = Object.freeze({ ASPHALT: 0, GRAVEL: 1, GRASS: 2, DIRT: 3, ROCK: 4, SNOW: 5, WATER: 6, MUD: 7, WOOD: 8, HARDPACK: 9 });
 
 export const SURFACE_PROPS = Object.freeze([
   Object.freeze({ name: 'asphalt', grip: 1.0, rolling: 0.012, roughness: 0.02 }),
@@ -18,6 +18,9 @@ export const SURFACE_PROPS = Object.freeze([
   Object.freeze({ name: 'rock', grip: 0.62, rolling: 0.05, roughness: 0.8 }),
   Object.freeze({ name: 'snow', grip: 0.34, rolling: 0.07, roughness: 0.3 }),
   Object.freeze({ name: 'water', grip: 0.3, rolling: 0.5, roughness: 0.2 }),
+  Object.freeze({ name: 'mud', grip: 0.90, rolling: 0.017, roughness: 0.32 }),
+  Object.freeze({ name: 'wet timber', grip: 0.7, rolling: 0.022, roughness: 0.15 }),
+  Object.freeze({ name: 'hardpack', grip: 0.90, rolling: 0.015, roughness: 0.14 }),
 ]);
 
 /**
