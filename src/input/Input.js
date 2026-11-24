@@ -126,6 +126,7 @@ export class Input {
     // Touch
     this.ownsTouchRoot = !touchRoot;
     this.touchRoot = touchRoot || this.createTouchRoot();
+    this.nitroAvailable = true;
     this.touchPointers = new Map(); // pointerId -> action; one entry per finger, so fingers release independently
     this.steerPointer = null;
     this.steerValue = 0;
@@ -438,6 +439,12 @@ export class Input {
     return result;
   }
 
+  /** Cars without nitrous: the boost key does nothing and the touch N2O button is hidden. */
+  setNitroAvailable(available) {
+    this.nitroAvailable = Boolean(available);
+    this.touchRoot?.querySelector('[data-touch="boost"]')?.toggleAttribute('hidden', !this.nitroAvailable);
+  }
+
   /** Call once per frame. Returns a fresh snapshot object. */
   update() {
     const pad = this.readGamepad();
@@ -479,7 +486,7 @@ export class Input {
       brake: driving ? clamp(brake, 0, 1) : 0,
       steer: driving ? clamp(steer, -1, 1) : 0,
       handbrake: driving && Boolean(handbrake),
-      boost: driving && Boolean(boost),
+      boost: driving && this.nitroAvailable && Boolean(boost),
       shift: driving ? (up ? 1 : 0) - (downShift ? 1 : 0) : 0,
       camera: edges.has('camera') || Boolean(pad?.camera),
       respawn: edges.has('respawn') || Boolean(pad?.respawn),

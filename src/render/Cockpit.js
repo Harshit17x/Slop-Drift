@@ -70,15 +70,65 @@ function canvasTexture(width, height) {
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
+/**
+ * Interior styles. The cabin is modelled once at rally-hatch size; `scale`, `y` and `z` fit it inside
+ * another body (chassis space, chassis origin on the ground), the rest swaps parts and colours.
+ * Details from press photos and reviews of a 992 GT3 RS (Weissach) and a Thar Roxx, brand marks left out.
+ */
+export const STYLES = Object.freeze({
+  drift: {
+    scale: 1, y: 0, z: 0,
+    dash: 0x1b1d20, trim: 0x26292d, headliner: 0x2b2d30, carpet: 0x121315, seat: 0x18191b, seatAccent: 0xc8321e,
+    cage: 0x2e8b5e, cageLayout: 'full', strip: true, extinguisher: true, seatType: 'bucket',
+    wheelType: 'dish', wheelStripe: 0xf2b01e, rim: 0x151515, spoke: 0xb7bcc2,
+    shifter: 'h', handbrake: 'hydraulic', cluster: 'drift', aux: 'pod',
+    sleeve: 0x1f3a2b, cuff: 0x14110d, glove: 0x141516, gloveAccent: 0xc8321e,
+  },
+  // Black Race-Tex everywhere, carbon trim and buckets, red stitching and harness, a carbon half cage
+  // behind the seats, a small round wheel with two rotary dials and paddles, the five-dial cluster with
+  // a 9,000 rpm tach in the middle, a PDK selector, and the stopwatch on top of the dash.
+  gt: {
+    scale: 0.857, y: 0.217, z: 0.07,
+    dash: 0x121212, trim: 0x2a2a2c, headliner: 0x161616, carpet: 0x0e0e0e, seat: 0x1c1c1e, seatAccent: 0xd5001c,
+    cage: 0x2a2a2c, cageLayout: 'rear', strip: false, extinguisher: false, seatType: 'bucket',
+    wheelType: 'gt', wheelStripe: 0xd5001c, rim: 0x141414, spoke: 0x2a2a2c,
+    shifter: 'pdk', handbrake: 'button', cluster: 'five', aux: 'clock', screen: 'gt',
+    sleeve: 0x18191b, cuff: 0x0d0d0d, glove: 0x121212, gloveAccent: 0xd5001c,
+  },
+  // A tall, upright black-and-beige dash with a grab handle in front of the passenger, twin 10.25-inch
+  // screens (driver display and touchscreen), comfortable seats with separate headrests, an automatic
+  // lever with the 4x4 lever beside it, a light roof lining, and a high seating position. No cage.
+  suv: {
+    scale: 1.12, y: 0.366, z: 0.09,
+    dash: 0x1a1a1a, dashInsert: 0xc9b99a, trim: 0x4a4a4a, headliner: 0xd8d2c4, carpet: 0x1a1a1a, seat: 0xc9b99a, seatAccent: 0x2a2a2a,
+    cage: null, strip: false, extinguisher: false, seatType: 'suv', grabHandle: true, uprightDash: true,
+    wheelType: 'suv', wheelStripe: null, rim: 0x1c1c1c, spoke: 0x3a3a3a,
+    shifter: 'auto', handbrake: 'button', cluster: 'twin', aux: null, screen: 'suv',
+    sleeve: 0x3b4a5c, cuff: 0x2b3746, glove: 0xc68a64, gloveAccent: 0x222222,
+  },
+});
+
+/** The driver's eye in the car's chassis space for a style (the cockpit camera's position). */
+export function cockpitEye(styleName) {
+  const st = STYLES[styleName] || STYLES.drift;
+  return { x: COCKPIT_EYE.x * st.scale, y: COCKPIT_EYE.y * st.scale + st.y, z: COCKPIT_EYE.z * st.scale + st.z };
+}
+
 export class Cockpit extends THREE.Group {
   /**
    * @param {object} options
    * @param {THREE.Material} [options.paint]  The car's body paint, for the bonnet seen through the glass.
    * @param {THREE.Material} [options.stripe] The livery stripe material.
+   * @param {string} [options.style]          A key of STYLES.
    */
-  constructor({ paint = null, stripe = null } = {}) {
+  constructor({ paint = null, stripe = null, style = 'drift' } = {}) {
     super();
     this.name = 'DriftCockpit';
+    this.styleName = STYLES[style] ? style : 'drift';
+    this.style = STYLES[this.styleName];
+    this.scale.setScalar(this.style.scale);
+    this.position.set(0, this.style.y, this.style.z);
+    this.paddleFlick = 0;
     this.visible = false;
     this.materials = [];
     this.textures = [];
@@ -126,22 +176,26 @@ export class Cockpit extends THREE.Group {
   }
 
   build() {
-    const dash = this.mat({ color: 0x1b1d20, roughness: 0.88, metalness: 0.05 });
-    const trim = this.mat({ color: 0x26292d, roughness: 0.7, metalness: 0.1 });
-    const headliner = this.mat({ color: 0x2b2d30, roughness: 0.95 });
-    const carpet = this.mat({ color: 0x121315, roughness: 1 });
-    const cage = this.mat({ color: 0x2e8b5e, roughness: 0.42, metalness: 0.35 });
+    const st = this.style;
+    const dash = this.mat({ color: st.dash, roughness: 0.88, metalness: 0.05 });
+    const trim = this.mat({ color: st.trim, roughness: 0.7, metalness: st.cageLayout === 'rear' ? 0.35 : 0.1 });
+    const headliner = this.mat({ color: st.headliner, roughness: 0.95 });
+    const carpet = this.mat({ color: st.carpet, roughness: 1 });
+    const cage = this.mat({ color: st.cage ?? 0x2e8b5e, roughness: st.cageLayout === 'rear' ? 0.5 : 0.42, metalness: 0.35 });
     const pad = this.mat({ color: 0x0f1011, roughness: 0.9 });
     const metal = this.mat({ color: 0xb7bcc2, roughness: 0.25, metalness: 0.9 });
-    const suede = this.mat({ color: 0x151515, roughness: 0.97 });
-    const seat = this.mat({ color: 0x18191b, roughness: 0.92 });
-    const red = this.mat({ color: 0xc8321e, roughness: 0.45, metalness: 0.2 });
-    const marigold = this.mat({ color: 0xf2b01e, roughness: 0.5 });
-    const glove = this.mat({ color: 0x141516, roughness: 0.8 });
-    const gloveAccent = this.mat({ color: 0xc8321e, roughness: 0.6 });
-    const sleeve = this.mat({ color: 0x1f3a2b, roughness: 0.85 });
-    const sleeveCuff = this.mat({ color: 0x14110d, roughness: 0.9 });
+    const suede = this.mat({ color: st.rim, roughness: st.wheelType === 'suv' ? 0.6 : 0.97 });
+    const spokeMetal = this.mat({ color: st.spoke, roughness: 0.35, metalness: 0.8 });
+    const seat = this.mat({ color: st.seat, roughness: st.seatType === 'suv' ? 0.7 : 0.92 });
+    const seatShell = this.mat({ color: st.seatType === 'suv' ? 0x1a1a1a : st.seat, roughness: 0.6, metalness: st.cageLayout === 'rear' ? 0.3 : 0 });
+    const red = this.mat({ color: st.seatAccent, roughness: 0.45, metalness: 0.2 });
+    const marigold = this.mat({ color: st.wheelStripe ?? 0xf2b01e, roughness: 0.5 });
+    const glove = this.mat({ color: st.glove, roughness: 0.8 });
+    const gloveAccent = this.mat({ color: st.gloveAccent, roughness: 0.6 });
+    const sleeve = this.mat({ color: st.sleeve, roughness: 0.85 });
+    const sleeveCuff = this.mat({ color: st.cuff, roughness: 0.9 });
     const mirrorGlass = this.mat({ color: 0x2a3036, roughness: 0.1, metalness: 0.6 });
+    const insert = this.mat({ color: st.dashInsert ?? st.dash, roughness: 0.75 });
     this.cageMaterial = cage;
 
     // ---- bonnet seen through the windscreen (body paint), wipers at its base
@@ -159,15 +213,29 @@ export class Cockpit extends THREE.Group {
         this.add_(stripe, this.stripe);
       }
     }
-    for (const x of [-0.35, 0.22]) this.add_(this.boxGeo(0.62, 0.012, 0.018, x, 0.83, -0.84, 0, 0.08, 0.04), pad);
+    if (this.paint) for (const x of [-0.35, 0.22]) this.add_(this.boxGeo(0.62, 0.012, 0.018, x, 0.83, -0.84, 0, 0.08, 0.04), pad);
 
     // ---- dashboard: cowl under the glass, a flat top, a lip and a face that drops toward the floor
-    const dashProfile = [[-0.84, 0.82], [-0.6, 0.875], [-0.42, 0.88], [-0.37, 0.86], [-0.345, 0.78], [-0.34, 0.6], [-0.42, 0.42], [-0.86, 0.42]];
+    const dashProfile = st.uprightDash
+      ? [[-0.84, 0.82], [-0.62, 0.87], [-0.43, 0.875], [-0.4, 0.86], [-0.39, 0.6], [-0.44, 0.42], [-0.86, 0.42]]
+      : [[-0.84, 0.82], [-0.6, 0.875], [-0.42, 0.88], [-0.37, 0.86], [-0.345, 0.78], [-0.34, 0.6], [-0.42, 0.42], [-0.86, 0.42]];
     this.add_(extrudeAcross(dashProfile, -0.76, 0.76), dash);
-    // Instrument binnacle: a hood over the cluster in front of the driver.
-    this.add_(this.boxGeo(0.42, 0.016, 0.17, DRIVER_X, 0.955, -0.46, -0.16), dash);
-    for (const side of [-1, 1]) this.add_(this.boxGeo(0.016, 0.085, 0.16, DRIVER_X + side * 0.205, 0.915, -0.46, -0.16), dash);
-    this.add_(this.boxGeo(0.42, 0.09, 0.02, DRIVER_X, 0.905, -0.535, -0.16), dash);
+    if (st.dashInsert) {
+      // Beige band across the dash face, the two-tone that marks this cabin.
+      this.add_(this.boxGeo(1.5, 0.09, 0.012, 0, 0.79, -0.386), insert);
+    }
+    if (st.cluster !== 'twin') {
+      // Instrument binnacle: a hood over the cluster in front of the driver.
+      this.add_(this.boxGeo(0.42, 0.016, 0.17, DRIVER_X, 0.955, -0.46, -0.16), dash);
+      for (const side of [-1, 1]) this.add_(this.boxGeo(0.016, 0.085, 0.16, DRIVER_X + side * 0.205, 0.915, -0.46, -0.16), dash);
+      this.add_(this.boxGeo(0.42, 0.09, 0.02, DRIVER_X, 0.905, -0.535, -0.16), dash);
+    }
+    if (st.grabHandle) {
+      // Grab handle across the dash in front of the passenger.
+      this.add_(tube(V(0.12, 0.9, -0.42), V(0.2, 0.96, -0.4), 0.017, 8), trim);
+      this.add_(tube(V(0.2, 0.96, -0.4), V(0.56, 0.96, -0.4), 0.017, 8), trim);
+      this.add_(tube(V(0.56, 0.96, -0.4), V(0.64, 0.9, -0.42), 0.017, 8), trim);
+    }
     // Steering column shroud.
     this.add_(tube(V(DRIVER_X, 0.7, -0.42), V(DRIVER_X, 0.735, -0.25), 0.045, 12), trim);
     // Centre stack, switch panel with a red ignition button and toggles.
@@ -177,7 +245,8 @@ export class Cockpit extends THREE.Group {
     const button = new THREE.CylinderGeometry(0.018, 0.018, 0.02, 14);
     button.rotateX(Math.PI / 2);
     button.translate(0.08, 0.47, -0.292);
-    this.add_(button, red);
+    this.add_(button, st.shifter === 'h' ? red : pad);
+    if (st.screen) this.buildScreen(st.screen, pad);
     // Rear-view mirror.
     this.add_(this.boxGeo(0.2, 0.058, 0.022, 0.0, 1.17, -0.26, -0.12), pad);
     this.add_(this.boxGeo(0.184, 0.044, 0.004, 0.0, 1.168, -0.247, -0.12), mirrorGlass);
@@ -201,25 +270,45 @@ export class Cockpit extends THREE.Group {
     this.add_(this.boxGeo(0.24, 0.3, 0.75, 0.0, 0.33, 0.02), dash);
     this.add_(this.boxGeo(0.22, 0.02, 0.4, 0.0, 0.49, -0.05), trim);
 
-    // ---- passenger bucket seat with harness, fire extinguisher
+    // ---- passenger seat: a bucket with harness, or an SUV seat with a separate headrest
     const sx = 0.38;
-    this.add_(this.boxGeo(0.46, 0.1, 0.48, sx, 0.36, 0.22), seat);
-    this.add_(this.boxGeo(0.46, 0.72, 0.1, sx, 0.78, 0.5, -0.16), seat);
-    for (const side of [-1, 1]) {
-      this.add_(this.boxGeo(0.07, 0.62, 0.16, sx + side * 0.24, 0.74, 0.47, -0.16), seat);
-      this.add_(this.boxGeo(0.07, 0.12, 0.44, sx + side * 0.24, 0.43, 0.22), seat);
-      this.add_(this.boxGeo(0.05, 0.7, 0.008, sx + side * 0.09, 0.78, 0.44, -0.16), red);
+    if (st.seatType === 'suv') {
+      this.add_(this.boxGeo(0.5, 0.14, 0.5, sx, 0.38, 0.2), seat);
+      this.add_(this.boxGeo(0.5, 0.62, 0.12, sx, 0.74, 0.5, -0.14), seat);
+      for (const side of [-1, 1]) {
+        this.add_(this.boxGeo(0.06, 0.5, 0.14, sx + side * 0.25, 0.72, 0.48, -0.14), seatShell);
+        this.add_(this.boxGeo(0.06, 0.1, 0.46, sx + side * 0.25, 0.44, 0.2), seatShell);
+        this.add_(tube(V(sx + side * 0.07, 1.04, 0.58), V(sx + side * 0.07, 1.1, 0.6), 0.007, 6), metal); // headrest posts
+      }
+      this.add_(this.boxGeo(0.3, 0.17, 0.1, sx, 1.18, 0.62, -0.1), seat);
+      this.add_(this.boxGeo(0.5, 0.03, 0.01, sx, 0.9, 0.44, -0.14), seatShell); // stitched band
+    } else {
+      this.add_(this.boxGeo(0.46, 0.1, 0.48, sx, 0.36, 0.22), seat);
+      this.add_(this.boxGeo(0.46, 0.72, 0.1, sx, 0.78, 0.5, -0.16), seatShell);
+      for (const side of [-1, 1]) {
+        this.add_(this.boxGeo(0.07, 0.62, 0.16, sx + side * 0.24, 0.74, 0.47, -0.16), seatShell);
+        this.add_(this.boxGeo(0.07, 0.12, 0.44, sx + side * 0.24, 0.43, 0.22), seatShell);
+        this.add_(this.boxGeo(0.05, 0.7, 0.008, sx + side * 0.09, 0.78, 0.44, -0.16), red);
+      }
+      this.add_(this.boxGeo(0.12, 0.04, 0.012, sx, 0.94, 0.43, -0.16), seat); // head slot
     }
-    this.add_(this.boxGeo(0.12, 0.04, 0.012, sx, 0.94, 0.43, -0.16), seat); // head slot
-    const extinguisher = new THREE.CylinderGeometry(0.045, 0.045, 0.36, 14);
-    extinguisher.rotateZ(Math.PI / 2);
-    extinguisher.translate(0.3, 0.2, -0.28);
-    this.add_(extinguisher, red);
-    this.add_(this.boxGeo(0.06, 0.1, 0.1, 0.3, 0.2, -0.28), cage);
+    if (st.extinguisher) {
+      const extinguisher = new THREE.CylinderGeometry(0.045, 0.045, 0.36, 14);
+      extinguisher.rotateZ(Math.PI / 2);
+      extinguisher.translate(0.3, 0.2, -0.28);
+      this.add_(extinguisher, red);
+      this.add_(this.boxGeo(0.06, 0.1, 0.1, 0.3, 0.2, -0.28), cage);
+    }
 
-    // ---- roll cage (green, padded where a helmet could meet it)
-    const r = 0.022;
-    for (const side of [-1, 1]) {
+    // ---- roll cage: a full cage padded where a helmet could meet it, or just the hoop behind the seats
+    const r = st.cageLayout === 'rear' ? 0.028 : 0.022;
+    if (st.cageLayout === 'rear') {
+      for (const side of [-1, 1]) this.add_(tube(V(side * 0.6, 0.16, 0.64), V(side * 0.56, 1.215, 0.6), r), cage);
+      this.add_(tube(V(-0.56, 1.215, 0.6), V(0.56, 1.215, 0.6), r), cage);
+      this.add_(tube(V(-0.56, 1.215, 0.6), V(0.6, 0.2, 0.62), r), cage);
+      this.add_(tube(V(-0.6, 0.62, 0.62), V(0.6, 0.62, 0.62), r * 0.9), cage); // harness bar
+    }
+    for (const side of st.cageLayout === 'full' ? [-1, 1] : []) {
       const footA = V(side * 0.68, 0.16, -0.66);
       const dashA = V(side * 0.69, 0.84, -0.7);
       const topA = V(side * 0.58, 1.205, -0.12);
@@ -233,15 +322,17 @@ export class Cockpit extends THREE.Group {
       this.add_(tube(V(side * 0.7, 0.52, -0.66), V(side * 0.68, 0.6, 0.62), r), cage);
       this.add_(tube(V(side * 0.69, 0.2, -0.6), V(side * 0.67, 0.78, 0.6), r), cage);
     }
-    this.add_(tube(V(-0.58, 1.205, -0.12), V(0.58, 1.205, -0.12), r), cage); // front hoop top
-    this.add_(tube(V(-0.56, 1.215, 0.6), V(0.56, 1.215, 0.6), r), cage); // main hoop top
-    this.add_(tube(V(-0.56, 1.215, 0.6), V(0.62, 0.2, 0.62), r), cage); // main hoop diagonal
-    this.add_(tube(V(-0.69, 0.84, -0.7), V(0.69, 0.84, -0.7), r * 0.9), cage); // dash bar (just under the cowl)
-    this.add_(tube(V(-0.6, 1.21, 0.0), V(-0.6, 1.21, 0.4), r + 0.012), pad); // padding above the driver
+    if (st.cageLayout === 'full') {
+      this.add_(tube(V(-0.58, 1.205, -0.12), V(0.58, 1.205, -0.12), r), cage); // front hoop top
+      this.add_(tube(V(-0.56, 1.215, 0.6), V(0.56, 1.215, 0.6), r), cage); // main hoop top
+      this.add_(tube(V(-0.56, 1.215, 0.6), V(0.62, 0.2, 0.62), r), cage); // main hoop diagonal
+      this.add_(tube(V(-0.69, 0.84, -0.7), V(0.69, 0.84, -0.7), r * 0.9), cage); // dash bar (just under the cowl)
+      this.add_(tube(V(-0.6, 1.21, 0.0), V(-0.6, 1.21, 0.4), r + 0.012), pad); // padding above the driver
+    }
 
     // ---- sun strip across the top of the windscreen
-    const strip = canvasTexture(1024, 96);
-    {
+    const strip = st.strip ? canvasTexture(1024, 96) : null;
+    if (strip) {
       const c = strip.context;
       c.fillStyle = '#14110d';
       c.fillRect(0, 0, 1024, 96);
@@ -253,13 +344,15 @@ export class Cockpit extends THREE.Group {
       c.fillStyle = '#f2b01e';
       c.fillRect(0, 88, 1024, 8);
     }
-    this.textures.push(strip.texture);
-    const stripMaterial = this.mat({ map: strip.texture, transparent: true, opacity: 0.94 }, true);
-    const stripPlane = new THREE.PlaneGeometry(1.2, 0.055);
-    // Lie along the inside of the glass (rising toward the rear), facing down and back at the driver.
-    stripPlane.rotateX(Math.atan2(0.8 - 0.13, 1.27 - 0.82));
-    stripPlane.translate(0, 1.228, -0.168);
-    this.mesh(stripPlane, stripMaterial);
+    if (strip) {
+      this.textures.push(strip.texture);
+      const stripMaterial = this.mat({ map: strip.texture, transparent: true, opacity: 0.94 }, true);
+      const stripPlane = new THREE.PlaneGeometry(1.2, 0.055);
+      // Lie along the inside of the glass (rising toward the rear), facing down and back at the driver.
+      stripPlane.rotateX(Math.atan2(0.8 - 0.13, 1.27 - 0.82));
+      stripPlane.translate(0, 1.228, -0.168);
+      this.mesh(stripPlane, stripMaterial);
+    }
 
     // ---- steering wheel: mount (tilt) -> spin (turns with the steering)
     this.wheelMount = new THREE.Group();
@@ -268,23 +361,43 @@ export class Cockpit extends THREE.Group {
     this.add(this.wheelMount);
     this.wheel = new THREE.Group();
     this.wheelMount.add(this.wheel);
-    this.mesh(new THREE.TorusGeometry(WHEEL_RADIUS, 0.019, 10, 40), suede, this.wheel, { cast: true });
-    // Deep dish: three spokes run back from the rim to a hub set 6 cm toward the dash.
+    const dish = st.wheelType === 'dish' ? 0.06 : 0.025;
+    this.mesh(new THREE.TorusGeometry(WHEEL_RADIUS, st.wheelType === 'suv' ? 0.017 : 0.019, 10, 40), suede, this.wheel, { cast: true });
+    // Three spokes run back from the rim to the hub: deep-dished on the drift wheel, nearly flat otherwise.
     for (const angle of [Math.PI / 2, -Math.PI / 2, Math.PI]) {
       const from = V(Math.sin(angle) * (WHEEL_RADIUS - 0.01), Math.cos(angle) * (WHEEL_RADIUS - 0.01), 0);
-      const to = V(Math.sin(angle) * 0.04, Math.cos(angle) * 0.04, -0.06);
-      this.mesh(tube(from, to, 0.012, 8), metal, this.wheel);
+      const to = V(Math.sin(angle) * 0.04, Math.cos(angle) * 0.04, -dish);
+      if (st.wheelType === 'dish') this.mesh(tube(from, to, 0.012, 8), metal, this.wheel);
+      else this.mesh(this.boxGeo(0.045, from.distanceTo(to), 0.016, 0, 0, 0).applyQuaternion(_q1.setFromUnitVectors(Y_AXIS, _v1.subVectors(from, to).normalize())).translate((from.x + to.x) / 2, (from.y + to.y) / 2, (from.z + to.z) / 2), spokeMetal, this.wheel);
     }
-    const hub = new THREE.CylinderGeometry(0.048, 0.052, 0.035, 18);
+    const hubRadius = st.wheelType === 'suv' ? 0.068 : 0.05;
+    const hub = new THREE.CylinderGeometry(hubRadius, hubRadius + 0.004, 0.035, 20);
     hub.rotateX(Math.PI / 2);
-    hub.translate(0, 0, -0.065);
+    hub.translate(0, 0, -dish - 0.005);
     this.mesh(hub, suede, this.wheel);
     const horn = new THREE.CylinderGeometry(0.02, 0.02, 0.012, 18);
     horn.rotateX(Math.PI / 2);
-    horn.translate(0, 0, -0.045);
-    this.mesh(horn, red, this.wheel);
+    horn.translate(0, 0, -dish + 0.015);
+    this.mesh(horn, st.wheelType === 'dish' ? red : spokeMetal, this.wheel);
+    if (st.wheelType === 'gt') {
+      // Two rotary dials on the spokes (damper and drive mode), and shift paddles behind the rim.
+      for (const [x, colour] of [[-0.085, red], [0.085, marigold]]) {
+        const dial = new THREE.CylinderGeometry(0.014, 0.014, 0.014, 14);
+        dial.rotateX(Math.PI / 2);
+        dial.translate(x, -0.03, -0.01);
+        this.mesh(dial, colour, this.wheel);
+      }
+      this.paddles = [];
+      for (const side of [-1, 1]) {
+        const paddle = new THREE.Group();
+        paddle.position.set(side * 0.12, 0.05, -0.05);
+        this.wheel.add(paddle);
+        this.mesh(this.boxGeo(0.07, 0.11, 0.008, side * 0.03, 0, 0), metal, paddle);
+        this.paddles.push(paddle);
+      }
+    }
     // Top-dead-centre stripe.
-    this.mesh(this.boxGeo(0.022, 0.044, 0.044, 0, WHEEL_RADIUS, 0), marigold, this.wheel);
+    if (st.wheelStripe) this.mesh(this.boxGeo(0.022, 0.044, 0.044, 0, WHEEL_RADIUS, 0), marigold, this.wheel);
 
     // ---- gear lever (H-pattern) and hydraulic handbrake on the tunnel
     this.shifter = new THREE.Group();
@@ -295,19 +408,37 @@ export class Cockpit extends THREE.Group {
     this.add_(boot.clone().translate(-0.02, 0.5, -0.14), pad);
     this.shiftStick = new THREE.Group();
     this.shifter.add(this.shiftStick);
-    this.mesh(new THREE.CylinderGeometry(0.009, 0.011, 0.25, 8).translate(0, 0.125, 0), metal, this.shiftStick);
-    this.mesh(new THREE.SphereGeometry(0.03, 16, 12).translate(0, 0.265, 0), metal, this.shiftStick);
+    if (st.shifter === 'h') {
+      this.mesh(new THREE.CylinderGeometry(0.009, 0.011, 0.25, 8).translate(0, 0.125, 0), metal, this.shiftStick);
+      this.mesh(new THREE.SphereGeometry(0.03, 16, 12).translate(0, 0.265, 0), metal, this.shiftStick);
+    } else if (st.shifter === 'pdk') {
+      // A short selector toggle; shifting happens on the paddles.
+      this.mesh(this.boxGeo(0.035, 0.05, 0.07, 0, 0.03, 0), pad, this.shiftStick);
+      this.mesh(this.boxGeo(0.03, 0.012, 0.05, 0, 0.06, 0.005), metal, this.shiftStick);
+    } else {
+      // Automatic lever with a chrome button, and the short 4x4 lever beside it.
+      this.mesh(new THREE.CylinderGeometry(0.012, 0.016, 0.16, 10).translate(0, 0.08, 0), pad, this.shiftStick);
+      this.mesh(this.boxGeo(0.045, 0.09, 0.06, 0, 0.19, 0), trim, this.shiftStick);
+      this.mesh(this.boxGeo(0.012, 0.02, 0.02, -0.025, 0.21, 0), metal, this.shiftStick);
+      this.add_(new THREE.CylinderGeometry(0.009, 0.011, 0.12, 8).translate(0.07, 0.56, -0.08), pad);
+      this.add_(new THREE.SphereGeometry(0.022, 12, 10).translate(0.07, 0.625, -0.08), trim);
+    }
     this.knobLocal = V(0, 0.265, 0);
 
     this.handbrake = new THREE.Group();
     this.handbrake.position.set(0.1, 0.5, -0.1);
     this.add(this.handbrake);
-    this.add_(this.boxGeo(0.05, 0.06, 0.12, 0.1, 0.52, -0.1), metal);
     this.handbrakeLever = new THREE.Group();
     this.handbrake.add(this.handbrakeLever);
-    this.mesh(new THREE.CylinderGeometry(0.011, 0.013, 0.34, 8).translate(0, 0.17, 0), metal, this.handbrakeLever);
-    this.mesh(new THREE.CylinderGeometry(0.019, 0.019, 0.1, 10).translate(0, 0.3, 0), pad, this.handbrakeLever);
-    this.mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.01, 10).translate(0, 0.355, 0), marigold, this.handbrakeLever);
+    if (st.handbrake === 'hydraulic') {
+      this.add_(this.boxGeo(0.05, 0.06, 0.12, 0.1, 0.52, -0.1), metal);
+      this.mesh(new THREE.CylinderGeometry(0.011, 0.013, 0.34, 8).translate(0, 0.17, 0), metal, this.handbrakeLever);
+      this.mesh(new THREE.CylinderGeometry(0.019, 0.019, 0.1, 10).translate(0, 0.3, 0), pad, this.handbrakeLever);
+      this.mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.01, 10).translate(0, 0.355, 0), marigold, this.handbrakeLever);
+    } else {
+      // Electronic parking brake: a small switch on the console.
+      this.add_(this.boxGeo(0.03, 0.012, 0.04, -0.07, 0.505, 0.02), metal);
+    }
     this.handbrakeLever.rotation.x = -0.32; // leans back toward the driver
     this.leverTopLocal = V(0, 0.31, 0);
 
@@ -315,20 +446,45 @@ export class Cockpit extends THREE.Group {
     this.cluster = canvasTexture(512, 208);
     this.textures.push(this.cluster.texture);
     const clusterMaterial = this.mat({ map: this.cluster.texture, toneMapped: false }, true);
-    const clusterPlane = new THREE.PlaneGeometry(0.38, 0.154);
-    clusterPlane.rotateX(-0.42);
-    clusterPlane.translate(DRIVER_X, 0.893, -0.468);
-    this.mesh(clusterPlane, clusterMaterial);
+    if (st.cluster === 'twin') {
+      // A free-standing 10.25-inch driver display on top of the dash, in a black bezel.
+      const screen = new THREE.PlaneGeometry(0.3, 0.122);
+      screen.rotateX(-0.2);
+      screen.translate(DRIVER_X, 0.935, -0.43);
+      this.mesh(screen, clusterMaterial);
+      this.add_(this.boxGeo(0.32, 0.14, 0.03, DRIVER_X, 0.935, -0.447, -0.2), pad);
+    } else {
+      const clusterPlane = new THREE.PlaneGeometry(0.38, 0.154);
+      clusterPlane.rotateX(-0.42);
+      clusterPlane.translate(DRIVER_X, 0.893, -0.468);
+      this.mesh(clusterPlane, clusterMaterial);
+    }
 
-    this.aux = canvasTexture(384, 128);
-    this.textures.push(this.aux.texture);
-    const auxMaterial = this.mat({ map: this.aux.texture, toneMapped: false }, true);
-    const auxPlane = new THREE.PlaneGeometry(0.27, 0.09);
-    auxPlane.rotateX(-0.12);
-    auxPlane.rotateY(-0.3);
-    auxPlane.translate(0.0, 0.715, -0.296);
-    this.mesh(auxPlane, auxMaterial);
-    this.add_(this.boxGeo(0.3, 0.115, 0.02, 0.0, 0.715, -0.305, -0.12, -0.3), pad);
+    if (st.aux === 'pod') {
+      this.aux = canvasTexture(384, 128);
+      this.textures.push(this.aux.texture);
+      const auxMaterial = this.mat({ map: this.aux.texture, toneMapped: false }, true);
+      const auxPlane = new THREE.PlaneGeometry(0.27, 0.09);
+      auxPlane.rotateX(-0.12);
+      auxPlane.rotateY(-0.3);
+      auxPlane.translate(0.0, 0.715, -0.296);
+      this.mesh(auxPlane, auxMaterial);
+      this.add_(this.boxGeo(0.3, 0.115, 0.02, 0.0, 0.715, -0.305, -0.12, -0.3), pad);
+    } else if (st.aux === 'clock') {
+      // The stopwatch on top of the dash, facing the driver.
+      this.aux = canvasTexture(128, 128);
+      this.textures.push(this.aux.texture);
+      const face = new THREE.CircleGeometry(0.038, 28);
+      face.rotateX(-0.35);
+      face.translate(0, 0.925, -0.46);
+      this.mesh(face, this.mat({ map: this.aux.texture, toneMapped: false }, true));
+      const pod = new THREE.CylinderGeometry(0.045, 0.048, 0.05, 28);
+      pod.rotateX(Math.PI / 2 - 0.35);
+      pod.translate(0, 0.918, -0.48);
+      this.add_(pod, dash);
+    } else {
+      this.aux = null;
+    }
 
     // ---- the driver's arms and gloved hands
     this.shoulders = { left: V(DRIVER_X - 0.21, 0.84, 0.46), right: V(DRIVER_X + 0.21, 0.84, 0.46) };
@@ -350,6 +506,58 @@ export class Cockpit extends THREE.Group {
     }
 
     this.mergeStatics();
+  }
+
+  /** The centre touchscreen: drawn once (a map and a music tile), it does not change while driving. */
+  buildScreen(kind, bezel) {
+    const { canvas, context: c, texture } = canvasTexture(512, 288);
+    this.textures.push(texture);
+    const W = canvas.width;
+    const H = canvas.height;
+    c.fillStyle = '#0d1114';
+    c.fillRect(0, 0, W, H);
+    // Map: a few roads on a dark grid, the route in colour, a position arrow.
+    c.strokeStyle = '#1b242b';
+    c.lineWidth = 1;
+    for (let x = 0; x < W * 0.64; x += 24) { c.beginPath(); c.moveTo(x, 0); c.lineTo(x, H); c.stroke(); }
+    for (let y = 0; y < H; y += 24) { c.beginPath(); c.moveTo(0, y); c.lineTo(W * 0.64, y); c.stroke(); }
+    c.strokeStyle = '#3a464f';
+    c.lineWidth = 6;
+    c.beginPath(); c.moveTo(20, 240); c.bezierCurveTo(120, 200, 90, 90, 200, 70); c.lineTo(310, 40); c.stroke();
+    c.strokeStyle = kind === 'gt' ? '#d5001c' : '#ff7a00';
+    c.lineWidth = 5;
+    c.beginPath(); c.moveTo(20, 240); c.bezierCurveTo(120, 200, 90, 90, 200, 70); c.stroke();
+    c.fillStyle = '#f4f1e8';
+    c.beginPath(); c.moveTo(120, 170); c.lineTo(132, 140); c.lineTo(144, 170); c.lineTo(132, 162); c.closePath(); c.fill();
+    // Right column: music and climate tiles.
+    c.fillStyle = '#161c21';
+    c.fillRect(W * 0.66, 12, W * 0.32, H * 0.46);
+    c.fillRect(W * 0.66, H * 0.52, W * 0.32, H * 0.44);
+    c.fillStyle = kind === 'gt' ? '#8a8f94' : '#c9b99a';
+    c.font = '600 22px Khand, system-ui, sans-serif';
+    c.fillText('RADIO', W * 0.69, 44);
+    c.fillText('22.0°', W * 0.69, H * 0.62);
+    c.fillStyle = '#f4f1e8';
+    c.font = '600 28px Teko, Khand, system-ui, sans-serif';
+    c.fillText('Pahadi FM', W * 0.69, 84);
+    c.fillText('AUTO', W * 0.69, H * 0.78);
+    texture.needsUpdate = true;
+    const material = this.mat({ map: texture, toneMapped: false }, true);
+    const plane = new THREE.PlaneGeometry(kind === 'gt' ? 0.24 : 0.25, kind === 'gt' ? 0.135 : 0.14);
+    if (kind === 'gt') {
+      // Upright between the vents, tilted slightly toward the driver.
+      plane.rotateX(-0.1);
+      plane.rotateY(-0.12);
+      plane.translate(0, 0.755, -0.358);
+      this.add_(this.boxGeo(0.26, 0.15, 0.02, 0, 0.755, -0.37, -0.1, -0.12), bezel);
+    } else {
+      // Standing on the dash top beside the driver display.
+      plane.rotateX(-0.2);
+      plane.rotateY(-0.18);
+      plane.translate(0.02, 0.94, -0.43);
+      this.add_(this.boxGeo(0.27, 0.16, 0.03, 0.02, 0.94, -0.447, -0.2, -0.18), bezel);
+    }
+    this.mesh(plane, material);
   }
 
   mergeStatics() {
@@ -404,8 +612,12 @@ export class Cockpit extends THREE.Group {
     const follow = 1 - Math.exp(-(this.shiftTimer > 0 ? 30 : 12) * dt);
     this.knob.x += (gx * throwBlend + this.knob.x * (1 - throwBlend) - this.knob.x) * follow;
     this.knob.y += (gz * throwBlend + this.knob.y * (1 - throwBlend) - this.knob.y) * follow;
-    this.shiftStick.rotation.z = -Math.atan2(this.knob.x, 0.265);
-    this.shiftStick.rotation.x = Math.atan2(this.knob.y, 0.265);
+    if (this.style.shifter === 'h') {
+      this.shiftStick.rotation.z = -Math.atan2(this.knob.x, 0.265);
+      this.shiftStick.rotation.x = Math.atan2(this.knob.y, 0.265);
+    } else {
+      this.shiftStick.rotation.x = gear === 'R' ? -0.18 : gear === 'N' ? -0.08 : 0.06;
+    }
     this.shiftTimer = Math.max(0, this.shiftTimer - dt);
 
     // ---- hydraulic handbrake: hand and lever follow the input
@@ -415,8 +627,14 @@ export class Cockpit extends THREE.Group {
     this.handbrakeLever.rotation.x = -0.32 + 0.45 * this.leverPull;
 
     // Right hand: 0 = on the wheel, 1 = on the gear knob or the handbrake.
-    const shiftReach = this.shiftTimer > 0 ? Math.sin(Math.min(1, shiftProgress) * Math.PI) ** 0.5 : 0;
-    const onLever = Math.max(shiftReach, this.handbrakeBlend);
+    // Paddles and automatics are shifted from the wheel; only a gear stick or a lever needs the right hand.
+    const shiftReach = this.shiftTimer > 0 && this.style.shifter === 'h' ? Math.sin(Math.min(1, shiftProgress) * Math.PI) ** 0.5 : 0;
+    const onLever = Math.max(shiftReach, this.style.handbrake === 'hydraulic' ? this.handbrakeBlend : 0);
+    if (this.paddles) {
+      this.paddleFlick = this.shiftTimer > 0.3 ? 1 : Math.max(0, this.paddleFlick - dt * 8);
+      const up = this.lastGear !== 'R' && this.lastGear !== 'N';
+      this.paddles[up ? 1 : 0].rotation.x = -0.35 * this.paddleFlick;
+    }
     const leverTarget = this.handbrakeBlend > shiftReach ? 'handbrake' : 'shifter';
 
     this.updateWheelMatrices();
@@ -446,9 +664,10 @@ export class Cockpit extends THREE.Group {
       this.drawCluster(state);
     }
     this.auxClock -= dt;
-    if (this.auxClock <= 0) {
+    if (this.auxClock <= 0 && this.aux) {
       this.auxClock = 1 / 8;
-      this.drawAux(state);
+      if (this.style.aux === 'clock') this.drawClock();
+      else this.drawAux(state);
     }
   }
 
@@ -511,6 +730,8 @@ export class Cockpit extends THREE.Group {
   }
 
   drawCluster(state) {
+    if (this.style.cluster === 'five') return this.drawFiveDials(state);
+    if (this.style.cluster === 'twin') return this.drawTwinDisplay(state);
     const { context: c, texture } = this.cluster;
     const W = 512;
     const H = 208;
@@ -603,6 +824,183 @@ export class Cockpit extends THREE.Group {
     c.strokeStyle = '#2a2f33';
     c.lineWidth = 3;
     c.strokeRect(1.5, 1.5, W - 3, H - 3);
+    texture.needsUpdate = true;
+  }
+
+  /** Track RS: five round dials, the 9,000 rpm tach in the middle with digital speed and the gear. */
+  drawFiveDials(state) {
+    const { context: c, texture } = this.cluster;
+    const W = 512;
+    const H = 208;
+    const rpmMax = state.rpmMax > 1000 ? state.rpmMax : 9000;
+    const scaleMax = Math.ceil(rpmMax / 1000) * 1000;
+    this.shownRpm += ((state.rpm || 0) - this.shownRpm) * 0.6;
+    const rpm = Math.max(0, this.shownRpm);
+    const rpmN = Math.min(1, rpm / rpmMax);
+    const limiter = rpm >= rpmMax * 0.97;
+    const flash = limiter && Math.floor(performance.now() / 70) % 2 === 0;
+    c.fillStyle = '#050505';
+    c.fillRect(0, 0, W, H);
+    const dial = (cx, cy, r, value, label, redFrom = 2) => {
+      c.fillStyle = '#0b0b0b';
+      c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2); c.fill();
+      c.strokeStyle = '#3b3b3b'; c.lineWidth = 2; c.stroke();
+      const a0 = Math.PI * 0.75;
+      const a1 = Math.PI * 2.25;
+      c.lineWidth = 2;
+      for (let k = 0; k <= 8; k += 1) {
+        const a = a0 + ((a1 - a0) * k) / 8;
+        c.strokeStyle = k / 8 >= redFrom ? '#e0002a' : '#d8d8d8';
+        c.beginPath();
+        c.moveTo(cx + Math.cos(a) * (r - 3), cy + Math.sin(a) * (r - 3));
+        c.lineTo(cx + Math.cos(a) * (r - 9), cy + Math.sin(a) * (r - 9));
+        c.stroke();
+      }
+      const a = a0 + (a1 - a0) * Math.min(1, Math.max(0, value));
+      c.strokeStyle = '#f2f2f2'; c.lineWidth = 2.5;
+      c.beginPath(); c.moveTo(cx, cy); c.lineTo(cx + Math.cos(a) * (r - 8), cy + Math.sin(a) * (r - 8)); c.stroke();
+      c.fillStyle = '#9a9a9a';
+      c.font = '500 12px Khand, system-ui, sans-serif';
+      c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText(label, cx, cy + r * 0.5);
+    };
+    // Outer pairs first; the tach overlaps them like the real cluster.
+    dial(58, 118, 44, 0.35 + 0.45 * rpmN, 'OIL °C');
+    dial(144, 104, 52, 0.2 + 0.7 * rpmN, 'OIL bar');
+    dial(368, 104, 52, 0.58 + 0.04 * rpmN, 'WATER');
+    dial(454, 118, 44, 0.74, 'FUEL');
+    // Centre tach.
+    const cx = 256;
+    const cy = 104;
+    const r = 94;
+    c.fillStyle = '#080808';
+    c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = flash ? '#ff1a2e' : '#4a4a4a';
+    c.lineWidth = flash ? 6 : 3;
+    c.stroke();
+    const a0 = Math.PI * 0.72;
+    const a1 = Math.PI * 2.28;
+    const angleFor = (value) => a0 + ((a1 - a0) * value) / scaleMax;
+    c.strokeStyle = '#e0002a';
+    c.lineWidth = 6;
+    c.beginPath(); c.arc(cx, cy, r - 6, angleFor(rpmMax * 0.95), a1); c.stroke();
+    c.font = '600 19px Teko, Khand, system-ui, sans-serif';
+    c.textAlign = 'center'; c.textBaseline = 'middle';
+    for (let k = 0; k <= scaleMax / 500; k += 1) {
+      const value = k * 500;
+      const a = angleFor(value);
+      const major = k % 2 === 0;
+      const red = value >= rpmMax * 0.95;
+      c.strokeStyle = red ? '#ff3344' : '#f0f0f0';
+      c.lineWidth = major ? 3 : 1.5;
+      c.beginPath();
+      c.moveTo(cx + Math.cos(a) * (r - 4), cy + Math.sin(a) * (r - 4));
+      c.lineTo(cx + Math.cos(a) * (r - (major ? 16 : 10)), cy + Math.sin(a) * (r - (major ? 16 : 10)));
+      c.stroke();
+      if (major) {
+        c.fillStyle = red ? '#ff3344' : '#f0f0f0';
+        c.fillText(String(value / 1000), cx + Math.cos(a) * (r - 30), cy + Math.sin(a) * (r - 30));
+      }
+    }
+    const needle = angleFor(Math.min(scaleMax, rpm));
+    c.strokeStyle = '#f5f5f5'; c.lineWidth = 4;
+    c.beginPath(); c.moveTo(cx - Math.cos(needle) * 14, cy - Math.sin(needle) * 14);
+    c.lineTo(cx + Math.cos(needle) * (r - 12), cy + Math.sin(needle) * (r - 12)); c.stroke();
+    c.fillStyle = '#e0002a';
+    c.beginPath(); c.arc(cx, cy, 9, 0, Math.PI * 2); c.fill();
+    const gear = String(state.gear ?? 'N');
+    c.fillStyle = gear === 'R' ? '#ff3344' : '#f0f0f0';
+    c.font = '700 30px Teko, Khand, system-ui, sans-serif';
+    c.fillText(gear, cx + 40, cy - 2);
+    const kmh = Math.round(Math.abs(state.speedKmh ?? (state.speed || 0) * 3.6));
+    c.font = '700 40px Teko, Khand, system-ui, sans-serif';
+    c.fillText(String(kmh), cx, cy + 46);
+    c.fillStyle = '#8a8a8a';
+    c.font = '500 12px Khand, system-ui, sans-serif';
+    c.fillText('km/h', cx, cy + 70);
+    if (state.boosting) { c.fillStyle = '#e0002a'; c.fillText('N2O', cx - 40, cy - 2); }
+    texture.needsUpdate = true;
+  }
+
+  /** Hill 4x4: a 10.25-inch driver display, tach left, speedo right, gear and 4x4 mode between. */
+  drawTwinDisplay(state) {
+    const { context: c, texture } = this.cluster;
+    const W = 512;
+    const H = 208;
+    const rpmMax = state.rpmMax > 1000 ? state.rpmMax : 4600;
+    const scaleMax = Math.ceil((rpmMax + 400) / 1000) * 1000;
+    this.shownRpm += ((state.rpm || 0) - this.shownRpm) * 0.5;
+    const rpm = Math.max(0, this.shownRpm);
+    const kmh = Math.abs(state.speedKmh ?? (state.speed || 0) * 3.6);
+    c.fillStyle = '#06090d';
+    c.fillRect(0, 0, W, H);
+    const ring = (cx, value, max, step, label, unit) => {
+      const cy = 104;
+      const r = 84;
+      const a0 = Math.PI * 0.75;
+      const a1 = Math.PI * 2.25;
+      c.strokeStyle = '#1d2630'; c.lineWidth = 10;
+      c.beginPath(); c.arc(cx, cy, r - 6, a0, a1); c.stroke();
+      c.strokeStyle = '#ff7a00'; c.lineWidth = 10;
+      c.beginPath(); c.arc(cx, cy, r - 6, a0, a0 + (a1 - a0) * Math.min(1, value / max)); c.stroke();
+      c.font = '500 14px Khand, system-ui, sans-serif';
+      c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillStyle = '#c9ced3';
+      for (let v = 0; v <= max; v += step) {
+        const a = a0 + ((a1 - a0) * v) / max;
+        c.fillText(String(label(v)), cx + Math.cos(a) * (r - 28), cy + Math.sin(a) * (r - 28));
+      }
+      c.fillStyle = '#f2ede2';
+      c.font = '700 34px Teko, Khand, system-ui, sans-serif';
+      c.fillText(unit === 'km/h' ? String(Math.round(value)) : (value / 1000).toFixed(1), cx, cy + 4);
+      c.fillStyle = '#7d8790';
+      c.font = '500 12px Khand, system-ui, sans-serif';
+      c.fillText(unit, cx, cy + 30);
+    };
+    ring(96, rpm, scaleMax, 1000, (v) => v / 1000, 'x1000 rpm');
+    ring(416, kmh, 200, 40, (v) => v, 'km/h');
+    const gear = String(state.gear ?? 'N');
+    c.textAlign = 'center';
+    c.fillStyle = '#f2ede2';
+    c.font = '700 44px Teko, Khand, system-ui, sans-serif';
+    c.fillText(gear === 'R' || gear === 'N' ? gear : `D${gear}`, 256, 86);
+    c.fillStyle = '#ff7a00';
+    c.fillRect(226, 118, 60, 24);
+    c.fillStyle = '#06090d';
+    c.font = '700 18px Teko, Khand, system-ui, sans-serif';
+    c.fillText('4H', 256, 131);
+    c.fillStyle = '#7d8790';
+    c.font = '500 13px Khand, system-ui, sans-serif';
+    c.fillText(state.boosting ? 'BOOST' : '18°C', 256, 165);
+    texture.needsUpdate = true;
+  }
+
+  /** The stopwatch on the dash: black face, white markers, a sweeping seconds hand. */
+  drawClock() {
+    const { context: c, texture } = this.aux;
+    const cx = 64;
+    const cy = 64;
+    c.fillStyle = '#060606';
+    c.fillRect(0, 0, 128, 128);
+    c.strokeStyle = '#e8e8e8';
+    for (let k = 0; k < 60; k += 1) {
+      const a = (k / 60) * Math.PI * 2;
+      const len = k % 5 === 0 ? 10 : 4;
+      c.lineWidth = k % 5 === 0 ? 3 : 1;
+      c.beginPath();
+      c.moveTo(cx + Math.sin(a) * 58, cy - Math.cos(a) * 58);
+      c.lineTo(cx + Math.sin(a) * (58 - len), cy - Math.cos(a) * (58 - len));
+      c.stroke();
+    }
+    const now = new Date();
+    const hand = (value, length, width, colour) => {
+      const a = value * Math.PI * 2;
+      c.strokeStyle = colour; c.lineWidth = width;
+      c.beginPath(); c.moveTo(cx, cy); c.lineTo(cx + Math.sin(a) * length, cy - Math.cos(a) * length); c.stroke();
+    };
+    hand(((now.getHours() % 12) + now.getMinutes() / 60) / 12, 30, 4, '#e8e8e8');
+    hand(now.getMinutes() / 60, 44, 3, '#e8e8e8');
+    hand((now.getSeconds() + now.getMilliseconds() / 1000) / 60, 52, 1.5, '#e0002a');
     texture.needsUpdate = true;
   }
 

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ProceduralCar } from './ProceduralCar.js';
+import { createCarModel } from './ModelCar.js';
 import { NameTag } from './NameTag.js';
 import { getNeon, getPaint } from '../config.js';
 import { RIM_OPTIONS } from '../meta/catalog.js';
@@ -17,7 +17,7 @@ function rimColor(id) {
 
 /** The peer's cosmetics as one comparable key, so the car is only repainted when something changed. */
 function lookKey(peer) {
-  return `${peer.paint}|${peer.rim}|${peer.number}|${peer.neon}`;
+  return `${peer.paint}|${peer.rim}|${peer.number}|${peer.neon}|${peer.car}`;
 }
 
 /**
@@ -40,7 +40,8 @@ export class RemotePlayers {
     this.group.name = 'RemotePlayers';
     scene.add(this.group);
     this.cars = new Map();
-    this.wheelLayout = wheelLayout;
+    // A copy: the local layout changes with the local car, the rally hatch's must not.
+    this.wheelLayout = wheelLayout?.map((w) => ({ x: w.x, y: w.y, z: w.z })) || null;
     this.scratch = new THREE.Vector3();
     this.neonLevel = 0.2;
   }
@@ -86,6 +87,10 @@ export class RemotePlayers {
     const step = Math.min(Math.max(dt, 0), 0.1);
     for (const [id, peer] of peers) {
       let entry = this.cars.get(id);
+      if (entry && entry.carId !== (peer.car || 'hatch')) {
+        this.remove(id, entry);
+        entry = null;
+      }
       if (!entry) entry = this.add(id, peer);
       this.refresh(entry, peer);
 
@@ -111,7 +116,7 @@ export class RemotePlayers {
   }
 
   add(id, peer) {
-    const car = new ProceduralCar({ color: getPaint(peer.paint).color, name: `Remote_${peer.name}`, wheelLayout: this.wheelLayout });
+    const car = createCarModel(peer.car, { color: getPaint(peer.paint).color, name: `Remote_${peer.name}`, wheelLayout: this.wheelLayout });
     car.visible = false;
     car.traverse((node) => {
       if (node.isMesh) node.castShadow = true;
@@ -119,7 +124,7 @@ export class RemotePlayers {
     const tag = new NameTag({ text: peer.name, detail: `LV ${peer.level}` });
     car.add(tag.sprite);
     this.group.add(car);
-    const entry = { car, tag, look: '', opacity: 1, baseTransparent: new Map() };
+    const entry = { car, carId: peer.car || 'hatch', tag, look: '', opacity: 1, baseTransparent: new Map() };
     for (const material of car.materials) entry.baseTransparent.set(material, { transparent: material.transparent, opacity: material.opacity, depthWrite: material.depthWrite });
     this.cars.set(id, entry);
     return entry;

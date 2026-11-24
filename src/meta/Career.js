@@ -1,5 +1,6 @@
 import { MODES, PAINT_OPTIONS, getMode, getNeon } from '../config.js';
 import { createRandom } from '../world/noise.js';
+import { CARS } from '../vehicle/cars.js';
 import {
   ACHIEVEMENTS, DAILY_TEMPLATES, MEDAL_LABELS, MEDAL_TARGETS, MEDAL_TIERS, RIM_OPTIONS, UNLOCKS, XP,
   levelForXp, medalTargets, xpForLevel,
@@ -71,7 +72,7 @@ function newProfile(now) {
     },
     medals: {},
     achievements: {},
-    cosmetics: { paint: 'pearl', rim: 'silver', number: '27', neon: 'off' },
+    cosmetics: { paint: 'pearl', rim: 'silver', number: '27', neon: 'off', car: 'hatch' },
     daily: { date: '', done: false, lastDoneDate: null, streak: 0 },
   };
 }
@@ -317,6 +318,7 @@ export class Career {
     });
     // Silver rims are the default, not an unlock.
     items.splice(items.findIndex((item) => item.slot === 'rim'), 0, { id: 'rim:silver', slot: 'rim', value: 'silver', label: 'Silver rims', color: RIM_OPTIONS[0].color, unlocked: true, requirement: '' });
+    items.unshift(...CARS.map((car) => ({ id: `car:${car.id}`, slot: 'car', value: car.id, label: car.label, detail: car.blurb, color: null, unlocked: true, requirement: '' })));
     // No underglow is the default too.
     items.splice(items.findIndex((item) => item.slot === 'neon'), 0, { id: 'neon:off', slot: 'neon', value: 'off', label: 'No neon', color: null, unlocked: true, requirement: '' });
     return { items, selected: { ...this.profile.cosmetics } };
@@ -331,6 +333,9 @@ export class Career {
       this.profile.cosmetics.number = digits;
     } else if (slot === 'rim' && value === 'silver') {
       this.profile.cosmetics.rim = 'silver';
+    } else if (slot === 'car') {
+      if (!CARS.some((car) => car.id === value)) return false;
+      this.profile.cosmetics.car = value;
     } else if (slot === 'neon' && value === 'off') {
       this.profile.cosmetics.neon = 'off';
     } else {

@@ -89,6 +89,8 @@ export const BASE_TUNING = Object.freeze({
     engineBrakeBase: 8,
     engineBrakePerRpm: 0.0055,
     rpmSmoothing: 18,
+    /** Drive all four wheels (an even split between the axles) instead of the rear two. */
+    awd: false,
   },
 
   brakes: {

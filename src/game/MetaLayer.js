@@ -212,7 +212,7 @@ export class MetaLayer {
   /** Tell the network about name, level or cosmetic changes, and only then (each message costs quota). */
   syncNetProfile() {
     const profile = this.publicProfile();
-    const key = `${profile.name}|${profile.level}|${profile.cosmetics.paint}|${profile.cosmetics.rim}|${profile.cosmetics.number}|${profile.cosmetics.neon}`;
+    const key = `${profile.name}|${profile.level}|${profile.cosmetics.paint}|${profile.cosmetics.rim}|${profile.cosmetics.number}|${profile.cosmetics.neon}|${profile.cosmetics.car}`;
     if (key === this.sentProfileKey) return;
     this.sentProfileKey = key;
     this.net?.updateProfile?.(profile);
@@ -236,6 +236,11 @@ export class MetaLayer {
 
   applyLook(car) {
     const cosmetics = this.career.profile.cosmetics;
+    // The local car: swap the whole car first if another one was picked, then paint the new one.
+    if (car === this.game.car && this.game.setCar) {
+      this.game.setCar(cosmetics.car);
+      car = this.game.car;
+    }
     car.setLook({
       paint: getPaint(cosmetics.paint),
       rimColor: (RIM_OPTIONS.find((rim) => rim.id === cosmetics.rim) || RIM_OPTIONS[0]).color,

@@ -31,6 +31,8 @@ import { NetClient } from '../net/NetClient.js';
 import { Leaderboard } from '../net/Leaderboard.js';
 import { RemotePlayers } from '../render/RemotePlayers.js';
 import { patchUnderglowTree, underglowFrame } from '../render/underglowLight.js';
+import { loadCarModels } from '../render/ModelCar.js';
+import { getCar } from '../vehicle/cars.js';
 import { PartyRace } from '../game/PartyRace.js';
 import { CrazyGamesPlatform } from '../platform/CrazyGames.js';
 
@@ -150,7 +152,7 @@ export class Game {
       }],
       ['Planting the forest', () => { const Forest = this.world.bridge ? JungleCanopy : Scenery; this.scenery = new Forest({ world: this.world, quality }); this.scene.add(this.scenery.group); }],
       ['Lighting the sky', () => { this.atmosphere = new Atmosphere({ scene: this.scene, renderer: this.renderer, world: this.world, quality }); }],
-      ['Warming the engine', () => this.createVehicle()],
+      ['Warming the engine', async () => { await loadCarModels(); this.createVehicle(); }],
     ];
     for (let i = 0; i < stages.length; i += 1) {
       mark(stages[i][0]);
@@ -197,9 +199,11 @@ export class Game {
   createVehicle() {
     this.vehicle = new Vehicle({ world: this.world, handling: this.settings.handling });
     this.drift = new DriftScorer();
-    this.car = new CarVisual({ wheelLayout: this.vehicle.wheelLayout });
+    this.carId = 'hatch';
+    this.car = new CarVisual({ wheelLayout: this.vehicle.wheelLayout, carId: this.carId });
     this.scene.add(this.car.group);
     this.cameraRig = new CameraRig({ world: this.world });
+    this.cameraRig.cockpitEye = this.car.cockpitEye;
     this.effects = new Effects(this.scene);
   }
 
@@ -292,7 +296,7 @@ export class Game {
     this.car.setHeadlights(this.atmosphere.isNight || this.headlightsWanted);
     this.car.setNeon({ level: neonLevel(this.settings.timeOfDay) });
     this.remotePlayers?.setNeonLevel(neonLevel(this.settings.timeOfDay));
-    this.vehicle.setHandling(this.settings.handling);
+    this.vehicle.setHandling(this.settings.handling, getCar(this.carId).tuning);
     this.vehicle.setAssists({ driftAssist: this.settings.driftAssist, abs: this.settings.abs, transmission: this.settings.transmission });
     this.input.setManualShift(this.settings.transmission === 'manual');
     this.audio.setVolume(this.settings.volume);
@@ -395,6 +399,30 @@ export class Game {
       ? CONFIG.race.countdownSeconds
       : Math.max(0, (this.countdownStartAt - Date.now()) / 1000);
     return true;
+  }
+
+  /**
+   * Drive another car (an id from src/vehicle/cars.js): its own physics tuning, body and interior.
+   * The caller (MetaLayer.applyLook) paints it afterwards.
+   */
+  setCar(carId) {
+    const car = getCar(carId);
+    if (car.id === this.carId) return;
+    this.carId = car.id;
+    const pose = this.vehicle.getState();
+    this.vehicle.setHandling(this.settings.handling, car.tuning);
+    // New ride height and wheelbase: put the car back down where it was.
+    this.vehicle.teleport({ position: pose.position, quaternion: pose.quaternion });
+    const old = this.car;
+    this.car = new CarVisual({ wheelLayout: this.vehicle.wheelLayout, carId: car.id });
+    this.scene.add(this.car.group);
+    this.car.setHeadlights(old.headlightsOn);
+    this.car.setNeon({ level: old.neonLevel, on: old.neonWanted });
+    old.dispose();
+    this.cameraRig.cockpitEye = this.car.cockpitEye;
+    this.input.setNitroAvailable?.(Boolean(car.nitro));
+    this.audio.setProfile(car.sound || null);
+    this.prewarmShaders();
   }
 
   /**
@@ -569,7 +597,7 @@ export class Game {
 
   updateRunning(dt, input) {
     const controls = this.controls;
-    const boosting = input.boost && input.throttle > 0.1 && this.nitro > 0.5;
+    const boosting = Boolean(getCar(this.carId).nitro) && input.boost && input.throttle > 0.1 && this.nitro > 0.5;
     controls.throttle = input.throttle;
     controls.brake = input.brake;
     controls.steer = input.steer;
@@ -676,7 +704,7 @@ export class Game {
     frame.rpmMax = state.rpmMax;
     frame.throttle = state.throttle;
     frame.brake = state.brake;
-    frame.boost = this.nitro;
+    frame.boost = getCar(this.carId).nitro ? this.nitro : null; // null: this car has no nitrous
     frame.boosting = state.boosting;
     frame.surface = SURFACE_PROPS[state.surface]?.name || 'asphalt';
     frame.position.x = state.position.x;

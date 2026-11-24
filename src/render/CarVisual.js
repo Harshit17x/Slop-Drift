@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import { ProceduralCar } from './ProceduralCar.js';
-import { Cockpit } from './Cockpit.js';
+import { Cockpit, cockpitEye } from './Cockpit.js';
+import { createCarModel } from './ModelCar.js';
+import { getCar } from '../vehicle/cars.js';
 
 const WHEEL_KEYS = ['frontLeft', 'frontRight', 'rearLeft', 'rearRight'];
 
@@ -13,10 +14,12 @@ export class CarVisual {
    * @param {object} options
    * @param {number} options.color
    * @param {{x:number,y:number,z:number}[]} options.wheelLayout  Vehicle.wheelLayout (rest wheel centres).
+   * @param {string} [options.carId]  An id from src/vehicle/cars.js.
    */
-  constructor({ color = 0xe9eef5, wheelLayout }) {
-    this.model = new ProceduralCar({ color, wheelLayout });
+  constructor({ color = 0xe9eef5, wheelLayout, carId = 'hatch' }) {
+    this.model = createCarModel(carId, { color, wheelLayout });
     this.group = this.model;
+    this.carId = this.model.carDef ? carId : 'hatch';
 
     this.headlights = [];
     for (const side of [-1, 1]) {
@@ -31,9 +34,16 @@ export class CarVisual {
 
     // The drift-car interior for the cockpit camera. Built once, shown only in that view, when the
     // exterior shell (which would otherwise fill the windscreen from inside) is hidden.
-    this.cockpit = new Cockpit({ paint: this.model.bodyMaterial, stripe: this.model.stripeMaterial });
+    // Model cars keep their real body in view from inside (its panels face away from the driver and are
+    // not drawn, so the bonnet and mirrors show through the glass); the hatch gets a modelled bonnet.
+    const style = getCar(this.carId).cockpit;
+    const procedural = !this.model.carDef;
+    this.cockpit = new Cockpit({ paint: procedural ? this.model.bodyMaterial : null, stripe: procedural ? this.model.stripeMaterial : null, style });
     this.model.chassis.add(this.cockpit);
     this.interior = false;
+    const eye = cockpitEye(style);
+    /** Driver's eye in car space, for the cockpit camera. */
+    this.cockpitEye = { x: eye.x, y: eye.y + this.model.chassisOffsetY, z: eye.z };
 
     this.neonWanted = true;
     this.neonLevel = 0.2;
@@ -46,7 +56,7 @@ export class CarVisual {
     this.interior = on;
     this.cockpit.visible = on;
     for (const child of this.model.chassis.children) {
-      if (child !== this.cockpit) child.visible = !on;
+      if (child !== this.cockpit && child !== this.model.bodyMesh) child.visible = !on;
     }
     for (const pivot of this.model.wheelPivots.values()) pivot.visible = !on;
     this.model.applyUnderglow(); // the loop above would have shown the tubes even when switched off
@@ -85,6 +95,7 @@ export class CarVisual {
   setHeadlights(on) {
     this.headlightsOn = Boolean(on);
     for (const light of this.headlights) light.intensity = this.headlightsOn ? 260 : 0;
+    this.model.setHeadlamps?.(this.headlightsOn);
   }
 
   /**

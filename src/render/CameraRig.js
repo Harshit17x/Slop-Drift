@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { COCKPIT_EYE } from './Cockpit.js';
+import { cockpitEye } from './Cockpit.js';
 import { CONFIG } from '../config.js';
 import { clamp, damp, dampFactor, smoothstep, wrapAngle } from '../core/math.js';
 
@@ -94,6 +94,8 @@ export class CameraRig {
     this.latSpeed = 0; // smoothed sideways velocity (m/s)
     this.yawRate = 0; // smoothed chassis yaw rate (rad/s)
     this.fov = CONFIG.camera.fovBase;
+    /** Driver's eye in car space (set from CarVisual.cockpitEye when the car changes). */
+    this.cockpitEye = (({ x, y, z }) => ({ x, y: y + 0.13, z }))(cockpitEye('drift'));
     this.shake = 0;
     this.shakeEnabled = true;
     this.orbitAngle = 0;
@@ -255,7 +257,7 @@ export class CameraRig {
       this.interiorQuaternion.slerp(state.quaternion, 1 - Math.exp(-22 * dt));
       if (this.mode === 'hood') offset.set(0, 1.3, -0.6);
       // Driver's eye in the seat (chassis space plus the chassis' 0.13 m ride height).
-      else offset.set(COCKPIT_EYE.x, COCKPIT_EYE.y + 0.13, COCKPIT_EYE.z);
+      else offset.set(this.cockpitEye.x, this.cockpitEye.y, this.cockpitEye.z);
       position.copy(offset).applyQuaternion(state.quaternion).add(state.position);
       // In the seat the head tips a little down, so the dash, the wheel and the hands sit in view.
       const headTilt = cockpit && !lookBack ? -0.1 : 0;

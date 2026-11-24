@@ -38,7 +38,7 @@ const RATE_PER_SECOND = 15;
 const RATE_BURST = 30;
 
 function peerOf(state) {
-  return { i: state.i, id: state.id, name: state.name, level: state.level, paint: state.paint, rim: state.rim, number: state.number, neon: state.neon || '', modeId: state.modeId || 'menu' };
+  return { i: state.i, id: state.id, name: state.name, level: state.level, paint: state.paint, rim: state.rim, number: state.number, neon: state.neon || '', car: state.car || '', modeId: state.modeId || 'menu' };
 }
 
 export class Room extends Server {
@@ -126,6 +126,7 @@ export class Room extends Server {
       rim: params.rim,
       number: params.number,
       neon: params.neon,
+      car: params.car,
       modeId: params.modeId || 'menu',
       joined: Date.now(),
     };
@@ -209,6 +210,7 @@ export class Room extends Server {
           rim: data.rim == null ? state.rim : sanitizeCosmetic(data.rim) || state.rim,
           number: data.number == null ? state.number : sanitizeCosmetic(data.number, 'number'),
           neon: data.neon == null ? state.neon : sanitizeCosmetic(data.neon),
+          car: data.car == null ? state.car : sanitizeCosmetic(data.car),
           modeId: typeof data.modeId === 'string' ? data.modeId : state.modeId,
         };
         connection.setState(next);

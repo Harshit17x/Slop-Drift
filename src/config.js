@@ -57,17 +57,17 @@ export function modesForWorld(world) {
 }
 
 export const PAINT_OPTIONS = Object.freeze([
-  Object.freeze({ id: 'pearl', label: 'Pearl', color: 0xe9eef5 }),
-  Object.freeze({ id: 'ember', label: 'Ember', color: 0xff5b36 }),
-  Object.freeze({ id: 'glacier', label: 'Glacier', color: 0x3fb4ff }),
-  Object.freeze({ id: 'acid', label: 'Acid', color: 0xb8ff47 }),
-  Object.freeze({ id: 'violet', label: 'Violet', color: 0x9a6bff }),
-  Object.freeze({ id: 'midnight', label: 'Midnight', color: 0x1b2330 }),
+  Object.freeze({ id: 'pearl', label: 'Pearl', color: 0xe9eef5, creviceColor: 0x9aa8bc, flopColor: 0xffffff, metalness: 0.24, roughness: 0.14, clearcoat: 0.95, flake: 0.20, blend: 0.70 }),
+  Object.freeze({ id: 'ember', label: 'Ember', color: 0xff5b36, creviceColor: 0x8f1106, flopColor: 0xff9b52, metalness: 0.42, roughness: 0.15, clearcoat: 0.92, flake: 0.22, blend: 0.72 }),
+  Object.freeze({ id: 'glacier', label: 'Glacier', color: 0x3fb4ff, creviceColor: 0x09357e, flopColor: 0x8ce2ff, metalness: 0.46, roughness: 0.15, clearcoat: 0.92, flake: 0.24, blend: 0.75 }),
+  Object.freeze({ id: 'acid', label: 'Acid', color: 0xb8ff47, creviceColor: 0x336304, flopColor: 0xe8ff78, metalness: 0.34, roughness: 0.14, clearcoat: 0.94, flake: 0.18, blend: 0.68 }),
+  Object.freeze({ id: 'violet', label: 'Violet', color: 0x9a6bff, creviceColor: 0x2e126e, flopColor: 0xd1b3ff, metalness: 0.48, roughness: 0.15, clearcoat: 0.92, flake: 0.26, blend: 0.76 }),
+  Object.freeze({ id: 'midnight', label: 'Midnight', color: 0x1b2330, creviceColor: 0x05080d, flopColor: 0x415678, metalness: 0.56, roughness: 0.14, clearcoat: 0.94, flake: 0.26, blend: 0.75 }),
   // Unlockable (see UNLOCKS in src/meta/catalog.js). metalness/roughness override the default paint finish.
-  Object.freeze({ id: 'racing-green', label: 'Racing Green', color: 0x0f4d32 }),
-  Object.freeze({ id: 'sunburst', label: 'Sunburst', color: 0xffb21a, metalness: 0.55, roughness: 0.25 }),
-  Object.freeze({ id: 'summit', label: 'Summit Chrome', color: 0xdfe4ea, metalness: 1, roughness: 0.12 }),
-  Object.freeze({ id: 'obsidian', label: 'Obsidian', color: 0x0b0b0e, metalness: 0.7, roughness: 0.18 }),
+  Object.freeze({ id: 'racing-green', label: 'Racing Green', color: 0x0f4d32, creviceColor: 0x031a10, flopColor: 0x29875c, metalness: 0.46, roughness: 0.15, clearcoat: 0.94, flake: 0.24, blend: 0.75 }),
+  Object.freeze({ id: 'sunburst', label: 'Sunburst', color: 0xffb21a, creviceColor: 0x914200, flopColor: 0xffe46e, metalness: 0.55, roughness: 0.18, clearcoat: 0.92, flake: 0.28, blend: 0.74 }),
+  Object.freeze({ id: 'summit', label: 'Summit Chrome', color: 0xdfe4ea, creviceColor: 0x5c6472, flopColor: 0xffffff, metalness: 1, roughness: 0.10, clearcoat: 0.85, flake: 0.08, blend: 0.55 }),
+  Object.freeze({ id: 'obsidian', label: 'Obsidian', color: 0x0b0b0e, creviceColor: 0x020204, flopColor: 0x2c3442, metalness: 0.70, roughness: 0.16, clearcoat: 0.95, flake: 0.22, blend: 0.68 }),
 ]);
 
 /**

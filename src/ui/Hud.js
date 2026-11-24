@@ -551,6 +551,7 @@ export class Hud {
       brake: new Style(this.q('.sdh-pedal-brake i'), 'transform'),
       nitro: new Style(this.q('.sdh-nitro-bar i'), 'transform'),
       nitroLow: new Flag(this.q('.sdh-nitro'), 'is-low'),
+      nitroOff: new Flag(this.q('.sdh-nitro'), 'is-off'),
       boosting: new Flag(this.q('.sdh-speedo'), 'is-boost'),
       loadingBar: new Style(this.q('.sdh-loading-bar i'), 'transform'),
       loadingLabel: new Text(this.q('.sdh-loading-label')),
@@ -1579,6 +1580,8 @@ export class Hud {
           <button type="button" class="sdh-icon sdh-icon-plain" data-act="sub-back" aria-label="Back">${ICON.back}</button>
           <h2 class="sdh-title">Garage</h2>
         </header>
+        <div class="sdh-group-label">Car</div>
+        <div class="sdh-cos-grid sdh-car-grid" data-slot-grid="car"></div>
         <div class="sdh-group-label">Paint</div>
         <div class="sdh-cos-grid" data-slot-grid="paint"></div>
         <div class="sdh-group-label">Rims</div>
@@ -1590,6 +1593,7 @@ export class Hud {
           <input class="sdh-number-input sdh-num" type="text" inputmode="numeric" maxlength="2" pattern="[0-9]{1,2}" aria-label="Door number">
           <span class="sdh-number-note"></span>
         </label>
+        <p class="sdh-credit">Hill 4x4 model: "Mahindra - Thar Roxx" by ansari_studios, CC BY 4.0 (sketchfab.com/ansari_studios), reduced and re-rigged.</p>
       </aside>`;
   }
 
@@ -1882,13 +1886,21 @@ export class Hud {
     this.garage = garage || { items: [], selected: {} };
     const items = this.garage.items || [];
     const sel = this.garage.selected || {};
-    for (const slot of ['paint', 'rim', 'neon']) {
+    for (const slot of ['car', 'paint', 'rim', 'neon']) {
       const grid = this.q(`[data-slot-grid="${slot}"]`);
       grid.innerHTML = items.filter((it) => it.slot === slot).map((it) => {
         const on = sel[slot] === it.value;
         const locked = !it.unlocked;
         const color = Number.isFinite(it.color) ? hex(it.color) : 'transparent';
         const swatchKind = slot === 'rim' ? ' is-rim' : slot === 'neon' ? (it.value === 'rainbow' ? ' is-neon is-rainbow' : it.value === 'off' ? ' is-neon is-off' : ' is-neon') : '';
+        if (slot === 'car') {
+          return `
+          <button type="button" class="sdh-cos sdh-car${on ? ' is-selected' : ''}" data-act="cosmetic" data-slot="car" data-value="${esc(it.value)}" aria-pressed="${on}" aria-disabled="false">
+            <span class="sdh-cos-label">${esc(it.label)}</span>
+            <span class="sdh-car-detail">${esc(it.detail || '')}</span>
+            <span class="sdh-cos-req">${on ? 'Driving' : ''}</span>
+          </button>`;
+        }
         return `
           <button type="button" class="sdh-cos${on ? ' is-selected' : ''}${locked ? ' is-locked' : ''}" data-act="cosmetic" data-slot="${esc(slot)}" data-value="${esc(it.value)}"
             aria-pressed="${on}" aria-disabled="${locked}" title="${esc(it.label)}${locked ? ` · ${esc(it.requirement || 'Locked')}` : ''}">
@@ -2257,6 +2269,7 @@ export class Hud {
     v.shift.set(ratio >= 0.9 && typeof gear === 'number');
     v.gas.setKey(Math.round((f.throttle || 0) * 20), (k) => `scaleY(${k / 20})`);
     v.brake.setKey(Math.round((f.brake || 0) * 20), (k) => `scaleY(${k / 20})`);
+    v.nitroOff.set(f.boost === null);
     const boost = Math.max(0, Math.min(100, f.boost ?? 0));
     v.nitro.setKey(Math.round(boost * 2), (k) => `scaleX(${k / 200})`);
     v.nitroLow.set(boost < 15);

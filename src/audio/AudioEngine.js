@@ -41,6 +41,15 @@ const SFX_URL = HAS_URL ? new URL('../assets/audio/sfx.m4a', import.meta.url).hr
 const WATCHDOG = 0.3; // seconds after the last update() before beds fade out on their own
 const NOISE_SECONDS = 2;
 const EMPTY = Object.freeze([]);
+/**
+ * Per-car engine character (setProfile). The loops were built at 4 firing pulses per revolution
+ * (rpm / 15 Hz); `fires` sets the car's own (flat-six 3, inline-four 2), so the pitch follows its firing
+ * frequency. tone / intake / drive / body scale the filter ceiling, intake band, distortion and exhaust
+ * body; crackle scales overrun pops (0 for a diesel); clatter and turbo add diesel injector tick and
+ * turbo whistle.
+ */
+const DEFAULT_PROFILE = Object.freeze({ fires: 4, tone: 1, intake: 1, intakeFreq: [500, 2100], drive: 1, body: 1, crackle: 1, clatter: 0, turbo: 0 });
+
 const CRACKLES = ['crackle0', 'crackle1', 'crackle2', 'crackle3', 'crackle4', 'crackle5', 'crackle6', 'crackle7'];
 const BRAPS = ['brap0', 'brap1', 'brap2'];
 
@@ -140,6 +149,8 @@ export class AudioEngine {
     this._disposed = false;
     this._cool = Object.create(null);
     this._onVisibility = null;
+    this._profile = DEFAULT_PROFILE;
+    this._spool = 0;
     this._resetDrive();
   }
 
@@ -185,6 +196,11 @@ export class AudioEngine {
     } catch {
       return false;
     }
+  }
+
+  /** The car's engine character (see DEFAULT_PROFILE); null restores the default. */
+  setProfile(profile) {
+    this._profile = { ...DEFAULT_PROFILE, ...(profile || {}) };
   }
 
   setVolume(value) {
@@ -526,6 +542,27 @@ export class AudioEngine {
     fallbackOsc.start();
     sources.push(fallbackOsc);
 
+    // ---- diesel: injector clatter (band-passed noise gated by a pulse at the firing rate) and turbo whistle
+    const clatterLevel = gain(0, engineBus);
+    const clatterVca = gain(0, clatterLevel);
+    noiseSource(filter('bandpass', 3200, 1.4, clatterVca));
+    const clatterOsc = ctx.createOscillator();
+    clatterOsc.type = 'sawtooth';
+    clatterOsc.frequency.value = 27;
+    const pulse = ctx.createWaveShaper();
+    pulse.curve = new Float32Array(Array.from({ length: 256 }, (_, i) => (i / 255 > 0.82 ? 1 : 0)));
+    clatterOsc.connect(pulse);
+    pulse.connect(clatterVca.gain);
+    clatterOsc.start();
+    sources.push(clatterOsc);
+    const turboGain = gain(0, engineBus);
+    const turboOsc = ctx.createOscillator();
+    turboOsc.type = 'sine';
+    turboOsc.frequency.value = 2200;
+    turboOsc.connect(turboGain);
+    turboOsc.start();
+    sources.push(turboOsc);
+
     // ---- tyres and surfaces
     const skidFilter = filter('lowpass', 6000, 0.5, tireBus);
     const skidGain = gain(0, skidFilter);
@@ -552,14 +589,14 @@ export class AudioEngine {
     const nitroFilter = filter('highpass', 300, 0.6, nitroGain);
 
     beds.push(
-      engineAmp.gain, intakeGain.gain, fallbackGain.gain, skidGain.gain, skidHeavyGain.gain, gravelGain.gain,
+      engineAmp.gain, intakeGain.gain, fallbackGain.gain, clatterLevel.gain, turboGain.gain, skidGain.gain, skidHeavyGain.gain, gravelGain.gain,
       roadGain.gain, grassGain.gain, scrapeGain.gain, windGain.gain, buffetGain.gain, nitroGain.gain,
     );
 
     this._g = {
       output, sfxBus, noiseBuffer, sources, beds,
       engineAmp, limiterGate, body, tone, driveMix, onBus, offBus, intakeGain, intakeFilter,
-      fallbackGain, fallbackTone, fallbackOsc,
+      fallbackGain, fallbackTone, fallbackOsc, clatterLevel, clatterOsc, turboGain, turboOsc,
       layers: null, // { rpm, on: [{src, gain}], off: [...] }
       skidFilter, skidGain, skidHeavyGain, skidSrc: null, skidHeavySrc: null,
       gravelGain, gravelFilter, gravelSrc: null,
@@ -699,7 +736,9 @@ export class AudioEngine {
     if (inCut) rpmA *= 0.985;
     rpmA *= 1 + 0.05 * this._blip;
 
-    this._engine(rpmA, rpmN, load, boosting, now);
+    // The loops fire 4 times a revolution; scale so the pitch matches this car's firing frequency.
+    this._engine(rpmA * this._profile.fires / 4, rpmN, load, boosting, now);
+    this._diesel(rpm, rpmN, load, dt, now);
 
     // ---- overrun: crackle and burble when the throttle is shut at high rpm
     if (this._prevThrottle > 0.6 && throttle < 0.15 && rpmN > 0.45) {
@@ -798,6 +837,23 @@ export class AudioEngine {
     if (landing > 2) this.landing(landing);
   }
 
+  /** Diesel extras: clatter ticking at the firing rate (loudest at idle) and the turbo spooling with load. */
+  _diesel(rpm, rpmN, load, dt, now) {
+    const g = this._g;
+    const p = this._profile;
+    if (!p.clatter && !p.turbo) {
+      this._bed(g.clatterLevel.gain, 0, 0.1, now);
+      this._bed(g.turboGain.gain, 0, 0.1, now);
+      return;
+    }
+    g.clatterOsc.frequency.setTargetAtTime((rpm * p.fires) / 60, now, 0.02);
+    this._bed(g.clatterLevel.gain, p.clatter * 0.09 * (1 - 0.65 * rpmN) * (0.55 + 0.45 * load), 0.05, now);
+    const boostTarget = load * saturate((rpm - 1300) / 1400);
+    this._spool += (boostTarget - this._spool) * (1 - Math.exp(-dt / (boostTarget > this._spool ? 0.6 : 0.25)));
+    g.turboOsc.frequency.setTargetAtTime(2200 + 4800 * this._spool, now, 0.05);
+    this._bed(g.turboGain.gain, p.turbo * 0.03 * this._spool * this._spool, 0.05, now);
+  }
+
   /** Crossfade the rpm layers and shape the tone. */
   _engine(rpmA, rpmN, load, boosting, now) {
     const g = this._g;
@@ -837,12 +893,15 @@ export class AudioEngine {
     }
 
     // Load and nitro: brighter, more driven, more intake; coasting is darker and cleaner.
-    const cutoff = 1500 + 9500 * (0.25 + 0.75 * load) * (0.3 + 0.7 * rpmN) + (boosting ? 3500 : 0);
+    const p = this._profile;
+    const cutoff = (1500 + 9500 * (0.25 + 0.75 * load) * (0.3 + 0.7 * rpmN) + (boosting ? 3500 : 0)) * p.tone;
     g.tone.frequency.setTargetAtTime(Math.min(16000, cutoff), now, 0.04);
-    g.driveMix.gain.setTargetAtTime(0.05 + 0.35 * load * rpmN + (boosting ? 0.3 : 0), now, 0.05);
-    g.body.gain.setTargetAtTime(4 * load * (1 - 0.6 * rpmN), now, 0.06);
-    this._bed(g.intakeGain.gain, (0.12 * load * (0.2 + 0.8 * rpmN)) * (boosting ? 1.4 : 1), 0.04, now);
-    g.intakeFilter.frequency.setTargetAtTime(500 + 1600 * rpmN, now, 0.05);
+    g.driveMix.gain.setTargetAtTime((0.05 + 0.35 * load * rpmN + (boosting ? 0.3 : 0)) * p.drive, now, 0.05);
+    g.body.gain.setTargetAtTime(4 * load * (1 - 0.6 * rpmN) * p.body, now, 0.06);
+    // A high-revving engine's intake howl grows over the last third of the rev range.
+    const howl = p.intake > 1 ? 1 + (p.intake - 1) * saturate((rpmN - 0.55) / 0.35) : p.intake;
+    this._bed(g.intakeGain.gain, (0.12 * load * (0.2 + 0.8 * rpmN)) * (boosting ? 1.4 : 1) * howl, 0.04, now);
+    g.intakeFilter.frequency.setTargetAtTime(p.intakeFreq[0] + (p.intakeFreq[1] - p.intakeFreq[0]) * rpmN, now, 0.05);
   }
 
   _onShift(gear, rpmN, throttle) {
@@ -869,6 +928,8 @@ export class AudioEngine {
 
   /** A real overrun crackle (or a multi-crackle "brap") with random pitch and level. */
   _crackle(intensity, brap = false, delay = 0) {
+    intensity *= this._profile.crackle;
+    if (intensity <= 0) return; // diesels do not pop
     if (!this._canPlay() || !bank.sfx || !this._cooldown('crackle', brap ? 0.12 : 0.045)) return;
     let name;
     if (brap) name = BRAPS[Math.floor(Math.random() * BRAPS.length)];

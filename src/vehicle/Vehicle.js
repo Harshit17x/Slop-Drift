@@ -176,6 +176,7 @@ export class Vehicle {
       const x = w.left ? -g.halfTrack : g.halfTrack;
       const z = w.front ? g.frontAxleZ : g.rearAxleZ;
       w.mount.set(x, g.wheelCenterY + s.staticLength, z);
+      w.driven = !w.front || Boolean(t.drivetrain.awd);
       w.k = w.front ? s.springFront : s.springRear;
       w.bump = w.front ? s.bumpFront : s.bumpRear;
       w.rebound = w.front ? s.reboundFront : s.reboundRear;
@@ -549,12 +550,11 @@ export class Vehicle {
     // ---- drivetrain
     let wheelOmega = 0;
     {
-      const rl = this.wheels[2];
-      const rr = this.wheels[3];
       let sum = 0;
       let cnt = 0;
-      if (rl.contact) { sum += this._pointVelocity(rl.r, _b).dot(this.forward); cnt++; }
-      if (rr.contact) { sum += this._pointVelocity(rr.r, _b).dot(this.forward); cnt++; }
+      for (const w of this.wheels) {
+        if (w.driven && w.contact) { sum += this._pointVelocity(w.r, _b).dot(this.forward); cnt++; }
+      }
       wheelOmega = (cnt > 0 ? sum / cnt : fwdSpeed) / radius;
     }
     const boostMult = boost && drive > 0 ? CONFIG.nitro.forceMultiplier : 1;
@@ -562,7 +562,8 @@ export class Vehicle {
     const auto = this.assists.transmission !== 'manual';
     const driveForce = dtr.update(dt, wheelOmega, drive, auto, auto ? 0 : shiftReq, boostMult);
     if (dtr.shifted) this.frameShifted = true;
-    const drivenInContact = (this.wheels[2].contact ? 1 : 0) + (this.wheels[3].contact ? 1 : 0);
+    let drivenInContact = 0;
+    for (const w of this.wheels) if (w.driven && w.contact) drivenInContact += 1;
 
     // ---- tyres, force level
     const tire = t.tire;

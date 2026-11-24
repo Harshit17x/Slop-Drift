@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { PAINT_MODES, patchCarPaint, setCarPaintUniforms } from './carPaintShader.js';
 import { patchUnderglow } from './underglowLight.js';
 import { frontWheelAngle } from '../vehicle/steering.js';
 
@@ -130,6 +131,7 @@ export class ProceduralCar extends THREE.Group {
     this.textures = [];
     this.paintMeshes = [];
     this.number = String(options.number ?? '27');
+    this.options = options; // subclasses (ModelCar) read their model from here in build()
     this.build(layout);
     this.buildUnderglow();
   }
@@ -160,7 +162,15 @@ export class ProceduralCar extends THREE.Group {
     this.built = true;
     const { width, wheelbase, track, wheelRadius, wheelWidth } = this.dimensions;
 
-    const paint = this.material({ color: this.color, metalness: 0.35, roughness: 0.32 });
+    const paint = patchUnderglow(patchCarPaint(new THREE.MeshPhysicalMaterial({
+      color: this.color,
+      metalness: 0.35,
+      roughness: 0.2,
+      clearcoat: 0.9,
+      clearcoatRoughness: 0.06,
+      envMapIntensity: 1.2,
+    }), { mode: PAINT_MODES.SOLID_PAINT, paint: this.color, flake: 0.18, blend: 0.65, vertexAoStrength: 0 }));
+    this.materials.push(paint);
     this.bodyMaterial = paint;
     const trim = this.material({ color: 0x15171a, metalness: 0.25, roughness: 0.6 });
     const satin = this.material({ color: 0x24282d, metalness: 0.5, roughness: 0.45 });
@@ -442,7 +452,7 @@ export class ProceduralCar extends THREE.Group {
     this.glowColor = new THREE.Color();
     this.glowTube = new THREE.MeshBasicMaterial({ color: 0x000000, toneMapped: false });
     // Strip end points in chassis space: between the wheel arches on each side, and across both bumpers.
-    const y = 0.07;
+    const y = this.options.underglowY ?? 0.07;
     const side = width / 2 - 0.17;
     const run = wheelbase / 2 - 0.47;
     const front = -wheelbase / 2 - 0.62;
@@ -540,11 +550,14 @@ export class ProceduralCar extends THREE.Group {
     return true;
   }
 
-  /** Paint finish: { color, metalness?, roughness? } (an entry of PAINT_OPTIONS). */
+  /** Paint finish: { color, metalness?, roughness?, clearcoat?, creviceColor?, flopColor?, flake?, blend? } (an entry of PAINT_OPTIONS). */
   setPaint(paint) {
+    this.setColor(paint.color);
     this.bodyMaterial.metalness = paint.metalness ?? 0.35;
-    this.bodyMaterial.roughness = paint.roughness ?? 0.32;
-    return this.setColor(paint.color);
+    this.bodyMaterial.roughness = paint.roughness ?? 0.2;
+    if ('clearcoat' in this.bodyMaterial) this.bodyMaterial.clearcoat = paint.clearcoat ?? 0.9;
+    setCarPaintUniforms(this.bodyMaterial, { paint });
+    return this;
   }
 
   setRimColor(color) {
@@ -566,6 +579,7 @@ export class ProceduralCar extends THREE.Group {
   setColor(color) {
     this.color.set(color);
     this.bodyMaterial.color.copy(this.color);
+    setCarPaintUniforms(this.bodyMaterial, { color: this.color });
     // Stripes stay readable on any paint: dark on light cars, light on dark ones.
     const luminance = this.color.r * 0.2126 + this.color.g * 0.7152 + this.color.b * 0.0722;
     this.stripeMaterial.color.setHex(luminance > 0.35 ? 0x1b1f24 : 0xeef1f4);

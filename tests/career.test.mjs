@@ -6,6 +6,7 @@ import {
 import { trackKey, parseTrackKey, modeOfTrack } from '../src/meta/trackKey.js';
 import { MAPS } from '../src/world/maps.js';
 import { PAINT_OPTIONS, MODES } from '../src/config.js';
+import { CARS } from '../src/vehicle/cars.js';
 
 let failures = 0;
 let passes = 0;
@@ -130,12 +131,15 @@ career.addXp(xpForLevel(5));
 check('custom number after level 5', career.setCosmetic('number', '9x9') === true && career.profile.cosmetics.number === '99');
 check('silver rims always allowed', career.setCosmetic('rim', 'silver'));
 const garage = career.garage();
-check('garage lists every unlock plus silver rims and no neon', garage.items.length === UNLOCKS.length + 2 && garage.items.some((i) => i.id === 'rim:silver') && garage.items.some((i) => i.id === 'neon:off'));
+check('garage lists every unlock plus silver rims and no neon', garage.items.length === UNLOCKS.length + 2 + CARS.length && garage.items.some((i) => i.id === 'rim:silver') && garage.items.some((i) => i.id === 'neon:off'));
 check('neon is off by default and always switchable off', garage.selected.neon === 'off' && career.setCosmetic('neon', 'off'));
 check('cyan neon fits at level 5', career.setCosmetic('neon', 'cyan') && career.profile.cosmetics.neon === 'cyan');
 check('ice neon locked until level 12', career.setCosmetic('neon', 'ice') === false && career.profile.cosmetics.neon === 'cyan');
 check('rainbow neon needs the night achievement', career.setCosmetic('neon', 'rainbow') === false);
 check('unknown neon rejected', career.setCosmetic('neon', 'plaid') === false);
+check('rally hatch is the default car', garage.selected.car === 'hatch');
+check('every car can be picked', CARS.every((car) => career.setCosmetic('car', car.id)) && career.profile.cosmetics.car === CARS.at(-1).id);
+check('unknown car rejected', career.setCosmetic('car', 'tank') === false && career.profile.cosmetics.car === CARS.at(-1).id);
 check('garage locked items explain why', garage.items.filter((i) => !i.unlocked).every((i) => i.requirement.length > 0));
 
 // --- drifting and air

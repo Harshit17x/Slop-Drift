@@ -311,6 +311,7 @@ class SocketTransport {
       rim: cosmetics.rim || '',
       number: cosmetics.number || '',
       neon: cosmetics.neon || '',
+      car: cosmetics.car || '',
       modeId: client.currentMode || this.modeId || 'menu',
       token,
       instance: client.instanceId,
@@ -479,6 +480,7 @@ class SocketTransport {
       rim: cosmetics.rim,
       number: cosmetics.number,
       neon: cosmetics.neon,
+      car: cosmetics.car,
       modeId: client.currentMode || 'menu',
     }));
   }
@@ -729,7 +731,7 @@ export class NetClient {
   /**
    * @param {object} options
    * @param {string} [options.host]    API host (VITE_API_HOST), e.g. 'https://slop-drift-api.you.workers.dev' or 'localhost:8787'. Empty -> local/offline.
-   * @param {{id:string, name:string, level?:number, xp?:number, cosmetics?:{paint?:string, rim?:string, number?:string, neon?:string}}} options.profile
+   * @param {{id:string, name:string, level?:number, xp?:number, cosmetics?:{paint?:string, rim?:string, number?:string, neon?:string, car?:string}}} options.profile
    * @param {() => number} [options.now]  Clock in ms (tests); defaults to performance.now().
    */
   constructor({ host = '', profile, now, wallNow } = {}) {
@@ -1037,6 +1039,7 @@ export class NetClient {
       rim: cosmetics.rim || '',
       number: cosmetics.number || '',
       neon: cosmetics.neon || '',
+      car: cosmetics.car || '',
       modeId: this.currentMode || 'menu',
     };
   }
@@ -1102,8 +1105,8 @@ export class NetClient {
 
   _upsertPeer(key, info, emit = true) {
     const existing = this.peers.get(key);
-    const peer = existing || { id: key, playerId: '', name: '', level: 1, paint: '', rim: '', number: '', neon: '', modeId: 'menu', lastSeen: 0 };
-    const before = existing ? `${peer.name}|${peer.level}|${peer.paint}|${peer.rim}|${peer.number}|${peer.neon}|${peer.modeId}` : null;
+    const peer = existing || { id: key, playerId: '', name: '', level: 1, paint: '', rim: '', number: '', neon: '', car: '', modeId: 'menu', lastSeen: 0 };
+    const before = existing ? `${peer.name}|${peer.level}|${peer.paint}|${peer.rim}|${peer.number}|${peer.neon}|${peer.car}|${peer.modeId}` : null;
     peer.playerId = String(info.id ?? peer.playerId);
     peer.name = String(info.name ?? peer.name).slice(0, 24);
     peer.level = Number(info.level) || 1;
@@ -1111,12 +1114,13 @@ export class NetClient {
     peer.rim = String(info.rim ?? '');
     peer.number = String(info.number ?? '');
     peer.neon = String(info.neon ?? '');
+    peer.car = String(info.car ?? '');
     peer.modeId = info.modeId || peer.modeId || 'menu';
     if (!existing) {
       this.peers.set(key, peer);
       this.tracks.set(key, new Track());
     }
-    const changed = before !== `${peer.name}|${peer.level}|${peer.paint}|${peer.rim}|${peer.number}|${peer.neon}|${peer.modeId}`;
+    const changed = before !== `${peer.name}|${peer.level}|${peer.paint}|${peer.rim}|${peer.number}|${peer.neon}|${peer.car}|${peer.modeId}`;
     if (emit && changed) this._emitRoster();
     return peer;
   }

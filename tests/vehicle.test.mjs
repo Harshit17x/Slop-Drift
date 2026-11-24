@@ -4,6 +4,7 @@ import { Vehicle } from '../src/vehicle/Vehicle.js';
 import { DriftScorer } from '../src/vehicle/DriftScorer.js';
 import { CONFIG, SURFACE } from '../src/config.js';
 import { World } from '../src/world/World.js';
+import { CARS } from '../src/vehicle/cars.js';
 
 const DT = CONFIG.physics.fixedDt;
 const DEG = Math.PI / 180;
@@ -698,11 +699,36 @@ testCornering();
 testNoFlip();
 testDrift();
 testDrop();
+
+// Every selectable car rests on its springs at its own ride height and pulls away (the Hill 4x4 on all four wheels).
+function testCars() {
+  console.log('\nSelectable cars');
+  for (const car of CARS) {
+    const v = new Vehicle({ world: flatWorld(), handling: 'Balanced' });
+    v.setHandling('Balanced', car.tuning);
+    v.setAssists({ driftAssist: 0.6, abs: true, transmission: 'auto' });
+    v.teleport(spawn());
+    let s = run(v, 2, () => controls());
+    const contacts = s.wheels.filter((w) => w.contact).length;
+    check(`${car.id} settles on four wheels`, contacts === 4 && Math.abs(s.position.y) < 0.05 && s.speed < 0.2, `y ${s.position.y.toFixed(3)}`);
+    // Launch times against the real cars: Track RS 0-100 km/h 3.2 s (Porsche), Hill 4x4 0-60 km/h 4.8 s (Mahindra).
+    const target = { hatch: [100, 4, 9], gt: [100, 2.6, 4.2], thar: [60, 3.8, 6.5] }[car.id];
+    let reached = null;
+    s = run(v, 12, (time, st) => {
+      if (reached === null && st.speed * 3.6 >= target[0]) reached = time;
+      return reached === null ? controls({ throttle: 1 }) : null;
+    });
+    check(`${car.id} 0-${target[0]} km/h in a realistic time`, reached !== null && reached >= target[1] && reached <= target[2], `${reached?.toFixed(2)} s`);
+    check(`${car.id} drives the right wheels`, v.wheels.filter((w) => w.driven).length === (car.tuning?.drivetrain?.awd ? 4 : 2));
+  }
+}
+
 testBarrier();
 testReverse();
 testNaNRecovery();
 testFuzzAndDeterminism();
 testDriftScorer();
+testCars();
 await testRealWorld();
 
 console.log('\nMeasured figures (Balanced)');
