@@ -34,11 +34,20 @@ const MUSSOORIE_WORLD = Object.freeze({
 // what Vite looks for to bundle the files, so keep it inline.
 const HAS_URL = typeof import.meta.url === 'string';
 
+/**
+ * Metadata for the homepage map picker. `routes` mirrors the routes World.build makes from each
+ * map's roads and is used to count the events that map can run; `preview` is a still drone shot and
+ * `clip` a short silent flyover, both captured from the built world in the game.
+ */
 export const MAPS = Object.freeze({
   mussoorie: Object.freeze({
     id: 'mussoorie',
     label: 'Mussoorie',
     tagline: 'Mall Road, Camel\'s Back and the Landour climb',
+    highlights: Object.freeze(['Town streets', 'Landour ridge', 'Nag Tibba hairpins']),
+    routes: Object.freeze(['loop', 'climb', 'descent', 'peak', 'peakdown']),
+    preview: HAS_URL ? new URL('../assets/maps/previews/mussoorie.jpg', import.meta.url).href : null,
+    clip: HAS_URL ? new URL('../assets/maps/previews/mussoorie.mp4', import.meta.url).href : null,
     config: MUSSOORIE_WORLD,
     assets: Object.freeze({
       json: HAS_URL ? new URL('../assets/maps/mussoorie/map.json', import.meta.url).href : null,
@@ -50,6 +59,10 @@ export const MAPS = Object.freeze({
     id: 'alpine',
     label: 'Alpine Peak',
     tagline: 'The original procedural mountain',
+    highlights: Object.freeze(['Snow summit', 'Lakeside loop', 'Open sweepers']),
+    routes: Object.freeze(['loop', 'climb', 'descent']),
+    preview: HAS_URL ? new URL('../assets/maps/previews/alpine.jpg', import.meta.url).href : null,
+    clip: HAS_URL ? new URL('../assets/maps/previews/alpine.mp4', import.meta.url).href : null,
     config: WORLD,
     assets: null,
   }),

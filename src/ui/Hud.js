@@ -4,7 +4,7 @@
 
 import { MAPS } from '../world/maps.js';
 import {
-  DEFAULT_SETTINGS, HANDLING_PRESETS, QUALITY_PRESETS, TIME_OF_DAY, normalizeSettings,
+  DEFAULT_SETTINGS, HANDLING_PRESETS, MODES, QUALITY_PRESETS, TIME_OF_DAY, normalizeSettings,
 } from '../config.js';
 import { ElevationStrip, Minimap } from './Minimap.js';
 import { MEDAL_LABELS, MEDAL_TARGETS, MEDAL_TIERS, medalTargets } from '../meta/catalog.js';
@@ -260,6 +260,7 @@ export class Hud {
     this.profile = null;
     this.medals = {};
     this.mapId = this.settings.map; // the map actually loaded comes in through setMap()
+    this.previewMapId = this.mapId; // the map shown in the homepage drone preview
     this.daily = null;
     this.leaderboards = {};
     this.lbMode = null;
@@ -562,6 +563,11 @@ export class Hud {
     this.toastsEl = this.q('.sdh-toasts');
     this.countdownEl = this.q('.sdh-countdown');
     this.countdownSpan = this.q('.sdh-countdown span');
+    const clip = this.q('.sdh-map-clip');
+    clip?.addEventListener('playing', () => clip.classList.add('is-on'));
+    clip?.addEventListener('emptied', () => clip.classList.remove('is-on'));
+    clip?.addEventListener('error', () => clip.classList.remove('is-on'));
+    this.renderMapStage();
   }
 
   modeCardsMarkup() {
@@ -578,6 +584,42 @@ export class Hud {
         </span>
         <span class="sdh-mode-card-go" aria-hidden="true">${ICON.play}</span>
       </button>`).join('');
+  }
+
+  /** How many events a map's roads can run (mirrors World.build's routes). */
+  eventCount(map) {
+    const routes = map?.routes || [];
+    return MODES.filter((mode) => routes.includes(mode.route)).length;
+  }
+
+  /** Homepage map picker: one large drone shot and a tab per map. */
+  mapPickerMarkup() {
+    const tabs = Object.values(MAPS).map((map) => `
+      <button type="button" class="sdh-map-tab" data-act="map-preview" data-map="${esc(map.id)}" aria-pressed="false" title="${esc(map.tagline)}">
+        ${map.preview ? `<img class="sdh-map-tab-shot" src="${esc(map.preview)}" alt="" loading="lazy" decoding="async">` : ''}
+        <span class="sdh-map-tab-text"><b>${esc(map.label)}</b><small>${this.eventCount(map)} events</small></span>
+      </button>`).join('');
+    return `
+      <section class="sdh-maps" aria-label="Choose a map">
+        <div class="sdh-maps-head">
+          <span class="sdh-eyebrow">Choose your mountain</span>
+          <span class="sdh-maps-hint">Drone preview</span>
+        </div>
+        <div class="sdh-map-stage">
+          <div class="sdh-map-frame">
+            <img class="sdh-map-shot" alt="" decoding="async">
+            <video class="sdh-map-clip" muted loop playsinline preload="none" tabindex="-1" aria-hidden="true"></video>
+            <span class="sdh-map-stage-status"></span>
+          </div>
+          <div class="sdh-map-stage-body">
+            <h3 class="sdh-map-stage-name" aria-live="polite"></h3>
+            <p class="sdh-map-stage-tag"></p>
+            <ul class="sdh-map-stage-chips"></ul>
+            <button type="button" class="sdh-btn sdh-btn-primary sdh-map-go" data-act="map-go" hidden></button>
+          </div>
+        </div>
+        <div class="sdh-map-tabs" role="group" aria-label="Maps">${tabs}</div>
+      </section>`;
   }
 
   menuMarkup() {
@@ -598,6 +640,7 @@ export class Hud {
           <button type="button" class="sdh-icon sdh-icon-plain sdh-fs" data-act="fullscreen" aria-label="Fullscreen" title="Fullscreen (F)">${ICON.expand}${ICON.shrink}</button>
         </div>
         <div class="sdh-brand sdh-brand-menu"><span>SLOP DRIFT</span><small lang="hi">मसूरी</small>${CHAI_GLASS}</div>
+        ${this.mapPickerMarkup()}
         <section class="sdh-daily" aria-label="Daily challenge">
           <div class="sdh-daily-info">
             <div class="sdh-daily-top"><span class="sdh-eyebrow">Aaj ka challenge</span><span class="sdh-streak" title="Daily streak">${ICON.flame}<b class="sdh-num" data-d="streak">0</b></span></div>
@@ -622,7 +665,6 @@ export class Hud {
           <summary><i class="sdh-dot"></i><span data-p="playersTitle">Online players</span><span class="sdh-players-count sdh-num" data-p="playersCount"></span></summary>
           <ul class="sdh-players-list"></ul>
         </details>
-        <canvas class="sdh-overview sdh-overview-menu" aria-label="Map of the mountain roads"></canvas>
       </aside>`;
   }
 
@@ -672,8 +714,6 @@ export class Hud {
           <h2 class="sdh-title">Settings</h2>
         </header>
         <form class="sdh-form" novalidate>
-          <div class="sdh-group-label">Mountain</div>
-          ${seg('map', 'Map', Object.values(MAPS).map((m) => ({ value: m.id, label: m.label })))}
           <div class="sdh-group-label">Graphics</div>
           ${seg('quality', 'Quality', Object.keys(QUALITY_PRESETS).map((k) => ({ value: k, label: k })))}
           ${seg('timeOfDay', 'Time of day', TIME_OF_DAY.map((k) => ({ value: k, label: cap(k) })))}
@@ -756,6 +796,8 @@ export class Hud {
         case 'party-rematch': this.onPartyRematch?.(); break;
         case 'party-back': this.openSub('party', this.screen === 'party-results' ? 'party-results' : 'menu'); break;
         case 'party-results': if (this.partyResults) this.showPartyResults(this.partyResults); break;
+        case 'map-preview': this.previewMap(target.dataset.map); break;
+        case 'map-go': this.onSelectMap?.(this.previewMapId); break;
         case 'sub-back': this.closeSub(); break;
         case 'name-skip': this.skipName(); break;
         case 'camera': this.onCamera(); break;
@@ -857,6 +899,14 @@ export class Hud {
         this.openLeaderboard(next.dataset.tab, this.subSource);
         this.q(`[role="tab"][data-tab="${CSS.escape(next.dataset.tab)}"]`)?.focus();
       }
+      else if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && event.target.matches?.('.sdh-map-tab')) {
+        const tabs = [...event.target.parentElement.querySelectorAll('.sdh-map-tab')];
+        const next = tabs[(tabs.indexOf(event.target) + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        next?.focus();
+        if (next) this.previewMap(next.dataset.map);
+      }
       else if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && event.target.matches?.('.sdh-mode-card, .sdh-stack .sdh-btn')) {
         const list = [...event.target.parentElement.querySelectorAll('button')];
         const i = list.indexOf(event.target);
@@ -921,6 +971,9 @@ export class Hud {
     this.raceEl.toggleAttribute('inert', this.screen !== 'race');
     this.el.classList.toggle('is-racing', racing);
     this.currentPanel = panel;
+    // The flyover only runs while the homepage picker is on screen.
+    if (this.screen === 'menu' && !this.sub) this.playMapClip();
+    else this.pauseMapClip();
     if (this.dialogOpen) {
       // The first-run name dialog stays modal over whatever screen the game shows underneath.
       this.el.querySelectorAll('.sdh-panel').forEach((p) => p.setAttribute('inert', ''));
@@ -945,6 +998,11 @@ export class Hud {
     this.finishFresh = false;
     this.screen = 'menu';
     this.sub = null;
+    // Coming back from a run, the picker shows the map you are actually driving.
+    if (this.previewMapId !== this.mapId) {
+      this.previewMapId = this.mapId;
+      this.renderMapStage();
+    }
     this.applyScreen();
   }
 
@@ -1281,7 +1339,7 @@ export class Hud {
     const s = this.settings;
     const f = this.form || this.q('.sdh-form');
     const n = (k) => f.elements.namedItem(`${this.uid}-${k}`);
-    for (const key of ['map', 'quality', 'timeOfDay', 'handling', 'transmission', 'units']) {
+    for (const key of ['quality', 'timeOfDay', 'handling', 'transmission', 'units']) {
       const group = n(key);
       if (group) group.value = String(s[key]);
     }
@@ -1303,7 +1361,7 @@ export class Hud {
     const f = this.form;
     const n = (k) => f.elements.namedItem(`${this.uid}-${k}`);
     const out = { ...this.settings };
-    for (const key of ['map', 'quality', 'timeOfDay', 'handling', 'transmission', 'units']) {
+    for (const key of ['quality', 'timeOfDay', 'handling', 'transmission', 'units']) {
       const v = n(key)?.value;
       if (v) out[key] = v;
     }
@@ -1678,7 +1736,87 @@ export class Hud {
   /** The map being driven: leaderboard medals and headings are for its tracks. */
   setMap(mapId) {
     this.mapId = mapId;
+    this.previewMapId = mapId;
+    this.renderMapStage();
     if (this.lbMode) this.renderLeaderboard();
+  }
+
+  /** Show a map in the homepage drone preview without leaving the current world. */
+  previewMap(mapId) {
+    if (!MAPS[mapId] || this.previewMapId === mapId) return;
+    this.previewMapId = mapId;
+    this.renderMapStage();
+  }
+
+  /** Paint the homepage map picker: shot, copy, chips, CTA and tab state. */
+  renderMapStage() {
+    const map = MAPS[this.previewMapId] || MAPS[this.mapId];
+    if (!map || !this.el) return;
+    const here = map.id === this.mapId;
+    const shot = this.q('.sdh-map-shot');
+    if (shot) {
+      const src = map.preview || '';
+      if (shot.getAttribute('src') !== src) {
+        if (src) shot.src = src;
+        else shot.removeAttribute('src');
+        if (shot.animate && !this.reducedMotion?.matches) {
+          shot.animate([{ opacity: 0.25 }, { opacity: 1 }], { duration: 240, easing: 'ease-out' });
+        }
+      }
+      shot.alt = `${map.label} from above`;
+    }
+    // The still is the poster and the fallback; the flyover fades in over it once it can play.
+    const clip = this.q('.sdh-map-clip');
+    if (clip) {
+      if (map.preview) clip.setAttribute('poster', map.preview);
+      else clip.removeAttribute('poster');
+      if (map.clip && !this.reducedMotion?.matches) {
+        if (clip.getAttribute('src') !== map.clip) {
+          clip.classList.remove('is-on');
+          clip.src = map.clip;
+        }
+        if (this.screen === 'menu' && !this.sub) this.playMapClip();
+      } else {
+        clip.classList.remove('is-on');
+        clip.pause();
+      }
+    }
+    const status = this.q('.sdh-map-stage-status');
+    status.textContent = here ? 'Driving now' : 'Preview';
+    status.classList.toggle('is-here', here);
+    this.q('.sdh-map-stage-name').textContent = map.label;
+    this.q('.sdh-map-stage-tag').textContent = map.tagline || '';
+    this.q('.sdh-map-stage-chips').innerHTML = [
+      `<li class="sdh-map-chip is-count">${this.eventCount(map)} events</li>`,
+      ...(map.highlights || []).map((text) => `<li class="sdh-map-chip">${esc(text)}</li>`),
+    ].join('');
+    const go = this.q('.sdh-map-go');
+    go.hidden = here;
+    go.innerHTML = `${ICON.car}<span>Drive to ${esc(map.label)}</span>`;
+    for (const tab of this.el.querySelectorAll('.sdh-map-tab')) {
+      const on = tab.dataset.map === map.id;
+      tab.setAttribute('aria-pressed', String(on));
+      tab.classList.toggle('is-current', on);
+    }
+  }
+
+  /** Start the homepage flyover, loading it only when the picker is actually shown. */
+  playMapClip() {
+    const clip = this.q('.sdh-map-clip');
+    if (!clip || this.reducedMotion?.matches) return;
+    const map = MAPS[this.previewMapId] || MAPS[this.mapId];
+    if (!map?.clip) return;
+    if (clip.getAttribute('src') !== map.clip) {
+      clip.classList.remove('is-on');
+      clip.src = map.clip;
+    }
+    const playing = clip.play?.();
+    if (playing?.catch) playing.catch(() => {});
+  }
+
+  pauseMapClip() {
+    const clip = this.q('.sdh-map-clip');
+    if (clip && !clip.paused) clip.pause();
   }
 
   /** @param {{status:'loading'|'online'|'local'|'error', entries: import('../core/contracts.js').LeaderboardEntry[]}} data */

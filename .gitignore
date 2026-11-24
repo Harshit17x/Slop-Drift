@@ -20,6 +20,8 @@ public/models/track.glb
 # Video recordings and build zip
 *.mov
 *.mp4
+# The homepage map flyovers are small bundled assets, not recordings.
+!src/assets/maps/previews/*.mp4
 slop-drift.zip
 
 # Standalone nested sub-projects
