@@ -236,6 +236,13 @@ export class Atmosphere {
     this.measureHorizon();
     this.fog.color.copy(this.fogColor);
     this.fog.density = preset.fogDensity;
+    if (this.world?.bridge) {
+      this.fog.density = preset.moon ? 0.008 : 0.0062;
+      this.fog.color.lerp(new THREE.Color(preset.moon ? 0x263d42 : 0x99b1a1), 0.78);
+      this.sun.color.lerp(new THREE.Color(0xffdf95), preset.moon ? 0 : 0.32);
+      this.hemisphere.groundColor.setHex(0x48432e);
+      this.hemisphere.intensity *= 0.73;
+    }
     this.buildEnvironment();
   }
 
@@ -300,7 +307,7 @@ export class Atmosphere {
     try {
       this.environmentTarget = this.pmrem.fromScene(this.probeScene, 0, 1, 2000);
       this.scene.environment = this.environmentTarget.texture;
-      this.scene.environmentIntensity = this.preset.envIntensity;
+      this.scene.environmentIntensity = this.preset.envIntensity * (this.world?.bridge ? 0.48 : 1);
     } catch {
       this.environmentTarget = null;
       this.scene.environment = null;

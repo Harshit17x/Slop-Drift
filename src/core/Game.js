@@ -16,6 +16,9 @@ import { Input } from '../input/Input.js';
 import { Hud, formatDelta, formatTime } from '../ui/Hud.js';
 import { TerrainView } from '../render/TerrainView.js';
 import { WaterView } from '../render/WaterView.js';
+import { WASHOUT, inWashout } from '../world/jungleStage.js';
+import { BRIDGE } from '../world/Jungle.js';
+import { JungleCanopy } from '../render/JungleCanopy.js';
 import { RoadView } from '../render/RoadView.js';
 import { Scenery } from '../render/Scenery.js';
 import { Atmosphere } from '../render/Atmosphere.js';
@@ -145,7 +148,7 @@ export class Game {
           this.landmarks = null;
         }
       }],
-      ['Planting the forest', () => { this.scenery = new Scenery({ world: this.world, quality }); this.scene.add(this.scenery.group); }],
+      ['Planting the forest', () => { const Forest = this.world.bridge ? JungleCanopy : Scenery; this.scenery = new Forest({ world: this.world, quality }); this.scene.add(this.scenery.group); }],
       ['Lighting the sky', () => { this.atmosphere = new Atmosphere({ scene: this.scene, renderer: this.renderer, world: this.world, quality }); }],
       ['Warming the engine', () => this.createVehicle()],
     ];
@@ -364,6 +367,8 @@ export class Game {
     this.effects.clear();
     this.nitro = CONFIG.nitro.capacity;
     this.stuckTimer = 0;
+    this.world.bridge?.reset();
+    this.world.washout?.reset();
     this.roads.setRoute(this.mode.id === 'roam' ? null : route);
     this.hud.setActiveRoad(route.roadId);
     this.hud.showRace();
@@ -448,7 +453,16 @@ export class Game {
 
   respawn() {
     if (!this.session || this.state !== 'running') return;
-    this.vehicle.teleport(this.session.getRespawnPose(this.pose));
+    const bridge = this.world.bridge;
+    const cut = this.world.washout;
+    const loc = cut && this.world.locate(this.vehicle.getState().position.x, this.vehicle.getState().position.z, this.location);
+    const retryJump = cut && (cut.missed || (loc.roadId === 0 && inWashout(loc.s)));
+    const pose = retryJump ? this.world.getSpawn('loop', WASHOUT.retry, this.pose) : bridge?.falling || bridge?.loaded
+      ? this.world.getSpawn('loop', BRIDGE.recovery, this.pose)
+      : this.session.getRespawnPose(this.pose);
+    bridge?.reset();
+    cut?.reset();
+    this.vehicle.teleport(pose);
     this.session.addRespawn();
     this.meta.respawn(this.session.hud.elapsed, this.vehicle.getState());
     this.drift.reset({ preserveBank: true });
@@ -539,7 +553,23 @@ export class Game {
     controls.boost = boosting;
     controls.shift = input.shift;
 
+    const bridge = this.world.bridge;
+    if (bridge) {
+      const wasLoaded = bridge.loaded;
+      bridge.step(dt, this.vehicle.getState(), controls);
+      if (bridge.loaded && !wasLoaded) this.hud.toast('Loose planks · ease off and steer straight', 'warn');
+      if (bridge.broken && !bridge.dropTime) this.hud.toast('The ropes gave way!', 'warn');
+    }
     const state = this.vehicle.step(dt, controls);
+    if (this.world.washout) {
+      const note = this.world.washout.update(dt, state);
+      if (note) this.hud.toast(note, 'info');
+      if (this.world.washout.fallTime > 0.55) {
+        this.respawn();
+        this.hud.toast('Short landing · build speed on the run-up', 'warn');
+        return this.vehicle.getState();
+      }
+    }
     const drift = this.drift.update(dt, state, controls);
 
     const nitro = CONFIG.nitro;
@@ -692,7 +722,8 @@ export class Game {
     this.effects.setViewport(this.renderer.domElement.height, camera.fov);
     this.atmosphere.update(paused ? 0 : dt, camera, state.position);
     this.terrain.update(camera.position);
-    this.scenery.update(camera.position);
+    this.scenery.update(camera.position, paused ? 0 : dt, this.atmosphere.isNight, state.position);
+    this.roads.jungle?.update();
     this.updateHud(state);
     this.renderer.render(this.scene, camera);
   }

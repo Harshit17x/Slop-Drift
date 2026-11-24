@@ -819,7 +819,7 @@
 .sdh-map-chip.is-count { border-color: var(--marigold); color: var(--marigold); }
 .sdh-map-go { justify-content: center; width: 100%; margin-top: 0.5em; min-height: 2.3em; padding: 0.3em 0.7em 0.2em; font-size: 0.92em; }
 .sdh-map-go .sdh-ico { width: 1.1em; height: 1.1em; }
-.sdh-map-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.4em; }
+.sdh-map-tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(8em, 100%), 1fr)); gap: 0.4em; }
 .sdh-map-tab { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 0.45em; min-width: 0; padding: 0.2em; border: 2px solid rgba(244, 241, 232, 0.42); background: transparent; color: var(--chalk); text-align: left; cursor: pointer; }
 .sdh-map-tab-shot { width: 2.9em; height: 1.9em; object-fit: cover; object-position: 50% 44%; border: 2px solid var(--ink); filter: saturate(0.8) brightness(0.88); }
 .sdh-map-tab-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.05; }

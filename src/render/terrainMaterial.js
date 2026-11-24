@@ -35,6 +35,7 @@ uniform float uSnowLine;
 uniform float uTreeLine;
 uniform float uWaterLevel;
 uniform float uValleyFloor;
+uniform float uRainforest;
 uniform float uSunShadeStrength;
 uniform vec4 uGrassBank;      // xy: centre (world x, z), z: radius (0 = none); grass holds on steeper banks inside
 varying vec3 vTerrainPos;
@@ -142,6 +143,13 @@ const FRAGMENT_COLOR = /* glsl */ `
   rough = mix(rough, 0.62, snow);
   bump *= 1.0 - snow * 0.75;
 
+  if (uRainforest > 0.5) {
+    float patches = smoothstep(0.38, 0.69, nMid.g*0.45+nFine.r*0.55);
+    vec3 litter = mix(vec3(0.039,0.027,0.016),vec3(0.135,0.080,0.036),nMicro.r);
+    vec3 moss = mix(vec3(0.033,0.052,0.019),vec3(0.091,0.116,0.038),nFine.g);
+    albedo = mix(mix(litter,moss,patches),rock*0.56,steep*0.72);
+    albedo *= 0.72+0.38*smoothstep(0.39,0.61,nMicro.a);
+  }
   terrainWorldNormal = normalize(nW + vec3(bump.x, 0.0, bump.y) * (0.35 + 0.65 * steep));
   // Occlusion is stored with 0.86 as "open ground"; ridges go slightly above, gullies well below.
   terrainOcclusion = clamp(control.b / 0.86, 0.0, 1.16);
@@ -168,7 +176,7 @@ reflectedLight.directSpecular *= terrainSunShade;
  * @param {THREE.Texture} options.noise    Tiling RGBA noise.
  * @param {THREE.Texture} options.sunShade Coarse R8 sun shadow.
  */
-export function createTerrainUniforms({ control, noise, sunShade, grid, mountain, grassBank = null }) {
+export function createTerrainUniforms({ control, noise, sunShade, grid, mountain, rainforest = false, grassBank = null }) {
   return {
     uControl: { value: control },
     uNoise: { value: noise },
@@ -181,6 +189,7 @@ export function createTerrainUniforms({ control, noise, sunShade, grid, mountain
     uSnowLine: { value: mountain.snowLine },
     uTreeLine: { value: mountain.treeLine },
     uWaterLevel: { value: mountain.waterLevel },
+    uRainforest: { value: rainforest ? 1 : 0 },
     uValleyFloor: { value: mountain.valleyFloor },
     uSunShadeStrength: { value: 0.8 },
     uGrassBank: { value: new THREE.Vector4(grassBank?.x ?? 0, grassBank?.z ?? 0, grassBank?.radius ?? 0, 0) },

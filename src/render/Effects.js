@@ -15,6 +15,7 @@ const STYLES = Object.freeze({
   smoke: [0.9, 0.9, 0.91, 0.58, 0.9, 2.8, 2.8, -0.35, 0, 2.4, 0.1],
   // A thin, quick wisp for light slides and lock-ups.
   wisp: [0.9, 0.9, 0.91, 0.34, 0.5, 1.7, 1.4, -0.4, 0, 2.0, 0.1],
+  mud: [0.22, 0.125, 0.055, 0.94, 0.13, 0.09, 0.52, 9.8, 0, 0.35, 0],
   dust: [0.62, 0.52, 0.4, 0.42, 0.55, 1.9, 1.4, 0.4, 0, 1.8, 0.08],
   grass: [0.36, 0.42, 0.24, 0.42, 0.35, 1.2, 0.7, 1.4, 0, 1.6, 0.05],
   snow: [0.95, 0.97, 1.0, 0.5, 0.4, 1.5, 0.8, 1.0, 0, 1.6, 0.05],
@@ -487,6 +488,13 @@ export class Effects {
           scale = 0.85 + clamp(speed / 30, 0, 0.7) + (heavy ? clamp(over - 0.5, 0, 0.6) : 0);
           mark = speed > 2.5 ? clamp(0.25 + over * 0.7, 0, 0.75) : 0;
         }
+      } else if (wheel.surface === SURFACE.MUD) {
+        kind = 'mud';
+        rate = clamp(speed + over * 14, 4, 38);
+        mark = 0.28 + clamp(over, 0, 1) * 0.3;
+      } else if (wheel.surface === SURFACE.WOOD) {
+        trail.active = false;
+        continue;
       } else if (wheel.surface === SURFACE.WATER) {
         kind = 'splash';
         rate = 30 * clamp(speed / 15, 0.2, 1);
@@ -505,10 +513,10 @@ export class Effects {
         this.emitClock[i] -= 1;
         const smoky = kind === 'smoke' || kind === 'wisp';
         const carry = smoky ? 0.12 : 0.25;
-        const kick = smoky ? 0.9 : 0;
+        const kick = kind === 'mud' ? 1.6 + Math.random() * 1.5 : smoky ? 0.9 : 0;
         this.spawn(kind,
           point.x + right.x * side * 0.12, point.y + 0.15, point.z + right.z * side * 0.12,
-          velocity.x * carry + right.x * side * kick, smoky ? 0.35 : 0.5, velocity.z * carry + right.z * side * kick,
+          velocity.x * carry + right.x * side * kick, kind === 'mud' ? 1.8 + Math.random() * 2 : smoky ? 0.35 : 0.5, velocity.z * carry + right.z * side * kick,
           scale);
       }
     }

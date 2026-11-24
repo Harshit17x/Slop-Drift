@@ -4,6 +4,7 @@ import {
   ACHIEVEMENTS, MEDAL_TARGETS, MUSSOORIE_MEDAL_TARGETS, TRACK_MEDAL_TARGETS, UNLOCKS, XP, levelForXp, medalTargets, xpForLevel,
 } from '../src/meta/catalog.js';
 import { trackKey, parseTrackKey, modeOfTrack } from '../src/meta/trackKey.js';
+import { MAPS } from '../src/world/maps.js';
 import { PAINT_OPTIONS, MODES } from '../src/config.js';
 
 let failures = 0;
@@ -196,7 +197,11 @@ check('mussoorie targets are ordered', Object.values(MUSSOORIE_MEDAL_TARGETS).ev
 check('mussoorie timed targets are quicker than alpine (shorter tracks)', ['sprint', 'circuit', 'climb', 'descent'].every((m) => MUSSOORIE_MEDAL_TARGETS[m].gold < MEDAL_TARGETS[m].gold));
 check('track targets resolve through the track key', medalTargets('sprint') === MEDAL_TARGETS.sprint && medalTargets('mussoorie.sprint') === MUSSOORIE_MEDAL_TARGETS.sprint);
 check('unranked tracks have no targets', medalTargets('roam') === null && medalTargets('mussoorie.roam') === null && medalTargets('toString') === null);
-check('every map ranks its own events', Object.keys(TRACK_MEDAL_TARGETS).length === Object.keys(MEDAL_TARGETS).length + Object.keys(MUSSOORIE_MEDAL_TARGETS).length);
+const expectedTracks = Object.values(MAPS).flatMap(map => MODES
+  .filter(mode => mode.id !== 'roam' && map.routes.includes(mode.route))
+  .map(mode => trackKey(map.id, mode.id)));
+check('every map ranks its own events', expectedTracks.length === Object.keys(TRACK_MEDAL_TARGETS).length
+  && expectedTracks.every(key => medalTargets(key)));
 check('Nag Tibba is ranked on Mussoorie only', medalTargets('mussoorie.peak') && medalTargets('mussoorie.peakdown') && medalTargets('peak') === null && medalTargets('peakdown') === null);
 check('Nag Tibba targets are longer than the Lal Tibba climb', MUSSOORIE_MEDAL_TARGETS.peak.gold > MUSSOORIE_MEDAL_TARGETS.climb.gold && MUSSOORIE_MEDAL_TARGETS.peakdown.gold > MUSSOORIE_MEDAL_TARGETS.descent.gold);
 

@@ -3,6 +3,8 @@ import { clamp, lerp, smoothstep } from '../core/math.js';
 import { WORLD } from './worldConfig.js';
 import { createRandom } from './noise.js';
 import { nextTask as pause } from '../core/yield.js';
+import { inWashout, WASHOUT } from './jungleStage.js';
+import { buildJungle, onBridge, BRIDGE, wetness } from './Jungle.js';
 import { MountainShape } from './MountainShape.js';
 import { TerrainGrid } from './TerrainGrid.js';
 import { Road, gradeLimitedProfile } from './Road.js';
@@ -71,6 +73,7 @@ export class World {
       onProgress(fraction, label);
       await pause();
     };
+    if (config.map === 'jungle') return buildJungle(this, stage);
     if (this.mapData) return this.buildFromMap(stage);
 
     await stage(0.02, 'Surveying the mountain');
@@ -706,6 +709,8 @@ export class World {
     let gradX = 0;
     let gradZ = 0;
     let bestRoad = -1;
+    let roadSurface = SURFACE.ASPHALT;
+    let wet = 0;
 
     for (let r = 0; r < this.roads.length; r += 1) {
       const current = this.roads[r];
@@ -717,6 +722,21 @@ export class World {
       const offset = current.profileAt(a, halfWidth);
       const surfaceClass = a <= halfWidth ? 0 : a <= halfWidth + current.shoulderEdge ? 1 : 2;
       let y = scratchLocation.y + side * a * scratchLocation.bank + offset;
+      if (this.bridge) {
+        if (inWashout(scratchLocation.s)) continue;
+        if (this.washout.missed && scratchLocation.s >= WASHOUT.bank && scratchLocation.s < WASHOUT.bank + 8) {
+          // Keep a short landing from colliding with the top of the cut before recovery.
+          y = this.washout.bankY - 8;
+        }
+        if (onBridge(scratchLocation.s)) {
+          if (this.bridge.broken || a > BRIDGE.halfWidth) continue;
+          y += this.bridge.displacement(scratchLocation.s);
+          roadSurface = SURFACE.WOOD;
+        } else {
+          wet = wetness(scratchLocation.s, scratchLocation.lateral, scratchLocation.curvature);
+          roadSurface = wet > 0.38 ? SURFACE.MUD : SURFACE.HARDPACK;
+        }
+      }
       // The verge is soft ground: where another road's bed has been cut higher, the ground wins.
       if (surfaceClass === 2) y = Math.max(y, this.grid.heightAt(x, z));
       if (surfaceClass < bestClass || (surfaceClass === bestClass && y > bestY)) {
@@ -753,15 +773,15 @@ export class World {
 
     if (bestClass < 9) {
       const inverse = 1 / Math.sqrt(gradX * gradX + gradZ * gradZ + 1);
-      const surface = bestClass === 0 ? SURFACE.ASPHALT : bestClass === 1 ? SURFACE.GRAVEL : SURFACE.GRASS;
+      const surface = bestClass === 0 ? roadSurface : bestClass === 1 ? SURFACE.GRAVEL : SURFACE.GRASS;
       const props = SURFACE_PROPS[surface];
       out.y = bestY;
       out.nx = -gradX * inverse;
       out.ny = inverse;
       out.nz = -gradZ * inverse;
       out.surface = surface;
-      out.grip = props.grip;
-      out.rolling = props.rolling;
+      out.grip = props.grip * (1 - 0.43 * wet);
+      out.rolling = props.rolling * (1 + wet);
       out.roughness = props.roughness;
       out.roadId = bestRoad;
       return out;
