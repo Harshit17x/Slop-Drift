@@ -75,10 +75,7 @@ export class GhostCar {
    * @param {{x:number,y:number,z:number}[]} [options.wheelLayout]  Vehicle.wheelLayout, as CarVisual takes it.
    */
   constructor({ paintColor = 0xe9eef5, name = 'Ghost', detail = '', wheelLayout = null } = {}) {
-    const layout = wheelLayout?.length === 4
-      ? { wheelbase: Math.abs(wheelLayout[0].z - wheelLayout[2].z), track: Math.abs(wheelLayout[0].x) * 2, wheelCentreY: wheelLayout[0].y }
-      : {};
-    this.model = new ProceduralCar({ name: 'GhostCar', ...layout });
+    this.model = new ProceduralCar({ name: 'GhostCar', wheelLayout });
     this.group = this.model;
     this.wheelRadius = this.model.dimensions.wheelRadius;
 

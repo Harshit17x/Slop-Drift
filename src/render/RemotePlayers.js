@@ -40,9 +40,7 @@ export class RemotePlayers {
     this.group.name = 'RemotePlayers';
     scene.add(this.group);
     this.cars = new Map();
-    this.carOptions = wheelLayout
-      ? { wheelbase: Math.abs(wheelLayout[0].z - wheelLayout[2].z), track: Math.abs(wheelLayout[0].x) * 2, wheelCentreY: wheelLayout[0].y }
-      : {};
+    this.wheelLayout = wheelLayout;
     this.scratch = new THREE.Vector3();
     this.neonLevel = 0.2;
   }
@@ -113,7 +111,7 @@ export class RemotePlayers {
   }
 
   add(id, peer) {
-    const car = new ProceduralCar({ color: getPaint(peer.paint).color, name: `Remote_${peer.name}`, ...this.carOptions });
+    const car = new ProceduralCar({ color: getPaint(peer.paint).color, name: `Remote_${peer.name}`, wheelLayout: this.wheelLayout });
     car.visible = false;
     car.traverse((node) => {
       if (node.isMesh) node.castShadow = true;

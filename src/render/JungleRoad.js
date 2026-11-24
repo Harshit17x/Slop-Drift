@@ -112,8 +112,11 @@ export class JungleRoad {
     this.update();
   }
 
-  update() {
+  update(cameraPosition) {
     const b = this.bridge;
+    if (!b.broken && !this.wasBroken && cameraPosition &&
+      (cameraPosition.x - b.centre.x) ** 2 + (cameraPosition.z - b.centre.z) ** 2 > 250 ** 2) return;
+    this.wasBroken = b.broken;
     let index = 0;
     for (const { section, y, s, lines } of this.sections) {
       const t = Math.max(0, b.dropTime - Math.abs(s - b.centreS) * 0.009);

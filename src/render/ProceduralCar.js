@@ -110,11 +110,12 @@ export class ProceduralCar extends THREE.Group {
     this.name = options.name || 'ProceduralCar';
     this.color = new THREE.Color(options.color ?? 0xd62828);
     this.scale.setScalar(options.scale ?? 1);
+    const layout = options.wheelLayout?.length === 4 ? options.wheelLayout : null;
     this.dimensions = {
       length: 4.33,
       width: options.width ?? 1.8,
-      wheelbase: options.wheelbase ?? 2.55,
-      track: options.track ?? 1.56,
+      wheelbase: layout ? Math.abs(layout[2].z - layout[0].z) : options.wheelbase ?? 2.55,
+      track: layout ? Math.abs(layout[1].x - layout[0].x) : options.track ?? 1.56,
       wheelRadius: options.wheelRadius ?? 0.34,
       wheelWidth: options.wheelWidth ?? 0.235,
     };
@@ -128,7 +129,7 @@ export class ProceduralCar extends THREE.Group {
     this.textures = [];
     this.paintMeshes = [];
     this.number = String(options.number ?? '27');
-    this.build();
+    this.build(layout);
     this.buildUnderglow();
   }
 
@@ -153,7 +154,7 @@ export class ProceduralCar extends THREE.Group {
     return this.part(geometry, material, parent);
   }
 
-  build() {
+  build(layout) {
     if (this.built) return this;
     this.built = true;
     const { width, wheelbase, track, wheelRadius, wheelWidth } = this.dimensions;
@@ -294,26 +295,26 @@ export class ProceduralCar extends THREE.Group {
     this.box(0.025, 0.16, 0.02, 0, -0.08, 0, satin, null, this.steeringWheel);
     this.box(0.03, 0.025, 0.025, 0, 0.17, 0.005, accent, null, this.steeringWheel); // top-dead-centre marker
 
-    this.buildWheels();
+    this.buildWheels(layout);
     this.mergeStatic();
     return this;
   }
 
-  buildWheels() {
+  buildWheels(layout) {
     const { wheelbase, track, wheelRadius, wheelWidth } = this.dimensions;
     const tire = this.material({ color: 0x141517, metalness: 0, roughness: 0.92 });
     const rim = this.material({ color: 0xbfc4ca, metalness: 0.85, roughness: 0.3 });
     this.rimMaterial = rim;
     const caliper = this.material({ color: 0xd6242a, metalness: 0.3, roughness: 0.45 });
 
-    // Tyre: a lathe of a rounded section, axis along x.
+    // Normalized section reduced in Blender from the driving mesh. Revolve once for all four tyres.
     const r = wheelRadius;
     const h = wheelWidth / 2;
     const section = [
-      [r * 0.68, -h], [r - 0.035, -h], [r - 0.008, -h * 0.72], [r, -h * 0.25], [r, h * 0.25],
-      [r - 0.008, h * 0.72], [r - 0.035, h], [r * 0.68, h],
-    ].map(([x, y]) => new THREE.Vector2(x, y));
-    const tireGeometry = new THREE.LatheGeometry(section, 28);
+      [0.68, -1], [0.89706, -1], [0.97647, -0.72], [1, 0],
+      [0.97647, 0.72], [0.89706, 1], [0.68, 1],
+    ].map(([radius, width]) => new THREE.Vector2(radius * r, width * h));
+    const tireGeometry = new THREE.LatheGeometry(section, 24);
     tireGeometry.rotateZ(Math.PI / 2);
 
     // Rim: barrel, five spokes and a hub, one geometry. The outer face is at +x; mirrored for left wheels.
@@ -360,12 +361,14 @@ export class ProceduralCar extends THREE.Group {
       rearLeft: [-track / 2, wheelbase / 2],
       rearRight: [track / 2, wheelbase / 2],
     };
-    WHEEL_KEYS.forEach((key) => {
+    WHEEL_KEYS.forEach((key, i) => {
       const [x, z] = positionsByKey[key];
       const outward = Math.sign(x);
       const pivot = new THREE.Group();
       pivot.name = `${key}_pivot`;
       pivot.position.set(x, this.wheelCentreY, z);
+      if (layout) pivot.position.copy(layout[i]);
+      pivot.userData.restY = pivot.position.y;
       const wheel = new THREE.Group();
       wheel.name = `${key}_wheel`;
       this.part(tireGeometry, tire, wheel);
@@ -591,7 +594,7 @@ export class ProceduralCar extends THREE.Group {
   setSuspension(key, compression = 0) {
     const pivot = this.wheelPivots.get(key);
     if (!pivot) return;
-    pivot.position.y = this.wheelCentreY + Math.max(-0.14, Math.min(0.14, compression));
+    pivot.position.y = pivot.userData.restY + compression;
   }
 
   setBodyDynamics({ roll = 0, pitch = 0, squat = 0 } = {}) {

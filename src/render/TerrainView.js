@@ -29,6 +29,8 @@ export class TerrainView {
     this.chunkCount = this.chunksPerSide * this.chunksPerSide;
     this.chunkLod = new Int8Array(this.chunkCount).fill(-1);
     this.lastEvaluated = new THREE.Vector3(Infinity, Infinity, Infinity);
+    this.frustum = new THREE.Frustum();
+    this.viewProjection = new THREE.Matrix4();
     this.sunDirection = new THREE.Vector3(0, 0, 0);
     this.stats = { triangles: 0, chunks: [0, 0, 0, 0], bakeMs: 0 };
 
@@ -149,12 +151,18 @@ export class TerrainView {
     this.chunkMaxY = new Float32Array(this.chunkCount);
     this.chunkCentreX = new Float32Array(this.chunkCount);
     this.chunkCentreZ = new Float32Array(this.chunkCount);
+    this.chunkBounds = [];
+    const coarseStep = LOD_STEPS.at(-1);
+    const maxSkirt = 4 + coarseStep * cell * 2.5;
     for (let cz = 0; cz < n; cz += 1) {
       for (let cx = 0; cx < n; cx += 1) {
         let min = Infinity;
         let max = -Infinity;
-        for (let iz = cz * CHUNK_CELLS; iz <= (cz + 1) * CHUNK_CELLS; iz += 8) {
-          for (let ix = cx * CHUNK_CELLS; ix <= (cx + 1) * CHUNK_CELLS; ix += 8) {
+        // Coarse road-bed samples can take their height from just outside the chunk.
+        const endZ = Math.min(size - 1, (cz + 1) * CHUNK_CELLS + coarseStep);
+        const endX = Math.min(size - 1, (cx + 1) * CHUNK_CELLS + coarseStep);
+        for (let iz = Math.max(0, cz * CHUNK_CELLS - coarseStep); iz <= endZ; iz++) {
+          for (let ix = Math.max(0, cx * CHUNK_CELLS - coarseStep); ix <= endX; ix++) {
             const h = heights[iz * size + ix];
             if (h < min) min = h;
             if (h > max) max = h;
@@ -165,6 +173,9 @@ export class TerrainView {
         this.chunkMaxY[chunk] = max;
         this.chunkCentreX[chunk] = (cx + 0.5) * CHUNK_CELLS * cell - half;
         this.chunkCentreZ[chunk] = (cz + 0.5) * CHUNK_CELLS * cell - half;
+        const x = cx * CHUNK_CELLS * cell - half, z = cz * CHUNK_CELLS * cell - half;
+        this.chunkBounds.push(new THREE.Box3(new THREE.Vector3(x, min - maxSkirt, z),
+          new THREE.Vector3(x + CHUNK_CELLS * cell, max, z + CHUNK_CELLS * cell)));
       }
     }
   }
@@ -400,12 +411,9 @@ export class TerrainView {
 
   // ------------------------------------------------------------------ runtime
 
-  /** Choose a level of detail per chunk for this camera position. Cheap; skipped while the camera barely moves. */
-  update(cameraPosition, force = false) {
-    if (!force && this.lastEvaluated.distanceToSquared(cameraPosition) < 16) return;
+  updateLods(cameraPosition) {
     this.lastEvaluated.copy(cameraPosition);
     const halfChunk = CHUNK_CELLS * this.grid.cell * 0.5;
-    const counts = [0, 0, 0, 0];
     const last = LOD_STEPS.length - 1;
     for (let chunk = 0; chunk < this.chunkCount; chunk += 1) {
       const dx = Math.max(0, Math.abs(cameraPosition.x - this.chunkCentreX[chunk]) - halfChunk);
@@ -424,10 +432,37 @@ export class TerrainView {
         }
       }
       this.chunkLod[chunk] = lod;
+    }
+  }
+
+  /** Pass a camera for per-chunk culling, or a position for uncropped terrain previews. */
+  update(view, force = false) {
+    const camera = view.isCamera ? view : null;
+    const position = camera ? camera.position : view;
+    const moved = this.lastEvaluated.distanceToSquared(position) >= 16;
+    if (moved || force) this.updateLods(position);
+    else if (!camera && !this.usedCamera) return;
+    this.usedCamera = !!camera;
+    if (camera) {
+      camera.updateWorldMatrix(true, false);
+      this.viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+      this.frustum.setFromProjectionMatrix(this.viewProjection, camera.coordinateSystem, camera.reversedDepth);
+    }
+    const counts = this.stats.chunks;
+    counts.fill(0);
+    for (let chunk = 0; chunk < this.chunkCount; chunk++) {
+      if (camera && !this.frustum.intersectsBox(this.chunkBounds[chunk])) continue;
+      const lod = this.chunkLod[chunk];
       const level = this.levels[lod];
       const slot = counts[lod] * 2;
-      level.chunkAttribute.array[slot] = (chunk % this.chunksPerSide) * CHUNK_CELLS;
-      level.chunkAttribute.array[slot + 1] = Math.floor(chunk / this.chunksPerSide) * CHUNK_CELLS;
+      const x = (chunk % this.chunksPerSide) * CHUNK_CELLS;
+      const z = Math.floor(chunk / this.chunksPerSide) * CHUNK_CELLS;
+      const offsets = level.chunkAttribute.array;
+      if (offsets[slot] !== x || offsets[slot + 1] !== z) {
+        offsets[slot] = x;
+        offsets[slot + 1] = z;
+        level.offsetsChanged = true;
+      }
       counts[lod] += 1;
     }
     let triangles = 0;
@@ -435,11 +470,13 @@ export class TerrainView {
       const level = this.levels[k];
       level.geometry.instanceCount = counts[k];
       level.mesh.visible = counts[k] > 0;
-      level.chunkAttribute.needsUpdate = true;
+      if (level.offsetsChanged) {
+        level.chunkAttribute.needsUpdate = true;
+        level.offsetsChanged = false;
+      }
       triangles += counts[k] * level.trianglesPerChunk;
     }
     this.stats.triangles = triangles;
-    this.stats.chunks = counts;
   }
 
   setQuality(quality) {

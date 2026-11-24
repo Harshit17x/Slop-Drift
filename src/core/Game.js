@@ -721,9 +721,9 @@ export class Game {
     this.effects.setLight(this.atmosphere.ambientColor);
     this.effects.setViewport(this.renderer.domElement.height, camera.fov);
     this.atmosphere.update(paused ? 0 : dt, camera, state.position);
-    this.terrain.update(camera.position);
+    this.terrain.update(camera);
     this.scenery.update(camera.position, paused ? 0 : dt, this.atmosphere.isNight, state.position);
-    this.roads.jungle?.update();
+    this.roads.jungle?.update(camera.position);
     this.updateHud(state);
     this.renderer.render(this.scene, camera);
   }

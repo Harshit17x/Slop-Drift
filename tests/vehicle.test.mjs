@@ -154,6 +154,24 @@ function cruise(s, target, gain = 0.6) {
 
 // ------------------------------------------------------------------ tests
 
+function testPedalAndWheelResponse() {
+  const car = makeVehicle(flatWorld());
+  const input = controls({ throttle: 1, steer: 0.3 });
+  const first = car.step(DT, input).throttle;
+  for (let i = 0; i < 120; i++) car.step(DT, input);
+  check('full pedal takes up torque progressively', first > 0 && first < 0.3 && car.getState().throttle > 0.99);
+  const wheel = car.getState().wheels[0];
+  const start = wheel.spinAngle;
+  car.step(DT / 2, input);
+  const middle = wheel.spinAngle;
+  car.step(DT / 2, input);
+  check('wheel spin interpolates between physics ticks', Math.abs(middle - start) > 0.001 &&
+    Math.abs((start + wheel.spinAngle) * 0.5 - middle) < 1e-7);
+  check('braking cuts residual drive torque on the next tick', car.step(DT, controls({ brake: 1 })).throttle === 0);
+  car.teleport();
+  check('respawn clears the previous wheel pose', car.getState().wheels.every(w => Math.abs(w.spinAngle) < 0.001));
+}
+
 function testSettle() {
   console.log('\nSettling at rest');
   for (const name of ['Arcade', 'Balanced', 'Sim']) {
@@ -663,6 +681,7 @@ async function testRealWorld() {
 // ------------------------------------------------------------------ run
 
 const t0 = Date.now();
+testPedalAndWheelResponse();
 testSettle();
 testGradeHold();
 testBank();
