@@ -106,7 +106,7 @@ export class Game {
     };
 
     const quality = getQualityPreset(this.settings.quality);
-    // The map is chosen once per page load; switching maps in settings reloads the page.
+    // The map is chosen once per page load; switching maps from the homepage reloads the page.
     this.map = getMap(this.settings.map);
     let mapData = null;
     if (this.map.assets) {
@@ -157,6 +157,7 @@ export class Game {
     }
     mark('Ready');
 
+    this.hud.setMap(this.map.id);
     this.hud.setTrack(this.world.getMapData());
     this.meta = new MetaLayer({ career: this.career, hud: this.hud, scene: this.scene, wheelLayout: this.vehicle.wheelLayout, game: this, mapId: this.map.id });
     this.createNetwork();
@@ -230,6 +231,8 @@ export class Game {
     };
     hud.onCamera = () => this.cameraRig.cycle();
     hud.onFullscreen = () => this.toggleFullscreen();
+    // The homepage map picker: a different map means a different world, so it reloads.
+    hud.onSelectMap = (mapId) => this.selectMap(mapId);
     hud.onOpenSettings = () => {};
     // The HUD closes its own settings panel; put the screen underneath back.
     hud.onCloseSettings = (source) => this.restoreAfterSettings(source);
@@ -289,6 +292,21 @@ export class Game {
     this.cameraRig.shakeEnabled = this.settings.cameraShake;
     this.hud.setSettings(this.settings);
     this.onResize();
+  }
+
+  /**
+   * Homepage map picker. The two maps are separate worlds, so switching saves the choice and
+   * reloads into the new one (applySettings shows the loading screen before the reload).
+   */
+  selectMap(mapId) {
+    const map = MAPS[mapId];
+    if (!map || this.state !== 'menu') return false;
+    if (map.id === this.map?.id) {
+      this.hud.toast(`Already driving ${map.label}`, 'good');
+      return false;
+    }
+    this.applySettings({ ...this.settings, map: map.id });
+    return true;
   }
 
   /** Switch time of day and remember it (the daily challenge can ask for night). */

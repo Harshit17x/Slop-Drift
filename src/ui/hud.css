@@ -798,8 +798,37 @@
 .sdh-btn-tile > span { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .sdh-btn-tile .sdh-ico { width: 1.45em; height: 1.45em; }
 .sdh-overview { display: block; width: 100%; aspect-ratio: 4 / 3; max-height: 16em; border: var(--line) solid var(--ink); outline: 3px solid var(--flag-blue); outline-offset: -6px; }
-.sdh-overview-menu { display: none; }
-@media (min-height: 900px) { .sdh-overview-menu { display: block; } }
+
+/* Homepage map picker: a drone shot stage with a tab per map */
+.sdh-maps { display: flex; flex-direction: column; gap: 0.45em; }
+.sdh-maps-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6em; }
+.sdh-maps-hint { font-size: 0.78em; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--chalk); opacity: 0.6; }
+.sdh-map-stage { display: flex; flex-direction: column; overflow: hidden; border: var(--line) solid var(--ink); background: var(--asphalt); box-shadow: var(--hard-sm); }
+.sdh-map-frame { position: relative; }
+.sdh-map-shot { display: block; width: 100%; aspect-ratio: 16 / 8.8; object-fit: cover; object-position: 50% 42%; background: var(--asphalt); }
+.sdh-map-clip { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 42%; background: var(--asphalt); opacity: 0; transition: opacity 280ms ease; pointer-events: none; }
+.sdh-map-clip.is-on { opacity: 1; }
+.sdh-map-frame::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 0 0 1px rgba(20, 17, 13, 0.5); pointer-events: none; }
+.sdh-map-stage-status { position: absolute; top: 0.4em; left: 0.4em; padding: 0.1em 0.5em 0; border: 2px solid var(--ink); background: var(--chalk); color: var(--ink); font-size: 0.72em; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+.sdh-map-stage-status.is-here { background: var(--marigold); }
+.sdh-map-stage-body { display: flex; flex-direction: column; gap: 0.12em; padding: 0.5em 0.6em 0.6em; }
+.sdh-map-stage-name { margin: 0; font: 1.5em/1 var(--font-display); color: var(--whitewash); }
+.sdh-map-stage-tag { margin: 0; font-size: 0.9em; line-height: 1.2; color: var(--chalk); opacity: 0.9; }
+.sdh-map-stage-chips { display: flex; flex-wrap: wrap; gap: 0.22em 0.28em; margin: 0.2em 0 0; padding: 0; list-style: none; }
+.sdh-map-chip { padding: 0.05em 0.42em 0; border: 2px solid rgba(237, 230, 211, 0.45); color: var(--chalk); font-size: 0.74em; font-weight: 700; letter-spacing: 0.03em; white-space: nowrap; }
+.sdh-map-chip.is-count { border-color: var(--marigold); color: var(--marigold); }
+.sdh-map-go { justify-content: center; width: 100%; margin-top: 0.5em; min-height: 2.3em; padding: 0.3em 0.7em 0.2em; font-size: 0.92em; }
+.sdh-map-go .sdh-ico { width: 1.1em; height: 1.1em; }
+.sdh-map-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.4em; }
+.sdh-map-tab { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 0.45em; min-width: 0; padding: 0.2em; border: 2px solid rgba(244, 241, 232, 0.42); background: transparent; color: var(--chalk); text-align: left; cursor: pointer; }
+.sdh-map-tab-shot { width: 2.9em; height: 1.9em; object-fit: cover; object-position: 50% 44%; border: 2px solid var(--ink); filter: saturate(0.8) brightness(0.88); }
+.sdh-map-tab-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.05; }
+.sdh-map-tab-text b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.98em; }
+.sdh-map-tab-text small { font-size: 0.78em; opacity: 0.75; white-space: nowrap; }
+.sdh-map-tab:hover, .sdh-map-tab:focus-visible { border-color: var(--chalk); }
+.sdh-map-tab:hover .sdh-map-tab-shot, .sdh-map-tab:focus-visible .sdh-map-tab-shot, .sdh-map-tab.is-current .sdh-map-tab-shot { filter: none; }
+.sdh-map-tab.is-current { border-color: var(--marigold); background: rgba(242, 176, 30, 0.12); }
+.sdh-map-tab.is-current b { color: var(--marigold); }
 
 .sdh-players { border: 2px solid rgba(244, 241, 232, 0.35); font-size: 0.95em; }
 .sdh-players summary { display: flex; align-items: center; gap: 0.55em; padding: 0.4em 0.7em 0.3em; cursor: pointer; list-style: none; font-weight: 700; }
@@ -1323,4 +1352,5 @@ span.sdh-icon-sm { width: 2.2em; }
 @media (prefers-reduced-motion: reduce) {
   .sdh *, .sdh *::before, .sdh *::after { animation: none !important; transition-duration: 0s !important; transition-delay: 0s !important; }
   .sdh-chai .sdh-steam { opacity: 0.6; }
+  .sdh-map-clip { display: none; }
 }

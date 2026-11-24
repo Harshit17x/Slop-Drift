@@ -2,7 +2,7 @@
 
 [![Live Demo](https://img.shields.io/badge/Demo-Play%20Online-success?style=for-the-badge&logo=vercel)](https://slop-drift.vercel.app/)
 
-A browser mountain drift-racing game. Everything is generated at load time from a seed: a 2.5 km mountain with eroded ridges and a snow cap, a 5.7 km road loop with four hairpins, a 3 km spur that spirals to the summit, the car, the scenery and the audio. There are no model, texture or sound files.
+A browser mountain drift-racing game. Everything is generated at load time from a seed: a 2.5 km mountain with eroded ridges and a snow cap, a 5.7 km road loop with four hairpins, a 3 km spur that spirals to the summit, the car, the scenery and the audio. There are no model or sound files; the only media are the two homepage map previews.
 
 ## Run
 
@@ -30,6 +30,15 @@ The page also carries an import map for Three.js, so the repository root can be 
 | Free Roam | No clock; drive anywhere, including off the road |
 
 Laps only count when every checkpoint is passed in order. Best times, splits and drift scores are stored in the browser.
+
+## Maps
+
+Two mountains ship with the game; pick one from the drone flyover at the top of the main menu. Switching maps saves the choice and reloads into the new world.
+
+- **Mussoorie.** The town loop past Library Chowk, Mall Road, Gun Hill, Landour and the Nag Tibba switchbacks: 8 events, adding Nag Tibba Hill Climb and Nag Tibba Descent to the shared list.
+- **Alpine Peak.** The original procedural mountain, with its snow cap and lakeside loop: 6 events.
+
+The previews in `src/assets/maps/previews/` are captured from the live worlds, not painted art: each map has a short silent flyover (`.mp4`) and a matching poster still (`.jpg`) used for the thumbnails and when reduced motion is on.
 
 ## Controls
 
