@@ -63,6 +63,7 @@ export class MetaLayer {
     this.net = net;
     this.updateConnection();
     if (net) {
+      net.onIdentityClaimed = () => this.career.rollPlayerId();
       net.onStatus(() => this.updateConnection());
       net.onRoster((peers) => this.updateRoster(peers));
       net.join(this.lobby);

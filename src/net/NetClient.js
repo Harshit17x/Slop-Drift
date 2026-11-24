@@ -27,7 +27,7 @@
 // No method throws: network trouble only ever shows up in `status`.
 
 import { PACKET_SIZE, RELAY_SIZE, createSnapshot, decodeState, encodeState, packFlags } from './protocol.js';
-import { ensureToken, fetchWithTimeout, normalizeHost, profileLevel, socketBase } from './identity.js';
+import { ensureToken, fetchWithTimeout, forgetToken, normalizeHost, profileLevel, socketBase } from './identity.js';
 import { levelForXp } from '../meta/catalog.js';
 import { createParty, eventFromOp, memberOrder, partyCodeOfRoom, step as partyStep } from './party.js';
 
@@ -280,12 +280,22 @@ class SocketTransport {
     const client = this.client;
     client._setStatus('connecting');
     const profile = client.profile;
-    const { token, claimed } = await ensureToken(client.host, profile.id, profile.name);
+    let { token, claimed } = await ensureToken(client.host, profile.id, profile.name);
     if (this.stopped) return;
     if (claimed) {
-      client.error = 'identity-claimed';
-      client._setStatus('disconnected');
-      return;
+      if (typeof client.onIdentityClaimed === 'function') {
+        profile.id = client.onIdentityClaimed();
+      } else {
+        profile.id = (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
+      }
+      const retryToken = await ensureToken(client.host, profile.id, profile.name);
+      token = retryToken.token;
+      claimed = retryToken.claimed;
+      if (claimed) {
+        client.error = 'identity-claimed';
+        client._setStatus('disconnected');
+        return;
+      }
     }
     if (!token) {
       client.error = 'unreachable';
@@ -353,6 +363,9 @@ class SocketTransport {
   retry(minDelay = 0) {
     if (this.stopped) return;
     this.client._setStatus('disconnected');
+    if (this.attempt >= 2) {
+      forgetToken(this.client.host, this.client.profile.id);
+    }
     const base = Math.min(30000, 1000 * 2 ** this.attempt);
     this.attempt = Math.min(this.attempt + 1, 6);
     const delay = Math.max(minDelay, base * (0.5 + Math.random() * 0.5));

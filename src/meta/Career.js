@@ -193,6 +193,13 @@ export class Career {
     this.save();
   }
 
+  /** Roll a fresh player id if the current one was claimed or rejected on the server. */
+  rollPlayerId() {
+    this.profile.id = randomId();
+    this.save();
+    return this.profile.id;
+  }
+
   /** @returns {import('../core/contracts.js').LevelInfo} */
   levelInfo(xp = this.profile.xp) {
     const level = levelForXp(xp);

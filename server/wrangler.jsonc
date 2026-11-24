@@ -8,8 +8,8 @@
 		"enabled": true
 	},
 	"vars": {
-		// Comma-separated; one '*' wildcard per entry is allowed (Vercel preview deployments).
-		"ALLOWED_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173,https://slop-drift.vercel.app,https://slop-drift-*.vercel.app"
+		// Comma-separated; one '*' wildcard per entry is allowed (Vercel preview deployments, localhost ports).
+		"ALLOWED_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173,http://localhost:*,http://127.0.0.1:*,https://slop-drift.vercel.app,https://slop-drift-*.vercel.app"
 	},
 	// TOKEN_SECRET is a secret: `npx wrangler secret put TOKEN_SECRET` (production), `.dev.vars` (local).
 	"durable_objects": {
