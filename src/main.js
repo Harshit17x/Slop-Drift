@@ -1,4 +1,7 @@
+import { inject } from '@vercel/analytics';
 import { Game } from './core/Game.js';
+
+inject();
 
 const root = document.querySelector('#app');
 const game = new Game(root);
