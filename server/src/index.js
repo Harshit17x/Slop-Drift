@@ -20,9 +20,15 @@ import {
 export { Room };
 
 const TOP_TTL = 30;
-const ONLINE_TTL = 15;
+const ONLINE_TTL = 60;
 const GHOST_TTL = 60;
 const MAX_BODY = 100_000;
+
+/** Primary lobby rooms where public players connect; checked for presence. */
+const PRIMARY_ROOMS = ['mountain', 'mussoorie.mountain'];
+
+/** Ephemeral set of rooms with recent connection activity, avoiding waking up empty rooms. */
+const activeRooms = new Set(PRIMARY_ROOMS);
 
 const app = new Hono();
 
@@ -210,20 +216,34 @@ app.get('/api/ghost', async (c) => {
   });
 });
 
-/** GET -> {total, rooms:{modeId:count}}; asks every room, cached 15 s. */
+/** GET -> {total, rooms:{modeId:count}}; asks active lobby rooms, cached 60 s. */
 app.get('/api/online', (c) => cached(c, 'online', ONLINE_TTL, async () => {
-  const counts = await Promise.all(ROOM_MODES.map(async (modeId) => {
+  const rooms = Object.fromEntries(ROOM_MODES.map((modeId) => [modeId, 0]));
+  const targets = new Set(PRIMARY_ROOMS);
+  for (const name of activeRooms) {
+    if (ROOM_MODES.includes(name)) targets.add(name);
+  }
+
+  const counts = await Promise.all([...targets].map(async (modeId) => {
     try {
       const stub = c.env.Room.get(c.env.Room.idFromName(modeId));
       const response = await stub.fetch(new Request(`https://room.internal/parties/room/${modeId}`, { headers: { 'x-partykit-room': modeId } }));
       const data = await response.json();
-      return [modeId, Number(data.count) || 0];
+      const count = Number(data.count) || 0;
+      if (count === 0 && !PRIMARY_ROOMS.includes(modeId)) {
+        activeRooms.delete(modeId);
+      }
+      return [modeId, count];
     } catch {
       return [modeId, 0];
     }
   }));
-  const rooms = Object.fromEntries(counts);
-  return { total: counts.reduce((sum, [, count]) => sum + count, 0), rooms };
+
+  for (const [modeId, count] of counts) {
+    rooms[modeId] = count;
+  }
+  const total = counts.reduce((sum, [, count]) => sum + count, 0);
+  return { total, rooms };
 }));
 
 app.onError((error, c) => {
@@ -247,6 +267,7 @@ export default {
           const params = parseJoinParams(new URL(req.url).searchParams);
           if (!params) return new Response('bad join parameters', { status: 400 });
           if (!(await verifyToken(env.TOKEN_SECRET, params.playerId, params.token))) return new Response('bad token', { status: 401 });
+          if (ROOM_MODES.includes(lobby.name)) activeRooms.add(lobby.name);
           return undefined;
         },
         // Plain HTTP into rooms is internal only (presence counts go through /api/online).

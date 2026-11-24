@@ -69,7 +69,15 @@ export class MetaLayer {
       net.join(this.lobby);
     }
     this.pollOnline();
-    this.onlineTimer = setInterval(() => this.pollOnline(), 30000);
+    this.onlineTimer = setInterval(() => this.pollOnline(), 60000);
+    this._onVisibilityChange = () => {
+      if (typeof document !== 'undefined' && !document.hidden && this.net?.status !== 'connected') {
+        this.pollOnline();
+      }
+    };
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('visibilitychange', this._onVisibilityChange);
+    }
   }
 
   updateConnection() {
@@ -100,6 +108,7 @@ export class MetaLayer {
 
   /** How many people are online across all rooms (menus only; it costs server requests). */
   async pollOnline() {
+    if (typeof document !== 'undefined' && document.hidden) return;
     if (this.net?.status === 'connected') {
       this.online = (this.net.peers?.size ?? 0) + 1;
       this.refreshProfile();
@@ -416,6 +425,9 @@ export class MetaLayer {
 
   dispose() {
     clearInterval(this.onlineTimer);
+    if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function' && this._onVisibilityChange) {
+      document.removeEventListener('visibilitychange', this._onVisibilityChange);
+    }
     this.ghostCar?.dispose();
     this.ghostCar = null;
   }

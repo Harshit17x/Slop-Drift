@@ -49,7 +49,7 @@ const HERMITE_MAX_GAP = 0.35;
 const LOCAL_HEARTBEAT = 2000;
 const LOCAL_TIMEOUT = 7000;
 const PRESENCE_CHANNEL = 'slop-drift-presence';
-const ONLINE_CACHE = 15000;
+const ONLINE_CACHE = 45000;
 /** Local mode: how long a joining tab waits for the party's host tab before giving up (ms). */
 const LOCAL_PARTY_TIMEOUT = 1500;
 const LOCAL_PARTY_TICK = 250;
