@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { patchUnderglow } from './underglowLight.js';
+import { frontWheelAngle } from '../vehicle/steering.js';
 
 /** Underglow light output per metre of LED strip at full (night) level. */
 const UNDERGLOW_POWER = 10;
@@ -573,8 +574,10 @@ export class ProceduralCar extends THREE.Group {
 
   setSteering(value) {
     this.steering = value;
-    this.wheelPivots.get('frontLeft').rotation.y = -value;
-    this.wheelPivots.get('frontRight').rotation.y = -value;
+    for (let i = 0; i < 2; i++) {
+      const pivot = this.wheelPivots.get(WHEEL_KEYS[i]);
+      pivot.rotation.y = -frontWheelAngle(value, pivot.position.x, this.dimensions.wheelbase);
+    }
     // Seen from the driver's seat (+z looking toward -z), a right turn is clockwise: negative about z.
     this.steeringWheel.rotation.z = -value * 2.6;
   }

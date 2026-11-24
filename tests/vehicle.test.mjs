@@ -155,6 +155,14 @@ function cruise(s, target, gain = 0.6) {
 // ------------------------------------------------------------------ tests
 
 function testPedalAndWheelResponse() {
+  for (const direction of [-1, 1]) {
+    const turning = makeVehicle(flatWorld());
+    const state = run(turning, 0.5, () => controls({ steer: direction }));
+    const inner = state.wheels[direction > 0 ? 1 : 0].steerAngle * direction;
+    const outer = state.wheels[direction > 0 ? 0 : 1].steerAngle * direction;
+    check('inside front wheel turns tighter in a ' + (direction > 0 ? 'right' : 'left') + ' hairpin',
+      inner > state.steerAngle * direction && state.steerAngle * direction > outer && outer > 0);
+  }
   const car = makeVehicle(flatWorld());
   const input = controls({ throttle: 1, steer: 0.3 });
   const first = car.step(DT, input).throttle;
