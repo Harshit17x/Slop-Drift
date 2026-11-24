@@ -159,6 +159,7 @@ export class JungleCanopy {
         const mat=shape==='trunk'?this.bark:shape==='stone'?this.material:shape==='beam'?this.beams:this.foliage;
         const mesh=new THREE.InstancedMesh(this.shapes[shape],mat,entries.length);
         entries.forEach(([matrix,color],i)=>{mesh.setMatrixAt(i,matrix);mesh.setColorAt(i,new THREE.Color(color));});
+        mesh.computeBoundingSphere();
         mesh.receiveShadow=shape!=='beam';
         group.add(mesh);
       }

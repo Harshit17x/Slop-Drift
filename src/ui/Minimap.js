@@ -181,6 +181,7 @@ export class Minimap {
     this.bg = null;
     this.dirty = true;
     this.lastX = NaN;
+    this.lastDrawTime = -Infinity;
     this.lastZ = NaN;
     this.lastH = NaN;
     this.resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => this.resize()) : null;
@@ -287,10 +288,15 @@ export class Minimap {
 
   /** Cheap per-frame call; redraws only when the car moved or turned noticeably. */
   update(x, z, heading) {
+    const now = performance.now();
+    // The instrument only spans a few hundred pixels. Redraw immediately after a resize or respawn.
+    if (!this.dirty && now - this.lastDrawTime < 1000 / 30 &&
+        Math.abs(x - this.lastX) < 10 && Math.abs(z - this.lastZ) < 10) return;
     if (!this.dirty
       && Math.abs(x - this.lastX) < 0.08
       && Math.abs(z - this.lastZ) < 0.08
       && Math.abs(heading - this.lastH) < 0.002) return;
+    this.lastDrawTime = now;
     this.draw(x, z, heading);
   }
 

@@ -358,7 +358,7 @@
   font-weight: 700;
   letter-spacing: 0.18em;
 }
-.sdh-stone-face { display: flex; justify-content: center; padding: 0.3em 0 0; }
+.sdh-stone-face { display: flex; justify-content: center; align-items: baseline; padding: 0.45em 0 0.25em; }
 .sdh-speed { font-size: 5em; }
 .sdh-tach { display: grid; grid-template-columns: repeat(14, 1fr); gap: 2px; padding: 0 0.6em; }
 .sdh-tach i {
@@ -376,7 +376,7 @@
 .sdh-tach i.is-lit.is-yellow { background: var(--marigold); }
 .sdh-tach i.is-lit.is-redzone { background: var(--truck-red); }
 .sdh-speedo.is-red .sdh-tach i.is-lit.is-redzone { animation: sdh-blink 0.14s steps(2, jump-none) infinite; }
-.sdh-gearbox { display: flex; align-items: flex-end; justify-content: center; gap: 0.5em; padding: 0.45em 0 0.5em; }
+.sdh-gearbox { display: flex; align-items: center; justify-content: center; gap: 0.65em; padding: 0.45em 0 0.5em; }
 .sdh-gear {
   display: grid;
   place-items: center;
@@ -771,9 +771,13 @@
   pointer-events: auto;
   transition: transform 0.1s var(--snap);
 }
-.sdh-btn > span { flex: 1; align-self: center; padding-bottom: 0.1em; }
-.sdh-btn > span { flex: 0 1 auto; margin-right: auto; }
-.sdh-btn:active { transform: translate(2px, 2px); }
+.sdh-btn > span { flex: 0 1 auto; min-width: 0; align-self: center; margin-right: auto; padding-bottom: 0.1em; }
+.sdh-btn:enabled:active { transform: translate(2px, 2px); }
+.sdh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+@media (hover: hover) {
+  .sdh-btn:enabled:hover { border-color: var(--marigold); }
+  .sdh-btn-primary:enabled:hover { background: var(--whitewash); border-color: var(--ink); }
+}
 .sdh-btn-primary { border: var(--line) solid var(--ink); background: var(--marigold); color: var(--ink); box-shadow: var(--hard-sm); }
 .sdh-btn-primary > span { background-image: none; }
 .sdh-btn-primary:active { box-shadow: 1px 1px 0 var(--ink); }
@@ -793,7 +797,7 @@
 
 /* Menu */
 .sdh-panel-menu { gap: 0.65em; padding-top: max(1em, env(safe-area-inset-top)); padding-bottom: max(1em, env(safe-area-inset-bottom)); }
-.sdh-menu-actions { display: grid; grid-template-columns: 1.2fr 1.3fr 1fr 1fr; gap: 0.4em; }
+.sdh-menu-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5em; }
 .sdh-btn-tile { flex-direction: column; justify-content: center; gap: 0.15em; min-height: 3.5em; padding: 0.4em 0.2em 0.25em; text-align: center; font-size: 0.95em; }
 .sdh-btn-tile > span { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .sdh-btn-tile .sdh-ico { width: 1.45em; height: 1.45em; }

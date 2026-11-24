@@ -15,14 +15,7 @@ export class CarVisual {
    * @param {{x:number,y:number,z:number}[]} options.wheelLayout  Vehicle.wheelLayout (rest wheel centres).
    */
   constructor({ color = 0xe9eef5, wheelLayout }) {
-    const front = wheelLayout[0];
-    const rear = wheelLayout[2];
-    this.model = new ProceduralCar({
-      color,
-      wheelbase: Math.abs(front.z - rear.z),
-      track: Math.abs(front.x) * 2,
-      wheelCentreY: front.y,
-    });
+    this.model = new ProceduralCar({ color, wheelLayout });
     this.group = this.model;
 
     this.headlights = [];

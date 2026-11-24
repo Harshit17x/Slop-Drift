@@ -31,10 +31,10 @@ const PRESETS = Object.freeze({
     clouds: 0.46, cloudDensity: 0.4, stars: 0.12, moon: false,
   }),
   night: Object.freeze({
-    skyElevation: -14, lightElevation: 41, azimuth: 208,
+    skyElevation: -14, lightElevation: 27, azimuth: 208,
     turbidity: 2, rayleigh: 0.9, mie: 0.003, mieG: 0.8,
-    exposure: 0.62, sun: 0xa9c1ff, sunIntensity: 0.95,
-    hemiSky: 0x33487a, hemiGround: 0x0a0d14, hemiIntensity: 0.75, envIntensity: 1,
+    exposure: 0.62, sun: 0xc5d6f3, sunIntensity: 1.35,
+    hemiSky: 0x657aa0, hemiGround: 0x252a35, hemiIntensity: 0.85, envIntensity: 1,
     fogDensity: 0.00046, fogFloor: 0x0b1424, fogTint: 0xffffff, fogGain: 1,
     clouds: 0.3, cloudDensity: 0.3, stars: 0.95, moon: true,
   }),
@@ -117,8 +117,30 @@ export class Atmosphere {
     this.stars = this.createStars();
     scene.add(this.stars);
     this.moon = new THREE.Mesh(
-      new THREE.CircleGeometry(1, 28),
-      new THREE.MeshBasicMaterial({ color: 0xf2f5ff, fog: false, toneMapped: false, depthWrite: false, transparent: true }),
+      new THREE.PlaneGeometry(2, 2),
+      new THREE.ShaderMaterial({
+        transparent: true, depthWrite: false, toneMapped: false,
+        vertexShader: `
+          varying vec2 disc;
+          void main() {
+            disc = (uv - 0.5) * 3.2;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }`,
+        fragmentShader: `
+          varying vec2 disc;
+          void main() {
+            float r = length(disc);
+            float edge = max(fwidth(r), 0.002);
+            float surface = 1.0 - smoothstep(1.0 - edge, 1.0 + edge, r);
+            vec3 normal = vec3(disc, sqrt(max(0.0, 1.0 - r*r)));
+            float phase = max(dot(normal, normalize(vec3(-0.32, 0.22, 0.92))), 0.0);
+            float maria = smoothstep(0.1, 0.8, sin(7.0*disc.x + 1.4*sin(5.0*disc.y)) * cos(6.0*disc.y));
+            vec3 face = vec3(0.82, 0.87, 0.95) * (0.16 + 0.84*sqrt(phase)) * (1.0 - 0.17*maria);
+            float halo = 0.14 * pow(1.0 - smoothstep(1.0, 1.56, r), 3.0);
+            gl_FragColor = vec4(mix(vec3(0.28, 0.38, 0.56), face, surface), surface + (1.0 - surface)*halo);
+            #include <colorspace_fragment>
+          }`,
+      }),
     );
     this.moon.name = 'AtmosphereMoon';
     this.moon.frustumCulled = false;

@@ -307,6 +307,7 @@ export class Vehicle {
     this.position.copy(this.comLocal).applyQuaternion(this.quaternion).add(_a.set(px, num(p.y), pz));
     this._resetMotion();
     this.drivetrain.reset();
+    this.throttle = 0;
     this.steerInput = 0;
     this.steerAngle = 0;
     this.reverseTimer = 0;
@@ -338,10 +339,19 @@ export class Vehicle {
     this.gLat = 0;
     this._updateFrame();
     this._originOf(this.position, this.quaternion, this.currOrigin);
-    this.prevOrigin.copy(this.currOrigin);
-    this.prevQuat.copy(this.quaternion);
     this.goodPosition.copy(this.position);
     this.goodQuaternion.copy(this.quaternion);
+    this._capturePreviousPose();
+  }
+
+  _capturePreviousPose() {
+    this.prevOrigin.copy(this.currOrigin);
+    this.prevQuat.copy(this.quaternion);
+    this.prevSteer = this.steerAngle;
+    for (const w of this.wheels) {
+      w.prevCompression = w.contact ? w.compression : -this.tuning.suspension.travel;
+      w.prevSpin = w.spinAngle;
+    }
   }
 
   step(frameDt, controls = {}) {
@@ -355,8 +365,7 @@ export class Vehicle {
     this.pendingShift = Math.sign(num(controls?.shift));
     let n = 0;
     while (this.accumulator >= FIXED_DT && n < MAX_SUB_STEPS) {
-      this.prevOrigin.copy(this.currOrigin);
-      this.prevQuat.copy(this.quaternion);
+      this._capturePreviousPose();
       this._fixedStep(FIXED_DT, controls || {});
       this._originOf(this.position, this.quaternion, this.currOrigin);
       this.accumulator -= FIXED_DT;
@@ -408,9 +417,13 @@ export class Vehicle {
       } else this.reverseTimer = 0;
     }
     const reverse = dtr.gear === -1;
-    const drive = reverse ? brakeIn : throttleIn;
+    const demand = reverse ? brakeIn : throttleIn;
     const brakePedal = reverse ? throttleIn : brakeIn;
-    this.throttle = drive;
+    // Smooth torque take-up. Releasing the pedal is quicker, and braking cuts torque immediately.
+    const pedalRate = demand > this.throttle ? 15 : 32;
+    this.throttle += (demand - this.throttle) * -Math.expm1(-pedalRate * dt);
+    if (demand === 0 && (brakePedal > 0.05 || this.throttle < 0.001)) this.throttle = 0;
+    const drive = this.throttle;
     this.brake = brakePedal;
     this.handbrake = handbrake;
     this.hillHold = speed < b.hillHoldSpeed && drive < 0.02 && brakePedal < 0.02 && !handbrake;
@@ -420,7 +433,9 @@ export class Vehicle {
     const target = steerIn;
     const growing = Math.abs(target) > Math.abs(this.steerInput) && Math.sign(target) === Math.sign(this.steerInput || target);
     const rate = (growing ? st.rate : st.returnRate) * dt;
-    this.steerInput += clamp(target - this.steerInput, -rate, rate);
+    const error = target - this.steerInput;
+    // Keep fast countersteer, easing the final part of the rack's travel on analog and digital inputs.
+    this.steerInput += clamp(error * -Math.expm1(-24 * dt), -rate, rate);
     const absFwd = Math.abs(fwdSpeed);
     const mech = st.mechanicalLockDeg * DEG2RAD;
     let lock = Math.max(st.minLockDeg, st.maxLockDeg / (1 + absFwd / st.lockSpeedRef)) * DEG2RAD;
@@ -766,7 +781,11 @@ export class Vehicle {
         w.spinSpeed *= 0.995;
       }
       w.spinAngle += w.spinSpeed * dt;
-      if (w.spinAngle > 1e4 || w.spinAngle < -1e4) w.spinAngle %= Math.PI * 2;
+      if (Math.abs(w.spinAngle) > 1e4) {
+        const turns = w.spinAngle - w.spinAngle % (Math.PI * 2);
+        w.spinAngle -= turns;
+        w.prevSpin -= turns;
+      }
     }
     if (onGround === 0) this.airTime += dt;
     else {
@@ -897,7 +916,7 @@ export class Vehicle {
     s.lateralSpeed = this.velocity.dot(this.right);
     s.slipAngle = speed > 1.5 ? Math.atan2(s.lateralSpeed, Math.abs(s.forwardSpeed)) : 0;
     s.yawRate = this.angularVelocity.dot(this.up);
-    s.steerAngle = this.steerAngle;
+    s.steerAngle = lerp(this.prevSteer, this.steerAngle, alpha);
     s.throttle = this.throttle;
     s.brake = this.brake;
     s.handbrake = this.handbrake;
@@ -914,9 +933,9 @@ export class Vehicle {
       const w = this.wheels[wi];
       const ws = w.state;
       ws.contact = w.contact;
-      ws.compression = w.contact ? w.compression : -this.tuning.suspension.travel;
-      ws.steerAngle = w.steer;
-      ws.spinAngle = w.spinAngle;
+      ws.compression = lerp(w.prevCompression, w.contact ? w.compression : -this.tuning.suspension.travel, alpha);
+      ws.steerAngle = w.front ? s.steerAngle : 0;
+      ws.spinAngle = lerp(w.prevSpin, w.spinAngle, alpha);
       ws.spinSpeed = w.spinSpeed;
       ws.slip = w.slip;
       ws.load = w.load;
