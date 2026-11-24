@@ -176,8 +176,7 @@ export class Game {
     this.platform.loadingStop();
     this.meta.welcome();
     this.partyRace?.boot();
-    // Every standard material in the world can be lit by the cars' neon underglow.
-    patchUnderglowTree(this.scene);
+    this.prewarmShaders();
     this.lastTime = performance.now();
     this.frameHandle = requestAnimationFrame(this.onFrame);
     return this;
@@ -353,7 +352,6 @@ export class Game {
    *   instead of the usual 3 s (party races start everyone together). party: this is a party round.
    */
   beginRun(modeId, options = {}) {
-    patchUnderglowTree(this.scene); // start gates and banners are built per run
     const mode = getMode(modeId);
     const route = this.world.routes[mode.route];
     if (!route) {
@@ -375,6 +373,7 @@ export class Game {
     this.world.bridge?.reset();
     this.world.washout?.reset();
     this.roads.setRoute(this.mode.id === 'roam' ? null : route);
+    this.prewarmShaders(); // the start gates and banners were just built
     this.hud.setActiveRoad(route.roadId);
     this.hud.showRace();
     // Free roam is the calm, explore-the-mountain HUD; timed events get full telemetry.
@@ -396,6 +395,26 @@ export class Game {
       ? CONFIG.race.countdownSeconds
       : Math.max(0, (this.countdownStartAt - Date.now()) / 1000);
     return true;
+  }
+
+  /**
+   * Compile every shader now, hidden objects included (renderer.compile skips invisible ones), so
+   * nothing compiles mid-drive: the first drift smoke, spark shower, cockpit view or ghost car used to
+   * stall a frame for 50-300 ms. Also gives every standard material the neon underglow light.
+   */
+  prewarmShaders() {
+    patchUnderglowTree(this.scene);
+    const hidden = [];
+    this.scene.traverse((node) => {
+      if (!node.visible) {
+        hidden.push(node);
+        node.visible = true;
+      }
+    });
+    // Materials are gathered synchronously; the compile itself runs in parallel where the GPU allows.
+    const done = this.renderer.compileAsync(this.scene, this.cameraRig.camera).catch(() => {});
+    for (const node of hidden) node.visible = false;
+    return done;
   }
 
   /** First launch: once the driver has a name, go straight onto the mountain instead of a menu. */

@@ -466,6 +466,7 @@ export class ProceduralCar extends THREE.Group {
     this.glowTubes.visible = false;
     this.chassis.add(this.glowTubes);
     this.glowCentre = new THREE.Vector3(0, y, 0);
+    this.glowCentreWorld = new THREE.Vector3();
   }
 
   /** Underglow colour: { color, cycle? } (an entry of NEON_OPTIONS), or null / color null for off. */
@@ -529,7 +530,7 @@ export class ProceduralCar extends THREE.Group {
       a[offset + k].copy(this.glowStrips[k][0]).applyMatrix4(matrix);
       b[offset + k].copy(this.glowStrips[k][1]).applyMatrix4(matrix);
     }
-    const centre = this.glowCentre.clone().applyMatrix4(matrix);
+    const centre = this.glowCentreWorld.copy(this.glowCentre).applyMatrix4(matrix);
     sphere.set(centre.x, centre.y, centre.z, 6.5);
     up.setFromMatrixColumn(matrix, 1).normalize();
     const glow = this.underglow;

@@ -128,6 +128,7 @@
   display: grid;
   gap: 0.05em;
   min-width: 13em;
+  align-self: stretch; /* same width as the timer plate and progress bar */
   padding: 0.25em 0.6em 0.3em;
   border: 2px solid var(--ink);
   background: var(--whitewash);
@@ -827,7 +828,7 @@
 .sdh-map-tab { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 0.45em; min-width: 0; padding: 0.2em; border: 2px solid rgba(244, 241, 232, 0.42); background: transparent; color: var(--chalk); text-align: left; cursor: pointer; }
 .sdh-map-tab-shot { width: 2.9em; height: 1.9em; object-fit: cover; object-position: 50% 44%; border: 2px solid var(--ink); filter: saturate(0.8) brightness(0.88); }
 .sdh-map-tab-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.05; }
-.sdh-map-tab-text b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.98em; }
+.sdh-map-tab-text b { overflow-wrap: anywhere; font-size: 0.98em; } /* wrap rather than cut 'Monsoon Run' */
 .sdh-map-tab-text small { font-size: 0.78em; opacity: 0.75; white-space: nowrap; }
 .sdh-map-tab:hover, .sdh-map-tab:focus-visible { border-color: var(--chalk); }
 .sdh-map-tab:hover .sdh-map-tab-shot, .sdh-map-tab:focus-visible .sdh-map-tab-shot, .sdh-map-tab.is-current .sdh-map-tab-shot { filter: none; }
