@@ -16,6 +16,7 @@ import { clamp, saturate, smoothstep, lerp, DEG2RAD } from '../core/math.js';
 import { resolveTuning } from './tuning.js';
 import { Drivetrain } from './Drivetrain.js';
 import { lateralCurve } from './Tire.js';
+import { frontWheelAngle } from './steering.js';
 
 const GRAVITY = 9.81;
 const FIXED_DT = CONFIG.physics.fixedDt;
@@ -168,6 +169,7 @@ export class Vehicle {
     this.invInertiaLocal.set(1 / ix, 1 / iy, 1 / iz);
 
     const wheelbase = g.rearAxleZ - g.frontAxleZ;
+    this.wheelbase = wheelbase;
     const frontFraction = (g.rearAxleZ - t.com.z) / wheelbase;
     for (let wi = 0; wi < 4; wi++) {
       const w = this.wheels[wi];
@@ -459,7 +461,9 @@ export class Vehicle {
     const assistAmount = assist * slipFactor;
     if (assistAmount > 0 && fwdSpeed > 2) {
       const assisted = frontTravel + this.steerInput * Math.min(lock, st.maxLockDeg * DEG2RAD) * as.driverAuthority;
-      steer = lerp(steer, assisted, assistAmount * as.steerBlend);
+      // A committed steering command takes priority when catching or releasing a slide.
+      const driverOverride = smoothstep(0.25, 0.95, Math.abs(this.steerInput));
+      steer = lerp(steer, assisted, assistAmount * as.steerBlend * (1 - driverOverride));
     }
     this.steerAngle = clamp(steer, -mech, mech);
 
@@ -569,7 +573,7 @@ export class Vehicle {
       const w = this.wheels[wi];
       w.fx = 0; w.fy = 0; w.boundX = 0; w.boundY = 0; w.bound = 0;
       w.locked = false;
-      w.steer = w.front ? this.steerAngle : 0;
+      w.steer = w.front ? frontWheelAngle(this.steerAngle, w.mount.x, this.wheelbase) : 0;
       if (!w.contact) { w.accX = 0; w.accY = 0; w.slip = 0; continue; }
       const n = w.normal;
       // Rolling axis: steered wheel-right projected on the ground plane; forward = n x axle.
@@ -934,7 +938,7 @@ export class Vehicle {
       const ws = w.state;
       ws.contact = w.contact;
       ws.compression = lerp(w.prevCompression, w.contact ? w.compression : -this.tuning.suspension.travel, alpha);
-      ws.steerAngle = w.front ? s.steerAngle : 0;
+      ws.steerAngle = w.front ? frontWheelAngle(s.steerAngle, w.mount.x, this.wheelbase) : 0;
       ws.spinAngle = lerp(w.prevSpin, w.spinAngle, alpha);
       ws.spinSpeed = w.spinSpeed;
       ws.slip = w.slip;
