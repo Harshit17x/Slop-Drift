@@ -3,6 +3,9 @@ import { clamp } from '../core/math.js';
 import { createNoiseTexture } from './terrainMaterial.js';
 
 const DEPTH_SIZE = 512;
+const DEFAULT_DIRECTION = new THREE.Vector3(-0.45, 0.75, 0.35).normalize();
+const DEFAULT_SUN = new THREE.Color(1, 0.95, 0.82);
+const DEFAULT_SKY = new THREE.Color(0.55, 0.72, 0.9);
 
 const VERTEX = /* glsl */ `
 #include <common>
@@ -104,9 +107,9 @@ export class WaterView {
           uDepth: { value: null },
           uTime: { value: 0 },
           uWorldSize: { value: size },
-          uSunDirection: { value: new THREE.Vector3(-0.45, 0.75, 0.35).normalize() },
-          uSunColor: { value: new THREE.Color(1, 0.95, 0.82) },
-          uSkyColor: { value: new THREE.Color(0.55, 0.72, 0.9) },
+          uSunDirection: { value: DEFAULT_DIRECTION },
+          uSunColor: { value: DEFAULT_SUN },
+          uSkyColor: { value: DEFAULT_SKY },
           uShallowColor: { value: new THREE.Color(0.1, 0.34, 0.36) },
           uDeepColor: { value: new THREE.Color(0.02, 0.1, 0.16) },
         },
@@ -134,7 +137,7 @@ export class WaterView {
   }
 
   /** Optional: match the glint and reflected tint to the current sky. */
-  setSun(direction, sunColor = null, skyColor = null) {
+  setSun(direction = DEFAULT_DIRECTION, sunColor = DEFAULT_SUN, skyColor = DEFAULT_SKY) {
     this.material.uniforms.uSunDirection.value.copy(direction).normalize();
     if (sunColor) this.material.uniforms.uSunColor.value.copy(sunColor);
     if (skyColor) this.material.uniforms.uSkyColor.value.copy(skyColor);

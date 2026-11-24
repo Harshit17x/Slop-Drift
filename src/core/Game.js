@@ -284,6 +284,11 @@ export class Game {
     this.roads.setNight?.(this.atmosphere.isNight);
     this.landmarks?.setNight(this.atmosphere.isNight);
     this.terrain.setSun?.(this.atmosphere.sunDirection, this.atmosphere.sunColor, this.atmosphere.ambientColor);
+    if (this.atmosphere.isNight) {
+      this.water.setSun(this.atmosphere.sunDirection, this.atmosphere.sunColor, this.atmosphere.ambientColor);
+    } else {
+      this.water.setSun();
+    }
     this.meta?.applyLook(this.car);
     this.car.setHeadlights(this.atmosphere.isNight || this.headlightsWanted);
     this.car.setNeon({ level: neonLevel(this.settings.timeOfDay) });
