@@ -1079,29 +1079,60 @@ span.sdh-icon-sm { width: 2.2em; }
 
 /* ------------------------------------------------------------------ touch controls (markup from Input.js) */
 
-.sdh-touch { position: absolute; inset: 0; display: none; pointer-events: none; --pad: calc(max(var(--edge), env(safe-area-inset-bottom))); }
+.sdh-touch {
+  /* Thumb-sized and independent of the HUD's text scale: 56-92 px from the screen's short side. */
+  --tb: clamp(56px, 19vmin, 92px);
+  --tgap: clamp(10px, 2.6vmin, 16px);
+  --tl: max(16px, env(safe-area-inset-left));
+  --tr: max(16px, env(safe-area-inset-right));
+  --pad: max(14px, env(safe-area-inset-bottom));
+  position: absolute; inset: 0; display: none; pointer-events: none;
+  font-size: clamp(12px, 3.4vmin, 16px);
+}
 .sdh-touch.is-visible { display: block; }
 .sdh-touch button, .sdh-touch [data-touch-steer] { pointer-events: auto; touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
-.sdt-steer { position: absolute; left: max(var(--edge), env(safe-area-inset-left)); bottom: var(--pad); width: min(40vw, 24em); height: 9em; display: flex; align-items: flex-end; }
-.sdt-steer-track { position: relative; width: 100%; height: 5.6em; border: var(--line) solid var(--ink); border-radius: var(--r); background: var(--whitewash); box-shadow: var(--hard-sm); }
+.sdt-arrows { position: absolute; left: var(--tl); bottom: var(--pad); display: flex; gap: var(--tgap); }
+.sdt-arrow { position: relative; width: calc(var(--tb) * 1.2); height: calc(var(--tb) * 1.2); }
+.sdt-arrow .sdt-chev { width: calc(var(--tb) * 0.3); height: calc(var(--tb) * 0.3); border-width: 5px; }
+.sdt-arrow .sdt-chev-l { left: 50%; transform: translate(-30%, -50%) rotate(-45deg); }
+.sdt-arrow .sdt-chev-r { left: 50%; right: auto; transform: translate(-70%, -50%) rotate(135deg); }
+.sdt-arrow.is-held { background: var(--marigold); }
+.sdt-steer { display: none; position: absolute; left: var(--tl); bottom: var(--pad); width: clamp(200px, 36vw, 340px); height: calc(var(--tb) * 1.2); align-items: flex-end; }
+.sdh-touch.is-slider .sdt-steer { display: flex; }
+.sdh-touch.is-slider .sdt-arrows { display: none; }
+.sdt-steer-track { position: relative; width: 100%; height: 100%; border: var(--line) solid var(--ink); border-radius: var(--r); background: var(--whitewash); box-shadow: var(--hard-sm); }
 .sdt-steer-centre { position: absolute; left: 50%; top: 18%; bottom: 18%; width: 0; margin-left: -1px; border-left: 3px dashed var(--ink); }
 .sdt-chev { position: absolute; top: 50%; width: 1.1em; height: 1.1em; border-top: 4px solid var(--ink); border-left: 4px solid var(--ink); }
 .sdt-chev-l { left: 1.4em; transform: translateY(-50%) rotate(-45deg); }
 .sdt-chev-r { right: 1.4em; transform: translateY(-50%) rotate(135deg); }
-.sdt-knob { position: absolute; top: 50%; left: 50%; width: 4.2em; height: 4.2em; margin: -2.1em 0 0 -2.1em; border: var(--line) solid var(--ink); border-radius: 50%; background: var(--marigold); transition: transform 0.06s linear; }
+.sdt-knob { position: absolute; top: 50%; left: 50%; width: calc(var(--tb) * 0.9); height: calc(var(--tb) * 0.9); margin: calc(var(--tb) * -0.45) 0 0 calc(var(--tb) * -0.45); border: var(--line) solid var(--ink); border-radius: 50%; background: var(--marigold); transition: transform 0.06s linear; }
 .sdt-steer.is-held .sdt-knob { background: var(--truck-red); }
-.sdt-pedals { position: absolute; right: max(var(--edge), env(safe-area-inset-right)); bottom: var(--pad); display: grid; grid-template-columns: 5.6em 6.4em; grid-template-rows: 3.6em 6.4em; gap: 0.6em; }
-.sdt-btn { display: grid; place-items: center; border: var(--line) solid var(--ink); border-radius: var(--r); background: var(--whitewash); box-shadow: var(--hard-sm); font-size: 1.05em; font-weight: 700; letter-spacing: 0.08em; color: var(--ink); transition: transform 0.06s steps(1); }
+/* Right thumb: DRIFT | N2O over BRAKE | GAS, the gas tallest and against the edge. */
+.sdt-pedals {
+  position: absolute; right: var(--tr); bottom: var(--pad);
+  display: grid; gap: var(--tgap);
+  grid-template-columns: calc(var(--tb) * 1.1) calc(var(--tb) * 1.15);
+  grid-template-rows: calc(var(--tb) * 0.8) calc(var(--tb) * 1.3);
+  grid-template-areas: "hand boost" "brake gas";
+}
+.sdt-hand { grid-area: hand; }
+.sdt-boost { grid-area: boost; }
+.sdt-brake { grid-area: brake; }
+.sdt-gas { grid-area: gas; }
+.sdt-boost[hidden] { display: none; }
+.sdt-pedals:has(.sdt-boost[hidden]) .sdt-hand { grid-column: 1 / -1; }
+.sdt-btn { display: grid; place-items: center; border: var(--line) solid var(--ink); border-radius: var(--r); background: var(--whitewash); box-shadow: var(--hard-sm); font-size: 1em; font-weight: 700; letter-spacing: 0.08em; color: var(--ink); transition: transform 0.06s steps(1); }
 .sdt-btn.is-held { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink); }
-.sdt-gas { background: var(--signal-green-ink); color: var(--chalk); clip-path: polygon(0 12%, 100% 0, 100% 100%, 0 100%); }
+.sdt-gas { background: var(--signal-green-ink); color: var(--chalk); font-size: 1.15em; }
 .sdt-brake { background: var(--truck-red); color: var(--chalk); }
 .sdt-hand { background: var(--marigold); }
 .sdt-boost { background: var(--flag-blue); color: var(--chalk); }
 .sdt-gas.is-held, .sdt-brake.is-held, .sdt-hand.is-held, .sdt-boost.is-held { background: var(--ink); color: var(--chalk); }
-.sdt-actions { position: absolute; right: max(var(--edge), env(safe-area-inset-right)); bottom: calc(var(--pad) + 11.2em); display: flex; gap: 0.45em; }
-.sdt-small { min-width: 3.4em; height: 2.6em; padding: 0 0.6em; font-size: 0.85em; }
+/* Respawn (and manual shifts) above the pedals, at least 44 px. */
+.sdt-actions { position: absolute; right: var(--tr); bottom: calc(var(--pad) + var(--tb) * 2.1 + var(--tgap) * 2); display: flex; gap: var(--tgap); }
+.sdt-small { min-width: 56px; height: 44px; padding: 0 0.7em; font-size: 0.85em; }
 .sdt-small.is-held { background: var(--marigold); }
-.sdt-shift { display: none; font-size: 1.2em; }
+.sdt-shift { display: none; font-size: 1.3em; }
 .sdh-touch.is-manual .sdt-shift { display: grid; }
 
 /* Touch layout: minimap under the timer, stone + drift in the bottom centre between the pads. */
@@ -1277,10 +1308,6 @@ span.sdh-icon-sm { width: 2.2em; }
   .sdh-hero { font-size: 3.2em; }
   .sdh-panel-foot { margin: auto -1.1em 0; padding: 0.6em 1.1em max(0.8em, env(safe-area-inset-bottom)); }
   .sdh-brand-xl { font-size: 3em; }
-  .sdt-steer { height: 7em; }
-  .sdt-steer-track { height: 5em; }
-  .sdt-pedals { grid-template-columns: 5em 5.6em; grid-template-rows: 3em 5.4em; }
-  .sdt-actions { bottom: calc(var(--pad) + 9.4em); }
   .sdh-daily { padding: 0.4em 0.5em; }
   .sdh-btn-tile { min-height: 2.7em; flex-direction: row; gap: 0.35em; }
   .sdh-menu-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1326,9 +1353,6 @@ span.sdh-icon-sm { width: 2.2em; }
       "br br";
     padding-bottom: calc(var(--edge) + 13.4em + env(safe-area-inset-bottom));
   }
-  .sdt-steer { width: calc(56vw - var(--edge) * 1.5); }
-  .sdt-pedals { grid-template-columns: 4.4em 5em; grid-template-rows: 3em 5.6em; gap: 0.45em; }
-  .sdt-actions { left: max(var(--edge), env(safe-area-inset-left)); right: auto; bottom: calc(var(--pad) + 10em); }
   .sdh-race-chips .sdh-mini-player { display: none; }
   .sdh[data-screen="race"] .sdh-toasts { top: 36%; }
   .sdh[data-screen="menu"] .sdh-toasts,
@@ -1361,7 +1385,8 @@ span.sdh-icon-sm { width: 2.2em; }
 @media (prefers-reduced-motion: reduce) {
   .sdh *, .sdh *::before, .sdh *::after { animation: none !important; transition-duration: 0s !important; transition-delay: 0s !important; }
   .sdh-chai .sdh-steam { opacity: 0.6; }
-  .sdh-map-clip { display: none; }
+  .sdh-map-clip,
+  .sdh-loading-canvas { display: none; }
 }
 .sdh-nitro.is-off { display: none; }
 
@@ -1398,29 +1423,42 @@ span.sdh-icon-sm { width: 2.2em; }
   background: var(--ink);
   color: var(--chalk);
 }
-.sdh-loading-bg {
+.sdh-loading-canvas,
+.sdh-loading-fx {
   position: absolute;
-  inset: -2%;
-  width: 104%;
-  height: 104%;
-  object-fit: cover;
-  object-position: 62% 50%;
-  filter: saturate(1.06) contrast(1.04);
-  animation: sdh-kenburns 28s ease-in-out infinite alternate;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.sdh-loading-canvas {
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 0.45s ease;
+}
+.sdh-loading-canvas.is-on { opacity: 1; }
+.sdh-loading-fx { z-index: 2; }
+.sdh-loading-vignette {
+  position: absolute;
+  inset: 0;
+  border-top: clamp(8px, 1.5vh, 14px) solid rgba(20, 17, 13, 0.86);
+  border-bottom: clamp(8px, 1.5vh, 14px) solid rgba(20, 17, 13, 0.86);
+  box-shadow: inset 0 0 72px rgba(20, 17, 13, 0.42);
 }
 .sdh-loading-scrim {
   position: absolute;
   inset: 0;
+  z-index: 1;
   background:
-    linear-gradient(100deg, rgba(20, 17, 13, 0.92) 0%, rgba(31, 58, 43, 0.78) 44%, rgba(20, 17, 13, 0.34) 76%, rgba(20, 17, 13, 0.72) 100%),
-    linear-gradient(0deg, rgba(20, 17, 13, 0.86) 0%, transparent 42%);
+    linear-gradient(96deg, rgba(20, 17, 13, 0.90) 0%, rgba(20, 17, 13, 0.68) 30%, rgba(20, 17, 13, 0.16) 54%, rgba(20, 17, 13, 0.04) 76%, rgba(20, 17, 13, 0.22) 100%),
+    linear-gradient(0deg, rgba(20, 17, 13, 0.44) 0%, transparent 26%);
 }
 .sdh-loading-inner {
   position: relative;
   z-index: 2;
   justify-self: start;
   align-self: center;
-  width: min(40em, 92vw);
+  width: min(47em, 92vw);
   margin-left: max(2.2em, 4vw);
   display: flex;
   flex-direction: column;
@@ -1469,25 +1507,26 @@ span.sdh-icon-sm { width: 2.2em; }
   border-top-color: var(--marigold);
 }
 .sdh-loading .sdh-loading-meta { color: var(--chalk); font-size: 1.05em; }
-.sdh-loading.is-title-ready .sdh-loading-progress { opacity: 0.75; }
+.sdh-loading.is-title-ready .sdh-loading-progress { display: none; } /* done loading: the buttons take its place */
 .sdh-title-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.65em;
+  gap: 0.55em;
   margin-top: 0.2em;
   animation: sdh-slap 0.22s var(--snap);
 }
 .sdh-title-actions .sdh-btn {
-  min-height: 3.1em;
-  padding: 0.55em 1.2em 0.42em;
-  font-size: 1.1em;
+  min-height: 2.95em;
+  padding: 0.48em 1.05em 0.38em;
+  font-size: 1.04em;
+  white-space: nowrap;
   background: var(--board);
   box-shadow: var(--hard);
 }
 .sdh-title-actions .sdh-btn-primary {
   background: var(--marigold);
   color: var(--ink);
-  font-size: 1.18em;
+  font-size: 1.1em;
 }
 .sdh-loading-options {
   display: flex;
@@ -1496,41 +1535,33 @@ span.sdh-icon-sm { width: 2.2em; }
   gap: 0.8em 1.2em;
   margin-top: 0.2em;
 }
-.sdh-gate-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.55em;
-  padding: 0.35em 0.75em 0.25em;
-  border: 2px solid rgba(244, 241, 232, 0.5);
-  border-radius: var(--r);
-  background: rgba(20, 17, 13, 0.72);
-  color: var(--chalk);
-  font-size: 0.9em;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  cursor: pointer;
-}
-.sdh-gate-toggle:hover { border-color: var(--marigold); }
-.sdh-gate-dot {
-  width: 0.75em;
-  height: 0.75em;
-  border: 2px solid var(--ink);
-  background: var(--asphalt);
-}
-.sdh-gate-toggle[aria-pressed="true"] .sdh-gate-dot { background: var(--signal-green); }
-.sdh-gate-toggle b { color: var(--marigold); }
 .sdh-title-keyhint {
   font-size: 0.86em;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.06em;
   color: var(--whitewash);
   opacity: 0.82;
 }
-
-@keyframes sdh-kenburns {
-  0% { transform: scale(1) translate(0, 0); }
-  100% { transform: scale(1.05) translate(-1%, -0.8%); }
+/* Controls during loading: the first thing a new player needs. Keyboard or touch, never both. */
+.sdh-loading-help {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35em 1.1em;
+  color: var(--chalk);
+  font-weight: 600;
+  font-size: 1.1em;
 }
+.sdh-help-keys { display: inline-flex; align-items: center; gap: 0.3em; white-space: nowrap; }
+.sdh-help-keys kbd { color: var(--marigold); }
+.sdh-help-touch { display: none; }
+@media (pointer: coarse) {
+  .sdh-help-keys, .sdh-title-actions kbd { display: none; }
+  .sdh-help-touch { display: inline; }
+}
+.sdh-field-hint { display: block; margin: -0.15em 0 0.45em; font-size: 0.85em; font-weight: 500; opacity: 0.8; }
+.sdh-settings-note { margin: 0 0 0.2em; font-size: 0.9em; opacity: 0.8; }
+
+
 
 /* ------------------------------------------------------------------ Starting Hub Top Chrome (Wreckfest 2 structure) */
 
@@ -2463,4 +2494,110 @@ span.sdh-icon-sm { width: 2.2em; }
   .sdh-drive-unit { display: none; }
   .sdh-garage-footer { display: none; }
   .sdh-loading-inner { margin-left: 0; justify-self: center; }
+}
+
+/* ------------------------------------------------------------------ Drift background (src/ui/driftScene.js) */
+.sdh-drift-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+
+/* First drives: the controls, under the top-centre warnings. Fades once the player is moving. */
+.sdh-howto {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.35em 1em;
+  max-width: 34em;
+  margin-top: 0.6em;
+  padding: 0.5em 0.9em 0.4em;
+  border: var(--line) solid var(--ink);
+  border-radius: var(--r);
+  background: var(--board);
+  color: var(--chalk);
+  box-shadow: var(--hard-sm);
+  font-weight: 600;
+  font-size: 1.15em;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.4s ease, visibility 0s linear 0.4s;
+}
+.sdh-howto.is-on { opacity: 1; visibility: visible; transition: opacity 0.25s ease; }
+
+/* ------------------------------------------------------------------ Phones */
+/* No hover on touch: the calm free-roam HUD keeps Pause / Camera / Fullscreen visible, thumb-sized. */
+.sdh.sdh--touch.is-calm .sdh-iconbar { opacity: 1; }
+.sdh.sdh--touch .sdh-icon { width: max(3em, 44px); height: max(3em, 44px); }
+.sdh.sdh--touch .sdh-iconbar { gap: 10px; }
+/* Keep the bottom-centre stone and drift score clear of the pads. */
+.sdh.sdh--touch .sdh-race { padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+
+/* Portrait phone while driving: ask for landscape (iOS cannot lock it), with a way to carry on. */
+.sdh-rotate {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  display: none;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 24px;
+  background: rgba(20, 17, 13, 0.9);
+  color: var(--chalk);
+  text-align: center;
+  font-size: 16px;
+  pointer-events: auto;
+}
+.sdh-rotate b { font-family: var(--font-display); font-size: 1.6em; font-weight: 400; color: var(--marigold); }
+.sdh-rotate span:not(.sdh-rotate-phone) { max-width: 22em; opacity: 0.85; }
+.sdh-rotate .sdh-btn { min-height: 48px; margin-top: 8px; }
+.sdh-rotate-phone {
+  width: 46px;
+  height: 80px;
+  border: 4px solid var(--chalk);
+  border-radius: 8px;
+  animation: sdh-rotate-phone 2.4s ease-in-out infinite;
+}
+@keyframes sdh-rotate-phone { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
+@media (orientation: portrait) and (pointer: coarse) {
+  .sdh[data-screen="race"]:not(.is-portrait-ok) .sdh-rotate { display: grid; }
+  /* Arrows (2.4 tb) + pedals (2.25 tb) + gaps must fit across a 360 px phone. */
+  .sdh-touch { --tb: clamp(52px, 16vmin, 80px); }
+  /* Played in portrait anyway: the pads take the bottom, the HUD sits above them. */
+  .sdh.sdh--touch .sdh-race { padding-bottom: calc(clamp(52px, 16vmin, 80px) * 2.2 + 48px + env(safe-area-inset-bottom)); }
+}
+/* Short landscape screens (phones): the title keeps its buttons, drops the slogan board. */
+@media (max-height: 480px) {
+  .sdh-loading .sdh-loading-slogan { display: none; }
+  .sdh-title-actions .sdh-btn { min-height: 48px; }
+}
+
+/* Touch screens: keyboard/gamepad hints mean nothing, and the tab row scrolls instead of wrapping. */
+@media (pointer: coarse) {
+  .sdh-garage-footer, .sdh-hub-bumper, .sdh-stage-hint { display: none; }
+  .sdh-hub-tabs { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .sdh-hub-tabs::-webkit-scrollbar { display: none; }
+  .sdh-hub-tab { min-height: 40px; flex: none; }
+  .sdh-car-arrow { min-width: 44px; }
+  .sdh-garage-cta-stack .sdh-btn { min-height: 48px; }
+}
+/* Phone landscape (short screens): one compact header row, the car in the middle, the drive buttons
+   beside it and small car tiles underneath; the stats panel gives way (the tiles carry name and drive). */
+@media (max-height: 480px) {
+  .sdh-hub-crumb, .sdh-hub-tagline, .sdh-hub-xpbox, .sdh-hub-convoy, .sdh-pill-count, .sdh-drive-unit { display: none; }
+  .sdh-hub-top { gap: 0.3em; padding-top: max(6px, env(safe-area-inset-top)); padding-bottom: 6px; }
+  .sdh-garage-main { display: flex; align-items: flex-end; }
+  .sdh-garage-stage { flex: 1 1 auto; min-height: 0; }
+  .sdh-garage-inspect { display: none; }
+  .sdh-garage-left:has(> .sdh-garage-custom[hidden]) { display: none; }
+  .sdh-garage-left { width: min(19em, 46vw); max-height: 100%; }
+  .sdh-garage-right { flex-direction: column; align-items: stretch; }
+  .sdh-garage-cta-stack { width: auto; }
+  .sdh-car-card { min-width: 10.5em; flex-basis: 11em; }
+  .sdh-car-card-main { height: 4.8em; }
+  .sdh-garage-view { gap: 0.4em; }
 }

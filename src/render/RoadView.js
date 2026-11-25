@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { smoothstep } from '../core/math.js';
 import { JungleRoad } from './JungleRoad.js';
 import { MeshBuffer } from './road/MeshBuffer.js';
-import { createAsphaltTexture, createGrainTexture, createChevronTexture, createLabelTexture, createCheckerTexture } from './road/textures.js';
+import { createAsphaltReliefTexture, createAsphaltTexture, createGrainTexture, createChevronTexture, createLabelTexture, createCheckerTexture } from './road/textures.js';
 
 // Everything you see of the road network: asphalt, shoulders and verges, painted lines, guardrails,
 // reflector posts, corner chevrons, every summit plaza, and the gates of the active route.
@@ -43,6 +43,21 @@ const basisY = new THREE.Vector3(0, 1, 0);
 const basisZ = new THREE.Vector3();
 const origin = new THREE.Vector3();
 
+const HAS_ASSET_TEX = typeof import.meta.url === 'string' && typeof Image !== 'undefined';
+const ALPINE_ROAD_URL = HAS_ASSET_TEX ? new URL('../assets/maps/alpine-road.webp', import.meta.url).href : null;
+const ALPINE_SHOULDER_URL = HAS_ASSET_TEX ? new URL('../assets/maps/alpine-shoulder.webp', import.meta.url).href : null;
+const MUSSOORIE_ROAD_URL = HAS_ASSET_TEX ? new URL('../assets/maps/mussoorie-road.webp', import.meta.url).href : null;
+const MUSSOORIE_SHOULDER_URL = HAS_ASSET_TEX ? new URL('../assets/maps/mussoorie-shoulder.webp', import.meta.url).href : null;
+
+function loadTileTexture(url, anisotropy) {
+  const tex = new THREE.TextureLoader().load(url);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = anisotropy;
+  return tex;
+}
+
 export class RoadView {
   /**
    * @param {object} options
@@ -61,12 +76,24 @@ export class RoadView {
     this.group.add(this.gates);
     this.castSmallShadows = !quality || quality.shadowMapSize > 0;
     this.night = false;
+    const mapId = world.config?.map || 'alpine';
+    this.isAlpine = !world.config?.map || world.config.map === 'alpine';
+    this.isMussoorie = mapId === 'mussoorie';
+    const roadTexUrl = this.isMussoorie ? MUSSOORIE_ROAD_URL : (this.isAlpine ? ALPINE_ROAD_URL : null);
+    const shoulderTexUrl = this.isMussoorie ? MUSSOORIE_SHOULDER_URL : (this.isAlpine ? ALPINE_SHOULDER_URL : null);
+    this.hasPhotoRoad = Boolean(roadTexUrl);
+    this.hasPhotoShoulder = Boolean(shoulderTexUrl);
     this.disposables = [];
     this.gateDisposables = [];
 
     this.textures = {
-      asphalt: this.track(createAsphaltTexture(anisotropy)),
-      grain: this.track(createGrainTexture(anisotropy)),
+      asphalt: roadTexUrl
+        ? this.track(loadTileTexture(roadTexUrl, anisotropy))
+        : this.track(createAsphaltTexture(anisotropy)),
+      asphaltRelief: this.track(createAsphaltReliefTexture(anisotropy)),
+      grain: shoulderTexUrl
+        ? this.track(loadTileTexture(shoulderTexUrl, anisotropy))
+        : this.track(createGrainTexture(anisotropy)),
       chevron: this.track(createChevronTexture(anisotropy)),
       checker: this.track(createCheckerTexture()),
     };
@@ -191,22 +218,69 @@ export class RoadView {
     }
     this.buildPlazaSurfaces(asphalt, soft);
 
-    const asphaltMaterial = this.track(new THREE.MeshStandardMaterial({ map: this.textures.asphalt, vertexColors: true, roughness: 0.84, metalness: 0 }));
-    // Sample the same texture again at two much larger scales so the grain never reads as a repeating tile.
+    const isPhotoRoad = this.hasPhotoRoad;
+    const isPhotoShoulder = this.hasPhotoShoulder;
+    const asphaltMaterial = this.track(new THREE.MeshStandardMaterial({
+      map: this.textures.asphalt,
+      bumpMap: isPhotoRoad ? this.textures.asphalt : this.textures.asphaltRelief,
+      bumpScale: isPhotoRoad ? 0.044 : 0.036,
+      roughnessMap: this.textures.asphaltRelief,
+      vertexColors: true,
+      roughness: 0.88,
+      metalness: 0.04,
+    }));
+    // Multi-scale blotches kill repetition; worn wheel-path polish and subtle tar streaks add micro-realism.
     asphaltMaterial.onBeforeCompile = (shader) => {
-      shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', /* glsl */ `
-        #ifdef USE_MAP
-          vec3 fineGrain = texture2D( map, vMapUv ).rgb;
-          float broadPatch = texture2D( map, vMapUv * 0.083 + vec2( 0.37, 0.11 ) ).g;
-          float midPatch = texture2D( map, vMapUv.yx * 0.31 + vec2( 0.73, 0.29 ) ).g;
-          diffuseColor.rgb *= fineGrain * ( 0.55 + 4.2 * broadPatch ) * ( 0.7 + 2.8 * midPatch );
-        #endif
-      `);
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <map_fragment>', /* glsl */ `
+          #ifdef USE_MAP
+            vec3 fineGrain = texture2D( map, vMapUv ).rgb;
+            float broadPatch = texture2D( map, vMapUv * 0.083 + vec2( 0.37, 0.11 ) ).g;
+            float midPatch = texture2D( map, vMapUv.yx * 0.31 + vec2( 0.73, 0.29 ) ).g;
+            diffuseColor.rgb *= fineGrain * ( ${isPhotoRoad ? '0.82 + 3.4 * broadPatch' : '0.55 + 4.2 * broadPatch'} ) * ( ${isPhotoRoad ? '0.88 + 2.3 * midPatch' : '0.7 + 2.8 * midPatch'} );
+          #endif
+        `)
+        .replace('#include <color_fragment>', /* glsl */ `
+          #include <color_fragment>
+          #ifdef USE_COLOR
+            float trackWear = smoothstep( 0.96, 0.84, vColor.r );
+            diffuseColor.rgb *= 1.0 - 0.12 * trackWear;
+          #endif
+        `)
+        .replace('#include <roughnessmap_fragment>', /* glsl */ `
+          float roughnessFactor = roughness;
+          #ifdef USE_ROUGHNESSMAP
+            vec4 texelRoughness = texture2D( roughnessMap, vRoughnessMapUv );
+            roughnessFactor *= mix( 0.65, 1.12, texelRoughness.g );
+            #ifdef USE_COLOR
+              roughnessFactor *= 1.0 - 0.22 * smoothstep( 0.96, 0.84, vColor.r );
+            #endif
+          #endif
+        `);
     };
-    asphaltMaterial.customProgramCacheKey = () => 'road-asphalt-v1';
+    asphaltMaterial.customProgramCacheKey = () => (isPhotoRoad ? 'road-asphalt-photo-v3' : 'road-asphalt-v2');
     this.asphaltMesh = this.addMesh(this.track(asphalt.build()), asphaltMaterial, 'RoadAsphalt');
 
-    const softMaterial = this.track(new THREE.MeshStandardMaterial({ map: this.textures.grain, vertexColors: true, roughness: 1, metalness: 0 }));
+    const softMaterial = this.track(new THREE.MeshStandardMaterial({
+      map: this.textures.grain,
+      bumpMap: this.textures.grain,
+      bumpScale: isPhotoShoulder ? 0.085 : 0.075,
+      vertexColors: true,
+      roughness: 0.96,
+      metalness: 0,
+    }));
+    if (isPhotoShoulder) {
+      softMaterial.onBeforeCompile = (shader) => {
+        shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', /* glsl */ `
+          #ifdef USE_MAP
+            vec3 shFine = texture2D( map, vMapUv ).rgb;
+            float shMacro = texture2D( map, vMapUv * 0.23 + vec2( 0.41, 0.17 ) ).g;
+            diffuseColor.rgb *= shFine * mix( 0.78, 1.26, shMacro ) * 3.1;
+          #endif
+        `);
+      };
+      softMaterial.customProgramCacheKey = () => 'road-shoulder-photo-v1';
+    }
     this.softMesh = this.addMesh(this.track(soft.build()), softMaterial, 'RoadShouldersAndVerges');
   }
 
@@ -376,9 +450,23 @@ export class RoadView {
     }
 
     const material = this.track(new THREE.MeshStandardMaterial({
-      vertexColors: true, roughness: 0.62, metalness: 0, side: THREE.DoubleSide,
+      vertexColors: true, roughness: 0.68, metalness: 0, side: THREE.DoubleSide,
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -6,
     }));
+    material.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec2 vMarkXz;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvMarkXz = position.xz;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying vec2 vMarkXz;')
+        .replace('#include <map_fragment>', /* glsl */ `
+          #include <map_fragment>
+          float chip = fract( sin( dot( floor( vMarkXz * 9.0 ), vec2( 12.9898, 78.233 ) ) ) * 43758.5453 );
+          float streak = sin( vMarkXz.x * 1.4 + vMarkXz.y * 0.9 ) * 0.5 + 0.5;
+          if ( chip < 0.14 * ( 0.4 + 0.6 * streak ) ) diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.18, 0.19, 0.20 ), 0.65 );
+        `);
+    };
+    material.customProgramCacheKey = () => 'road-marking-wear-v1';
     this.markingMesh = this.addMesh(this.track(paint.build()), material, 'RoadMarkings');
   }
 

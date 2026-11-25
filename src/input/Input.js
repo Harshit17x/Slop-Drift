@@ -72,7 +72,13 @@ export function applyDeadzone(value, deadzone) {
   return Math.sign(value) * Math.min(1, (a - deadzone) / (1 - deadzone));
 }
 
+// Phone layout (landscape first): steering under the left thumb (two big arrows, or the analog slider
+// from Settings), pedals under the right with the gas largest and outermost, handbrake and nitro above.
 const TOUCH_MARKUP = `
+  <div class="sdt-arrows" role="group" aria-label="Steering">
+    <button type="button" class="sdt-btn sdt-arrow" data-touch="steerLeft" aria-label="Steer left"><span class="sdt-chev sdt-chev-l"></span></button>
+    <button type="button" class="sdt-btn sdt-arrow" data-touch="steerRight" aria-label="Steer right"><span class="sdt-chev sdt-chev-r"></span></button>
+  </div>
   <div class="sdt-steer" data-touch-steer aria-label="Steering pad" role="group">
     <div class="sdt-steer-track">
       <span class="sdt-chev sdt-chev-l" aria-hidden="true"></span>
@@ -83,8 +89,6 @@ const TOUCH_MARKUP = `
   </div>
   <div class="sdt-actions">
     <button type="button" class="sdt-btn sdt-small" data-touch="respawn" aria-label="Respawn">RESET</button>
-    <button type="button" class="sdt-btn sdt-small" data-touch="camera" aria-label="Camera">CAM</button>
-    <button type="button" class="sdt-btn sdt-small" data-touch="lookBack" aria-label="Look back">BACK</button>
     <button type="button" class="sdt-btn sdt-small sdt-shift" data-touch="shiftDown" aria-label="Shift down">−</button>
     <button type="button" class="sdt-btn sdt-small sdt-shift" data-touch="shiftUp" aria-label="Shift up">+</button>
   </div>
@@ -289,6 +293,7 @@ export class Input {
         if (event.pointerType === 'mouse' && event.button !== 0) return;
         try { button.setPointerCapture(event.pointerId); } catch { /* pointer already gone */ }
         this.touchPointers.set(event.pointerId, action);
+        if (event.pointerType === 'touch') navigator.vibrate?.(8); // a tick under the thumb (Android; iOS has no vibrate)
         if (EDGE_ACTIONS.includes(action)) this.pending.add(action);
         this.renderTouchState();
       });
@@ -358,7 +363,7 @@ export class Input {
 
   refreshTouchVisibility() {
     const capable = Boolean(this.coarseQuery?.matches) || this.touchSeen;
-    const visible = capable && this.drivingEnabled;
+    const visible = capable && (this.drivingEnabled || Boolean(this.touchStaged));
     if (visible === this.touchVisible) return;
     this.touchVisible = visible;
     this.touchRoot.classList.toggle('is-visible', visible);
@@ -373,6 +378,11 @@ export class Input {
   }
 
   /** Show the touch shift buttons (manual transmission). */
+  /** Touch steering: 'arrows' (two buttons, the default) or 'slider' (the analog pad). */
+  setTouchSteer(mode) {
+    this.touchRoot?.classList.toggle('is-slider', mode === 'slider');
+  }
+
   setManualShift(enabled) {
     this.manualShift = Boolean(enabled);
     this.touchRoot.classList.toggle('is-manual', this.manualShift);
@@ -380,11 +390,21 @@ export class Input {
 
   // ---------------------------------------------------------------- public
 
+  /**
+   * Show the touch controls before driving is enabled (the race countdown), so thumbs are in place
+   * and a GAS held through GO carries on. Cleared once driving is enabled.
+   */
+  setTouchStaged(on) {
+    this.touchStaged = Boolean(on);
+    this.refreshTouchVisibility();
+  }
+
   setDrivingEnabled(enabled) {
     const next = Boolean(enabled);
+    if (next) this.touchStaged = false;
     if (next !== this.drivingEnabled) {
       this.drivingEnabled = next;
-      this.releaseTouch();
+      if (!next) this.releaseTouch(); // a finger already on a pedal at GO keeps pressing it
       // Keep physical keys (their keyup still arrives) so holding W through GO works, but drop queued edges.
       this.pending.delete('shiftUp');
       this.pending.delete('shiftDown');
@@ -454,6 +474,8 @@ export class Input {
     let throttle = this.key('throttle') || this.touchHeld('throttle') ? 1 : 0;
     let brake = this.key('brake') || this.touchHeld('brake') ? 1 : 0;
     let steer = (this.key('steerRight') ? 1 : 0) - (this.key('steerLeft') ? 1 : 0);
+    const touchSteer = (this.touchHeld('steerRight') ? 1 : 0) - (this.touchHeld('steerLeft') ? 1 : 0);
+    if (touchSteer !== 0) steer = touchSteer;
     if (this.steerPointer !== null) steer = this.steerValue;
     let handbrake = this.key('handbrake') || this.touchHeld('handbrake');
     let boost = this.key('boost') || this.touchHeld('boost');

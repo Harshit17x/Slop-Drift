@@ -3,9 +3,16 @@ import assert from 'node:assert/strict';
 import { formatTime, formatDelta, formatInt, recordKind, formatTarget, medalFor, validateName, normalizePartyCode, isPartyCode, paintColor } from '../src/ui/Hud.js';
 import { applyDeadzone, isFormField, KEY_BINDINGS, PAD_BUTTONS } from '../src/input/Input.js';
 import { normalizeTrack } from '../src/ui/Minimap.js';
-import { MODES, DEFAULT_SETTINGS, normalizeSettings } from '../src/config.js';
+import { MODES, DEFAULT_SETTINGS, normalizeSettings, getQualityPreset, nextAutoQuality, QUALITY_PRESETS } from '../src/config.js';
 import { CARS } from '../src/vehicle/cars.js';
-import { CAR_SORT_MODES, HUB_TABS, carRatingRows, driveUnitSvg, eventCategoryBadge, sortCars } from '../src/ui/GarageUi.js';
+import {
+  CAR_SORT_MODES, HUB_TABS, MAP_SUBTITLES, TITLE_BACKDROP_URL,
+  carRatingRows, driveUnitSvg, eventCategoryBadge, mapSubtitleMarkup, sortCars,
+} from '../src/ui/GarageUi.js';
+import { TitleFx, computeDriftPose, formatRecTime } from '../src/ui/TitleFx.js';
+import { buildHeroBoughs, buildTexturedGrassGeometry, buildTexturedShrubGeometry } from '../src/render/Scenery.js';
+import { classifyLandmarkSurface, Landmarks } from '../src/render/Landmarks.js';
+import { resolveAtmospherePreset } from '../src/render/Atmosphere.js';
 
 let passed = 0;
 const test = (name, fn) => { fn(); passed += 1; console.log(`ok - ${name}`); };
@@ -121,6 +128,18 @@ test('startGate setting defaults true and normalizes booleans', () => {
   assert.equal(normalizeSettings({ startGate: false }).startGate, false);
 });
 
+test('Auto quality is the default, resolves to a preset and only steps down when slow', () => {
+  assert.equal(DEFAULT_SETTINGS.quality, 'Auto');
+  assert.equal(normalizeSettings({ quality: 'Auto' }).quality, 'Auto');
+  assert.equal(normalizeSettings({ quality: 'Low' }).quality, 'Low');
+  assert.equal(normalizeSettings({ quality: 'Potato' }).quality, 'Auto');
+  assert.equal(getQualityPreset('Auto', 'Medium'), QUALITY_PRESETS.Medium);
+  assert.equal(getQualityPreset('Low', 'Ultra'), QUALITY_PRESETS.Low);
+  assert.equal(nextAutoQuality('High', 30), 'Medium');
+  assert.equal(nextAutoQuality('High', 55), 'High');
+  assert.equal(nextAutoQuality('Low', 10), 'Low');
+});
+
 test('GarageUi car metadata, sorting, ratings and drivetrain SVG', () => {
   assert.ok(HUB_TABS.some((t) => t.id === 'garage') && HUB_TABS.some((t) => t.id === 'map'));
   assert.ok(CAR_SORT_MODES.some((m) => m.id === 'favorites'));
@@ -139,6 +158,67 @@ test('GarageUi car metadata, sorting, ratings and drivetrain SVG', () => {
   }
   assert.equal(eventCategoryBadge(MODES.find((m) => m.id === 'drift')).tag, 'DRIFT ZONE');
   assert.equal(eventCategoryBadge(MODES.find((m) => m.id === 'roam')).tag, 'FREE ROAM');
+});
+
+test('loading screen backdrop, map subtitles and 3D TitleFx drift helpers', () => {
+  assert.ok(TITLE_BACKDROP_URL.endsWith('title-backdrop.webp'));
+  assert.ok(MAP_SUBTITLES.mussoorie.includes('Mussoorie'));
+  assert.ok(mapSubtitleMarkup('alpine', { label: 'Alpine Peak' }).includes('Alpine Peak'));
+  assert.ok(mapSubtitleMarkup('jungle', { label: 'Monsoon Run' }).includes('Monsoon Run'));
+  assert.equal(formatRecTime(12.34), '00:00:12.3');
+  const p0 = computeDriftPose(0);
+  const p1 = computeDriftPose(1.5);
+  assert.ok(Number.isFinite(p0.x) && Number.isFinite(p0.z) && p0.slip > 0.3 && p0.steer < 0);
+  assert.notEqual(p0.orbit, p1.orbit);
+  const fx = new TitleFx();
+  fx.start();
+  fx.setMap('alpine');
+  fx.setCar('gt', { paint: { color: 0xff5b36 }, rimColor: 0xf2b01e });
+  fx.stop();
+  fx.destroy();
+});
+
+test('Alpine foliage atlas geometries keep valid UV quadrants and indexed triangles', () => {
+  const b0 = buildHeroBoughs({ height: 15, trunkHeight: 1.6, layers: 5, baseRadius: 2.9, topRadius: 1.0, quadrant: 0 });
+  const b1 = buildHeroBoughs({ height: 11.4, trunkHeight: 1.8, layers: 4, baseRadius: 3.2, topRadius: 1.3, quadrant: 1 });
+  const gr = buildTexturedGrassGeometry();
+  const sh = buildTexturedShrubGeometry();
+  for (const g of [b0, b1, gr, sh]) {
+    const pos = g.attributes.position.array;
+    const uv = g.attributes.uv.array;
+    assert.ok(pos.length > 0 && g.index.count > 0);
+    for (let i = 0; i < pos.length; i += 1) assert.ok(Number.isFinite(pos[i]));
+    for (let i = 0; i < uv.length; i += 1) assert.ok(uv[i] >= 0 && uv[i] <= 1);
+    g.dispose();
+  }
+});
+
+test('Mussoorie Landmarks surface classifier and Atmosphere Himalayan lighting presets', () => {
+  assert.equal(classifyLandmarkSurface('MSR_whitewash', 'P_Cottage_A').kind, 'plaster');
+  assert.deepEqual(classifyLandmarkSurface('MSR_whitewash', 'P_Cottage_A').offset, [0, 0.5]);
+  assert.equal(classifyLandmarkSurface('MSR_cream', 'P_ClockTower').kind, 'stone');
+  assert.equal(classifyLandmarkSurface('MSR_cream', 'P_Temple').kind, 'stone');
+  assert.equal(classifyLandmarkSurface('MSR_tin_red', 'P_Cottage_B').kind, 'corrugated');
+  assert.deepEqual(classifyLandmarkSurface('MSR_tin_red', 'P_Cottage_B').offset, [0.5, 0.5]);
+  assert.equal(classifyLandmarkSurface('MSR_timber', 'P_ShopRow').kind, 'timber');
+  assert.equal(classifyLandmarkSurface('MSR_glass', 'P_PicturePalace').kind, 'glass');
+
+  const lmk = new Landmarks({ world: { placements: [] }, quality: { shadowMapSize: 1024 } });
+  lmk.setNight(false, true);
+  assert.equal(lmk.night, false);
+  assert.equal(lmk.warmGlow, true);
+  lmk.setNight(true);
+  assert.equal(lmk.night, true);
+  lmk.dispose();
+
+  const alpineDay = resolveAtmospherePreset('day', 'alpine');
+  const musDay = resolveAtmospherePreset('day', 'mussoorie');
+  const musSunset = resolveAtmospherePreset('sunset', 'mussoorie');
+  const musNight = resolveAtmospherePreset('night', 'mussoorie');
+  assert.equal(alpineDay.skyElevation, 47);
+  assert.ok(musDay.skyElevation < 30 && musDay.rayleigh > alpineDay.rayleigh && musDay.clouds > alpineDay.clouds);
+  assert.ok(musSunset.envIntensity > alpineDay.envIntensity && musSunset.rayleigh > musDay.rayleigh);
+  assert.equal(musNight.moon, true);
 });
 
 console.log(`\n${passed} passed`);

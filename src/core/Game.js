@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  CONFIG, MODES, SURFACE_PROPS, getMode, getQualityPreset, modesForWorld, neonLevel,
+  CONFIG, MODES, SURFACE_PROPS, getMode, getQualityPreset, modesForWorld, neonLevel, nextAutoQuality,
   loadRecords, loadSettings, normalizeSettings, saveRecords, saveSettings,
 } from '../config.js';
 import { clamp } from './math.js';
@@ -31,7 +31,7 @@ import { NetClient } from '../net/NetClient.js';
 import { Leaderboard } from '../net/Leaderboard.js';
 import { RemotePlayers } from '../render/RemotePlayers.js';
 import { patchUnderglowTree, underglowFrame } from '../render/underglowLight.js';
-import { loadCarModels } from '../render/ModelCar.js';
+import { loadCarModels, hasCarModel } from '../render/ModelCar.js';
 import { getCar } from '../vehicle/cars.js';
 import { PartyRace } from '../game/PartyRace.js';
 import { CrazyGamesPlatform } from '../platform/CrazyGames.js';
@@ -113,7 +113,10 @@ export class Game {
       }
     };
 
-    const quality = getQualityPreset(this.settings.quality);
+    // Where Auto quality starts: phones and tablets one step lower. sampleAutoQuality steps it down further if needed.
+    this.autoQuality = globalThis.matchMedia?.('(pointer: coarse)').matches ? 'Medium' : 'High';
+    this.autoSample = { time: 0, frames: 0 };
+    const quality = getQualityPreset(this.settings.quality, this.autoQuality);
     // The map is chosen once per page load; switching maps from the homepage reloads the page.
     this.map = getMap(this.settings.map);
     let mapData = null;
@@ -155,7 +158,8 @@ export class Game {
       }],
       ['Planting the forest', () => { const Forest = this.world.bridge ? JungleCanopy : Scenery; this.scenery = new Forest({ world: this.world, quality }); this.scene.add(this.scenery.group); }],
       ['Lighting the sky', () => { this.atmosphere = new Atmosphere({ scene: this.scene, renderer: this.renderer, world: this.world, quality }); }],
-      ['Warming the engine', async () => { await loadCarModels(); this.createVehicle(); }],
+      // Only the equipped car's model (they are megabytes each); the rest download after the loading screen.
+      ['Warming the engine', async () => { await loadCarModels([this.career.profile.cosmetics.car]); this.createVehicle(); }],
     ];
     for (let i = 0; i < stages.length; i += 1) {
       mark(stages[i][0]);
@@ -186,6 +190,7 @@ export class Game {
       this.meta.welcome();
     }
     this.prewarmShaders();
+    loadCarModels();
     this.lastTime = performance.now();
     this.frameHandle = requestAnimationFrame(this.onFrame);
     return this;
@@ -292,6 +297,7 @@ export class Game {
     hud.onOpenSettings = () => {};
     // The HUD closes its own settings panel; put the screen underneath back.
     hud.onCloseSettings = (source) => this.restoreAfterSettings(source);
+    hud.onSettingsChange = (settings) => this.applySettings(settings);
     hud.onApplySettings = (settings) => {
       const source = this.state === 'paused' ? 'pause' : 'menu';
       this.applySettings(settings);
@@ -327,15 +333,10 @@ export class Game {
       window.location.reload();
       return;
     }
-    const quality = getQualityPreset(this.settings.quality);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, quality.pixelRatio));
-    this.terrain.setQuality(quality);
-    this.scenery.setQuality(quality);
-    this.atmosphere.setQuality(quality);
+    this.applyQuality();
     this.atmosphere.setTimeOfDay(this.settings.timeOfDay);
-    this.effects.setQuality(quality);
     this.roads.setNight?.(this.atmosphere.isNight);
-    this.landmarks?.setNight(this.atmosphere.isNight);
+    this.landmarks?.setNight(this.atmosphere.isNight, this.atmosphere.timeOfDay === 'sunset' || this.atmosphere.timeOfDay === 'dawn');
     this.terrain.setSun?.(this.atmosphere.sunDirection, this.atmosphere.sunColor, this.atmosphere.ambientColor);
     if (this.atmosphere.isNight) {
       this.water.setSun(this.atmosphere.sunDirection, this.atmosphere.sunColor, this.atmosphere.ambientColor);
@@ -353,6 +354,7 @@ export class Game {
     this.vehicle.setHandling(this.settings.handling, getCar(this.carId).tuning);
     this.vehicle.setAssists({ driftAssist: this.settings.driftAssist, abs: this.settings.abs, transmission: this.settings.transmission });
     this.input.setManualShift(this.settings.transmission === 'manual');
+    this.input.setTouchSteer?.(this.settings.touchSteer);
     this.audio.setVolume(this.settings.volume);
     this.cameraRig.shakeEnabled = this.settings.cameraShake;
     this.hud.setSettings(this.settings);
@@ -389,6 +391,7 @@ export class Game {
     this.state = 'menu';
     this.session = null;
     this.audio.silence();
+    this.input.setTouchStaged?.(false);
     this.input.setDrivingEnabled(false);
     this.roads.setRoute(null);
     this.hud.setCountdown('');
@@ -417,6 +420,7 @@ export class Game {
       return false;
     }
     this.platform?.gameplayStart();
+    this.enterMobileLandscape();
     this.partyRace?.onRunStart(modeId, options);
     this.audio.unlock();
     this.mode = mode;
@@ -434,6 +438,7 @@ export class Game {
     this.prewarmShaders(); // the start gates and banners were just built
     this.hud.setActiveRoad(route.roadId);
     this.hud.showRace();
+    this.startHowTo();
     // Free roam is the calm, explore-the-mountain HUD; timed events get full telemetry.
     this.hud.setHudMode?.(this.mode.id === 'roam' ? 'calm' : 'race');
     this.cameraRig.setMode('chase');
@@ -447,6 +452,7 @@ export class Game {
       return true;
     }
     this.input.setDrivingEnabled(false);
+    this.input.setTouchStaged?.(true);
     this.state = 'countdown';
     this.countdownStartAt = Number.isFinite(options?.startAt) ? options.startAt : null;
     this.countdown = this.countdownStartAt === null
@@ -467,15 +473,29 @@ export class Game {
     this.vehicle.setHandling(this.settings.handling, car.tuning);
     // New ride height and wheelbase: put the car back down where it was.
     this.vehicle.teleport({ position: pose.position, quaternion: pose.quaternion });
+    this.buildCarVisual();
+    this.input.setNitroAvailable?.(Boolean(car.nitro));
+    this.audio.setProfile(car.sound || null);
+    // Picked before its model finished downloading: drive the stand-in, swap the body in when it lands.
+    if (!hasCarModel(car.id)) {
+      loadCarModels([car.id]).then(() => {
+        if (this.carId === car.id && hasCarModel(car.id)) {
+          this.buildCarVisual();
+          this.meta?.applyLook(this.car);
+        }
+      });
+    }
+  }
+
+  /** Replace the visible car with a fresh CarVisual for this.carId, keeping lights and neon. */
+  buildCarVisual() {
     const old = this.car;
-    this.car = new CarVisual({ wheelLayout: this.vehicle.wheelLayout, carId: car.id });
+    this.car = new CarVisual({ wheelLayout: this.vehicle.wheelLayout, carId: this.carId });
     this.scene.add(this.car.group);
     this.car.setHeadlights(old.headlightsOn);
     this.car.setNeon({ level: old.neonLevel, on: old.neonWanted });
     old.dispose();
     this.cameraRig.cockpitEye = this.car.cockpitEye;
-    this.input.setNitroAvailable?.(Boolean(car.nitro));
-    this.audio.setProfile(car.sound || null);
     this.prewarmShaders();
   }
 
@@ -510,6 +530,7 @@ export class Game {
     this.platform?.gameplayStop();
     this.pausedFrom = this.state;
     this.state = 'paused';
+    this.input.setTouchStaged?.(false);
     this.input.setDrivingEnabled(false);
     this.audio.silence();
     this.hud.showPause(this.mode.id === 'drift' ? 'The clock and your combo are frozen.' : '');
@@ -522,6 +543,7 @@ export class Game {
     if (this.session && !this.meta.room) this.meta.joinRoom(this.mode.id);
     this.hud.showRace();
     this.input.setDrivingEnabled(this.state === 'running');
+    if (this.state === 'countdown') this.input.setTouchStaged?.(true);
   }
 
   finish(result) {
@@ -577,6 +599,17 @@ export class Game {
     this.audio.respawn();
     this.stuckTimer = 0;
     if (!this.slogan()) this.hud.toast('Back on the road', 'warn');
+  }
+
+  /**
+   * Phones: go fullscreen and hold landscape when a drive starts (racing needs the width). Android
+   * Chrome allows the orientation lock only in fullscreen; iOS Safari has neither, so the HUD's
+   * "turn your phone" prompt covers it. Must run inside the tap that started the drive.
+   */
+  enterMobileLandscape() {
+    if (!globalThis.matchMedia?.('(pointer: coarse)').matches || document.fullscreenElement) return;
+    const request = document.documentElement.requestFullscreen?.({ navigationUI: 'hide' });
+    request?.then(() => screen.orientation?.lock?.('landscape')).catch(() => {});
   }
 
   toggleFullscreen() {
@@ -798,7 +831,11 @@ export class Game {
 
     let state;
     const paused = this.state === 'paused';
-    if (this.state === 'running') state = this.updateRunning(dt, input);
+    if (this.state === 'running') {
+      state = this.updateRunning(dt, input);
+      this.sampleAutoQuality(dt);
+      this.tickHowTo(dt, state);
+    }
     else if (this.state === 'countdown') state = this.updateCountdown(dt);
     else if (paused) state = this.vehicle.getState();
     else state = this.vehicle.step(dt, HOLD);
@@ -807,6 +844,8 @@ export class Game {
       this.goTimer -= dt;
       if (this.goTimer <= 0) this.hud.setCountdown('');
     }
+    // The loading/title screen is opaque: drawing the world under it only cost frames.
+    if (this.hud.loadingActive) return;
 
     this.car.setInteriorView(this.cameraRig.mode === 'cockpit' && (this.state === 'running' || this.state === 'countdown' || paused));
     this.car.sync(state, dt);
@@ -840,10 +879,62 @@ export class Game {
     this.effects.setViewport(this.renderer.domElement.height, camera.fov);
     this.atmosphere.update(paused ? 0 : dt, camera, state.position);
     this.terrain.update(camera);
-    this.scenery.update(camera.position, paused ? 0 : dt, this.atmosphere.isNight, state.position);
+    this.scenery.update(camera.position, paused ? 0 : dt, this.atmosphere.isNight, state.position, camera);
+    this.landmarks?.update?.(camera);
     this.roads.jungle?.update(camera.position);
     this.updateHud(state);
     this.renderer.render(this.scene, camera);
+  }
+
+  /** On a player's first three drives, show the controls until they get moving. */
+  startHowTo() {
+    let shown = 0;
+    try { shown = Number(globalThis.localStorage?.getItem('slopdrift.howto')) || 0; } catch { /* storage blocked */ }
+    this.howToTime = shown < 3 ? 14 : 0;
+    if (this.howToTime > 0) {
+      try { globalThis.localStorage?.setItem('slopdrift.howto', String(shown + 1)); } catch { /* storage blocked */ }
+    }
+    this.hud.showHowTo(this.howToTime > 0);
+  }
+
+  tickHowTo(dt, state) {
+    if (!(this.howToTime > 0)) return;
+    this.howToTime -= dt;
+    // Keep it up for a few seconds even if they floor it, then let it go once they are driving.
+    if (this.howToTime <= 0 || (this.howToTime < 10 && state.speedKmh > 40)) {
+      this.howToTime = 0;
+      this.hud.showHowTo(false);
+    }
+  }
+
+  /** The graphics preset (settings.quality, or the level Auto resolved to) applied to every view. */
+  applyQuality() {
+    const quality = getQualityPreset(this.settings.quality, this.autoQuality);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, quality.pixelRatio));
+    this.terrain.setQuality(quality);
+    this.scenery.setQuality(quality);
+    this.atmosphere.setQuality(quality);
+    this.effects.setQuality(quality);
+  }
+
+  /**
+   * Auto quality: average the frame rate over 4 s windows of driving and drop one level when it is
+   * under 40 fps. Stalls over 0.25 s (tab switches, loading hitches) are not counted.
+   */
+  sampleAutoQuality(dt) {
+    if (this.settings.quality !== 'Auto' || dt > 0.25 || dt <= 0) return;
+    const sample = this.autoSample;
+    sample.time += dt;
+    sample.frames += 1;
+    if (sample.time < 4) return;
+    const next = nextAutoQuality(this.autoQuality, sample.frames / sample.time);
+    sample.time = 0;
+    sample.frames = 0;
+    if (next === this.autoQuality) return;
+    this.autoQuality = next;
+    this.applyQuality();
+    this.onResize();
+    this.hud.toast(`Graphics lowered to ${next} for smoother driving`, 'info');
   }
 
   onResize() {

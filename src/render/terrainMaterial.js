@@ -73,54 +73,55 @@ const FRAGMENT_COLOR = /* glsl */ `
   float nearFade = 1.0 - smoothstep(40.0, 160.0, viewDistance);
   float midFade = 1.0 - smoothstep(350.0, 1400.0, viewDistance);
 
-  // Fine relief: tilt the shading normal with the noise gradient, strongest up close and on rock.
-  vec2 bump = (nFine.xy - 0.5) * 0.55 * midFade + (nMicro.zw - 0.5) * 0.45 * nearFade;
+  // Fine relief: sharper rock crevices and grass-tuft micro-normals up close.
+  vec2 bump = (nFine.xy - 0.5) * 0.65 * midFade + (nMicro.zw - 0.5) * 0.58 * nearFade;
   float slopeRaw = 1.0 - nW.y;
 
   float altitude = wp.y + (nBroad.r - 0.5) * 70.0 + (nMid.g - 0.5) * 22.0;
   float alpine = smoothstep(uTreeLine - 70.0, uTreeLine + 55.0, altitude);
   // Above the tree line vegetation gives up sooner, so bare ground starts on gentler slopes.
   float alpineBias = alpine;
-  // Thresholds on 1 - normal.y: 0.11 is a 27 degree slope, 0.2 is 37 degrees, 0.34 is 49 degrees.
-  // Inside a grass bank (the switchback terraces) turf holds up to ~60 degrees: cut slopes of
-  // 1 : 1.6 and fills of 1 : 1.3 stay green and only true cliffs show rock.
+  // Thresholds on 1 - normal.y: ~0.23 is a 40 degree slope, ~0.37 is 51 degrees.
+  // Slightly softer slope threshold keeps grassy alpine banks green beside embankments.
   float bank = uGrassBank.z > 0.0 ? 1.0 - smoothstep(uGrassBank.z * 0.8, uGrassBank.z, distance(wp.xz, uGrassBank.xy)) : 0.0;
-  float steep = smoothstep(0.2 + 0.3 * bank, 0.34 + 0.32 * bank, slopeRaw + (nMid.b - 0.5) * 0.1 + alpineBias * 0.05);
-  float scree = smoothstep(0.125 + 0.3 * bank, 0.23 + 0.32 * bank, slopeRaw + (nMid.a - 0.5) * 0.09 + alpineBias * 0.07);
+  float steep = smoothstep(0.23 + 0.28 * bank, 0.37 + 0.30 * bank, slopeRaw + (nMid.b - 0.5) * 0.1 + alpineBias * 0.05);
+  float scree = smoothstep(0.145 + 0.28 * bank, 0.26 + 0.30 * bank, slopeRaw + (nMid.a - 0.5) * 0.09 + alpineBias * 0.07);
 
-  // Ground cover by altitude: lush valley grass, darker forest floor on the flanks, pale alpine turf.
-  vec3 meadow = mix(vec3(0.115, 0.175, 0.048), vec3(0.2, 0.235, 0.07), nMid.r);
-  vec3 forest = mix(vec3(0.055, 0.1, 0.038), vec3(0.095, 0.14, 0.05), nMid.g);
-  vec3 turf = mix(vec3(0.2, 0.2, 0.095), vec3(0.27, 0.245, 0.135), nMid.b);
-  float forestBand = smoothstep(uValleyFloor + 25.0, uValleyFloor + 90.0, altitude) * (1.0 - alpine);
-  forestBand *= smoothstep(0.32, 0.62, nBroad.g + nMid.a * 0.35);
+  // Directional blade/tuft grass micro-detail so meadow slopes read as textured turf up close.
+  float tuft = smoothstep(0.25, 0.82, nMicro.r * 0.62 + nFine.g * 0.38);
+  vec3 meadow = mix(vec3(0.095, 0.165, 0.045), vec3(0.195, 0.245, 0.068), nMid.r);
+  meadow = mix(meadow * 0.88, meadow * 1.24 + vec3(0.015, 0.02, 0.0), tuft * nearFade);
+  vec3 forest = mix(vec3(0.048, 0.098, 0.036), vec3(0.092, 0.148, 0.048), nMid.g);
+  vec3 turf = mix(vec3(0.175, 0.195, 0.082), vec3(0.275, 0.242, 0.118), nMid.b);
+  turf = mix(turf * 0.88, turf * 1.16, tuft * nearFade);
+  float forestBand = smoothstep(uValleyFloor + 20.0, uValleyFloor + 85.0, altitude) * (1.0 - alpine);
+  forestBand *= smoothstep(0.30, 0.62, nBroad.g + nMid.a * 0.35);
   vec3 cover = mix(meadow, forest, forestBand);
   cover = mix(cover, turf, alpine);
-  cover *= 0.82 + 0.36 * nFine.r * midFade + 0.18 * (nMicro.r - 0.5) * nearFade;
+  cover *= 0.82 + 0.36 * nFine.r * midFade + 0.22 * (nMicro.r - 0.5) * nearFade;
 
-  vec3 earth = mix(vec3(0.16, 0.125, 0.09), vec3(0.25, 0.205, 0.15), nMid.r);
-  earth = mix(earth, vec3(0.27, 0.255, 0.235), alpine * 0.8);
-  earth *= 0.8 + 0.4 * nFine.g * midFade;
+  vec3 earth = mix(vec3(0.15, 0.118, 0.084), vec3(0.245, 0.20, 0.145), nMid.r);
+  earth = mix(earth, vec3(0.265, 0.25, 0.23), alpine * 0.8);
+  earth *= 0.78 + 0.44 * nFine.g * midFade + 0.2 * (nMicro.b - 0.5) * nearFade;
 
-  // Rock in distinct horizontal beds so cuts and cliffs read as layered stone, not a smooth wash.
-  // The beds dip across the mountain instead of following altitude, otherwise every slope shows
-  // evenly spaced contour lines. Heavy warping and patchy seams keep them irregular.
-  float strataPhase = dot(wp, vec3(0.16, 0.5, -0.11)) + nMid.r * 7.0 + nBroad.b * 12.0 + nFine.a * 1.6;
-  float strata = smoothstep(0.2, 0.8, sin(strataPhase) * 0.5 + 0.5);
-  float seams = smoothstep(0.9, 0.99, sin(strataPhase * 2.3 + 1.7) * 0.5 + 0.5) * smoothstep(0.35, 0.65, nMid.b);
-  vec3 rock = mix(vec3(0.12, 0.115, 0.11), vec3(0.26, 0.245, 0.225), strata * 0.35 + nMid.g * 0.35 + nFine.b * 0.3);
-  rock = mix(rock, vec3(0.23, 0.19, 0.15), nBroad.a * 0.45);
-  rock *= 0.7 + 0.55 * nFine.r * midFade + 0.35 * (nMicro.g - 0.5) * nearFade;
-  rock *= 1.0 - seams * 0.3;
+  // Rock in distinct horizontal beds so cuts and cliffs read as layered granite/slate, not a flat wash.
+  float strataPhase = dot(wp, vec3(0.16, 0.52, -0.11)) + nMid.r * 7.2 + nBroad.b * 12.0 + nFine.a * 1.7;
+  float strata = smoothstep(0.18, 0.82, sin(strataPhase) * 0.5 + 0.5);
+  float seams = smoothstep(0.86, 0.98, sin(strataPhase * 2.4 + 1.7) * 0.5 + 0.5) * smoothstep(0.32, 0.64, nMid.b);
+  vec3 rock = mix(vec3(0.105, 0.102, 0.10), vec3(0.275, 0.26, 0.24), strata * 0.38 + nMid.g * 0.34 + nFine.b * 0.28);
+  rock = mix(rock, vec3(0.23, 0.185, 0.145), nBroad.a * 0.45);
+  rock = mix(rock, rock * vec3(0.84, 0.94, 0.78), (1.0 - alpine) * smoothstep(0.58, 0.86, nFine.g) * 0.28); // valley rock lichen
+  rock *= 0.68 + 0.58 * nFine.r * midFade + 0.40 * (nMicro.g - 0.5) * nearFade;
+  rock *= 1.0 - seams * 0.38;
 
   vec3 albedo = mix(cover, earth, scree);
   albedo = mix(albedo, rock, steep);
-  float rough = mix(mix(1.0, 0.96, scree), 0.88, steep);
+  float rockSheen = mix(0.88, 0.64, smoothstep(0.45, 0.85, nFine.b) * nearFade);
+  float rough = mix(mix(0.96, 0.93, scree), rockSheen, steep);
 
-  // The flat carved bed beside the road is a ditch of trampled earth and rough grass, not more
-  // gravel; the cut faces above it stay rock.
+  // The flat carved bed beside the road blends gravel edge into alpine grass rather than bare mud.
   float bed = control.a * (1.0 - smoothstep(0.06, 0.16, slopeRaw));
-  vec3 ditch = mix(earth * 0.9, cover * 0.95, smoothstep(0.3, 0.7, nFine.a + (nMicro.b - 0.5) * 0.3 * nearFade));
+  vec3 ditch = mix(earth * 0.88, cover * 1.02, smoothstep(0.22, 0.64, nFine.a + (nMicro.b - 0.5) * 0.34 * nearFade));
   albedo = mix(albedo, ditch, bed);
 
   // Pale shore and dark wet ground around and under the water.
@@ -132,16 +133,16 @@ const FRAGMENT_COLOR = /* glsl */ `
   float snowEdge = altitude + (nFine.r - 0.5) * 16.0 * midFade - bed * 14.0;
   float snow = smoothstep(uSnowLine - 28.0, uSnowLine + 34.0, snowEdge);
   snow *= 1.0 - smoothstep(0.26, 0.5, slopeRaw + (nFine.g - 0.5) * 0.1);
-  float dusting = smoothstep(uSnowLine - 95.0, uSnowLine - 10.0, snowEdge) * smoothstep(0.55, 0.8, nMid.a + nFine.b * 0.3) * (1.0 - steep);
-  snow = clamp(max(snow, dusting * 0.75), 0.0, 1.0);
+  float dusting = smoothstep(uSnowLine - 95.0, uSnowLine - 10.0, snowEdge) * smoothstep(0.54, 0.8, nMid.a + nFine.b * 0.3) * (1.0 - steep);
+  snow = clamp(max(snow, dusting * 0.78), 0.0, 1.0);
   // Wind-packed drifts and a cooler tint in hollows, so large snowfields are not a flat white sheet.
   float drift = nMid.b * 0.6 + nFine.a * 0.4;
-  vec3 snowColor = mix(vec3(0.7, 0.76, 0.86), vec3(0.88, 0.9, 0.93), smoothstep(0.25, 0.75, drift));
-  snowColor *= 0.9 + 0.1 * nMicro.r * nearFade;
-  snowColor = mix(snowColor * vec3(0.9, 0.94, 1.0), snowColor, clamp(control.b / 0.86, 0.0, 1.0));
+  vec3 snowColor = mix(vec3(0.68, 0.76, 0.88), vec3(0.91, 0.93, 0.96), smoothstep(0.24, 0.74, drift));
+  snowColor *= 0.9 + 0.12 * nMicro.r * nearFade;
+  snowColor = mix(snowColor * vec3(0.88, 0.93, 1.0), snowColor, clamp(control.b / 0.86, 0.0, 1.0));
   albedo = mix(albedo, snowColor, snow);
-  rough = mix(rough, 0.62, snow);
-  bump *= 1.0 - snow * 0.75;
+  rough = mix(rough, 0.44, snow);
+  bump *= 1.0 - snow * 0.72;
 
   if (uRainforest > 0.5) {
     float patches = smoothstep(0.38, 0.69, nMid.g*0.45+nFine.r*0.55);
@@ -150,7 +151,7 @@ const FRAGMENT_COLOR = /* glsl */ `
     albedo = mix(mix(litter,moss,patches),rock*0.56,steep*0.72);
     albedo *= 0.72+0.38*smoothstep(0.39,0.61,nMicro.a);
   }
-  terrainWorldNormal = normalize(nW + vec3(bump.x, 0.0, bump.y) * (0.35 + 0.65 * steep));
+  terrainWorldNormal = normalize(nW + vec3(bump.x, 0.0, bump.y) * (0.46 + 0.74 * steep));
   // Occlusion is stored with 0.86 as "open ground"; ridges go slightly above, gullies well below.
   terrainOcclusion = clamp(control.b / 0.86, 0.0, 1.16);
   terrainSunShade = mix(1.0, texture2D(uSunShade, controlUv).r, uSunShadeStrength);
@@ -217,7 +218,7 @@ export function createTerrainMaterial(shared, { heightMap, lodStep, skirtDepth }
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${FRAGMENT_NORMAL}`)
       .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>\n${FRAGMENT_LIGHTS_END}`);
   };
-  material.customProgramCacheKey = () => 'slop-terrain-v7';
+  material.customProgramCacheKey = () => 'slop-terrain-v8';
   material.userData.terrainUniforms = own;
   return material;
 }

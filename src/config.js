@@ -88,7 +88,7 @@ export const TIME_OF_DAY = Object.freeze(['dawn', 'day', 'sunset', 'night']);
 
 export const DEFAULT_SETTINGS = Object.freeze({
   map: DEFAULT_MAP,
-  quality: 'High',
+  quality: 'Auto',
   timeOfDay: 'day',
   paint: 'pearl',
   handling: 'Balanced',
@@ -99,6 +99,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   volume: 0.8,
   cameraShake: true,
   startGate: true,
+  touchSteer: 'arrows',
 });
 
 export const CONFIG = Object.freeze({
@@ -143,15 +144,27 @@ export function getPaint(id) {
   return PAINT_OPTIONS.find((paint) => paint.id === id) || PAINT_OPTIONS[0];
 }
 
-export function getQualityPreset(name) {
+/**
+ * @param {string} name  A QUALITY_PRESETS key, or 'Auto'.
+ * @param {string} [autoLevel]  The level Auto currently resolves to (Game measures the frame rate).
+ */
+export function getQualityPreset(name, autoLevel = 'High') {
+  if (name === 'Auto') return QUALITY_PRESETS[autoLevel] || QUALITY_PRESETS.High;
   return QUALITY_PRESETS[name] || QUALITY_PRESETS.High;
+}
+
+/** Auto quality: one level lower when a measured window averaged under 40 fps, else unchanged. Never steps up (no flip-flopping). */
+export function nextAutoQuality(level, averageFps) {
+  const levels = Object.keys(QUALITY_PRESETS);
+  const i = levels.indexOf(level);
+  return averageFps < 40 && i > 0 ? levels[i - 1] : level;
 }
 
 export function normalizeSettings(input = {}) {
   const merged = { ...DEFAULT_SETTINGS, ...(input || {}) };
   return {
     map: MAPS[merged.map] ? merged.map : DEFAULT_SETTINGS.map,
-    quality: QUALITY_PRESETS[merged.quality] ? merged.quality : DEFAULT_SETTINGS.quality,
+    quality: QUALITY_PRESETS[merged.quality] || merged.quality === 'Auto' ? merged.quality : DEFAULT_SETTINGS.quality,
     timeOfDay: TIME_OF_DAY.includes(merged.timeOfDay) ? merged.timeOfDay : DEFAULT_SETTINGS.timeOfDay,
     paint: PAINT_OPTIONS.some((option) => option.id === merged.paint) ? merged.paint : DEFAULT_SETTINGS.paint,
     handling: HANDLING_PRESETS.includes(merged.handling) ? merged.handling : DEFAULT_SETTINGS.handling,
@@ -162,6 +175,7 @@ export function normalizeSettings(input = {}) {
     volume: clamp01(merged.volume, DEFAULT_SETTINGS.volume),
     cameraShake: Boolean(merged.cameraShake),
     startGate: Boolean(merged.startGate),
+    touchSteer: merged.touchSteer === 'slider' ? 'slider' : 'arrows',
   };
 }
 

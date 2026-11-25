@@ -4,7 +4,7 @@ import { createNoiseTexture, createTerrainMaterial, createTerrainUniforms } from
 
 const CHUNK_CELLS = 64; // grid cells per chunk side (128 m at 2 m cells)
 const LOD_STEPS = [1, 2, 4, 8]; // grid cells between vertices at each level
-const LOD_DISTANCES = [190, 430, 880]; // metres; beyond the last one the coarsest level is used
+const LOD_DISTANCES = [230, 510, 980]; // metres; beyond the last one the coarsest level is used
 const BLOCK = 16; // nodes per side of the "contains road bed" lookup blocks
 const COARSE = 4; // nodes per sample of the coarse occlusion and sun-shadow fields
 const OPEN_GROUND = 0.86; // occlusion value stored for flat open ground

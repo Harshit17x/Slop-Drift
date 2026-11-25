@@ -12,9 +12,12 @@ import { MEDAL_LABELS, MEDAL_TARGETS, MEDAL_TIERS, medalTargets } from '../meta/
 import { trackKey } from '../meta/trackKey.js';
 import { CHAI_GLASS, ICON } from './icons.js';
 import {
-  CAR_SORT_MODES, HUB_TABS, TITLE_BACKDROP_URL, carRatingRows, driveUnitSvg,
-  eventCategoryBadge, forzaMapHubMarkup, garageHubMarkup, hubHeaderMarkup, sortCars,
+  CAR_SORT_MODES, HUB_TABS, MAP_SUBTITLES, carRatingRows,
+  driveUnitSvg, eventCategoryBadge, forzaMapHubMarkup, garageHubMarkup, hubHeaderMarkup,
+  mapSubtitleMarkup, sortCars,
 } from './GarageUi.js';
+import { TitleFx } from './TitleFx.js';
+import { DriftBackground } from './driftBackground.js';
 
 const KMH_TO_MPH = 0.621371;
 const M_TO_FT = 3.28084;
@@ -313,6 +316,7 @@ export class Hud {
     this.onOpenSettings = noop;
     this.onCloseSettings = noop;
     this.onApplySettings = noop;
+    this.onSettingsChange = noop;
     this.onFullscreen = noop;
     this.onCamera = noop;
     this.onRespawn = noop;
@@ -344,6 +348,7 @@ export class Hud {
 
     if (injectStyles) this.injectStyles();
     this.build();
+    this.initTitleFx();
     this.bind();
     this.setRecords(this.records);
     this.setSettings(this.settings);
@@ -430,6 +435,21 @@ export class Hud {
           <button type="button" class="sdh-offroad" data-act="respawn" tabindex="-1">
             <span class="sdh-offroad-text">Off road</span><span class="sdh-keycap">R</span><span>respawn</span>
           </button>
+          <div class="sdh-rotate" role="dialog" aria-label="Turn your phone">
+            <span class="sdh-rotate-phone" aria-hidden="true"></span>
+            <b>Turn your phone sideways</b>
+            <span>Driving needs the width: steering on the left, pedals on the right.</span>
+            <button type="button" class="sdh-btn" data-act="portrait-ok">Play in portrait</button>
+          </div>
+          <div class="sdh-howto" aria-hidden="true">
+            <span class="sdh-help-keys"><kbd>W</kbd> gas</span>
+            <span class="sdh-help-keys"><kbd>S</kbd> brake</span>
+            <span class="sdh-help-keys"><kbd>A</kbd><kbd>D</kbd> steer</span>
+            <span class="sdh-help-keys"><kbd>Space</kbd> drift</span>
+            <span class="sdh-help-keys"><kbd>R</kbd> respawn</span>
+            <span class="sdh-help-keys"><kbd>Esc</kbd> menu</span>
+            <span class="sdh-help-touch">Arrows on the left steer · Gas and brake on the right · Pause top right</span>
+          </div>
         </div>
         <div class="sdh-tr">
           <div class="sdh-iconbar">
@@ -518,31 +538,38 @@ export class Hud {
       ${this.achievementsMarkup()}
       ${this.nameDialogMarkup()}
       <div class="sdh-loading" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-label="Loading">
-        ${TITLE_BACKDROP_URL ? `<img class="sdh-loading-bg" src="${esc(TITLE_BACKDROP_URL)}" alt="" aria-hidden="true">` : ''}
+        <canvas class="sdh-drift-bg" aria-hidden="true"></canvas>
+        <canvas class="sdh-loading-canvas" aria-hidden="true"></canvas>
+        <div class="sdh-loading-fx" aria-hidden="true">
+          <div class="sdh-loading-vignette"></div>
+        </div>
         <div class="sdh-loading-scrim" aria-hidden="true"></div>
         <div class="sdh-loading-inner">
           <div class="sdh-title-chips">
             <span class="sdh-title-chip is-map" data-title="mapBadge">MUSSOORIE</span>
-            <span class="sdh-title-chip" data-title="carBadge">RALLY HATCH · B185</span>
+            <span class="sdh-title-chip" data-title="carBadge">RALLY HATCH</span>
           </div>
           <div class="sdh-brand sdh-brand-xl"><span>SLOP DRIFT</span>${CHAI_GLASS}</div>
-          <div class="sdh-loading-sub"><span lang="hi">मसूरी</span> · Mussoorie · Landour</div>
+          <div class="sdh-loading-sub" data-title="mapSub">${MAP_SUBTITLES.mussoorie}</div>
           <div class="sdh-slogan-board sdh-loading-slogan"><span></span></div>
           <div class="sdh-loading-progress">
             <div class="sdh-loading-bar"><i></i></div>
             <div class="sdh-loading-meta"><span class="sdh-loading-label"></span><span class="sdh-loading-pct sdh-num"></span></div>
           </div>
+          <div class="sdh-loading-help">
+            <span class="sdh-help-keys"><kbd>W</kbd><kbd>S</kbd> gas / brake</span>
+            <span class="sdh-help-keys"><kbd>A</kbd><kbd>D</kbd> steer</span>
+            <span class="sdh-help-keys"><kbd>Space</kbd> handbrake drift</span>
+            <span class="sdh-help-keys"><kbd>Esc</kbd> menu</span>
+            <span class="sdh-help-touch">Arrows on the left steer · Gas, brake and drift on the right</span>
+          </div>
           <div class="sdh-title-actions" hidden>
-            <button type="button" class="sdh-btn sdh-btn-primary sdh-title-start" data-act="title-start">${ICON.play}<span>START · ENTER GARAGE</span><kbd>ENTER</kbd></button>
-            <button type="button" class="sdh-btn sdh-title-maps" data-act="title-maps">${ICON.map}<span>CHOOSE MAP</span></button>
-            <button type="button" class="sdh-btn sdh-title-roam" data-act="title-roam">${ICON.car}<span>FREE ROAM</span></button>
+            <button type="button" class="sdh-btn sdh-btn-primary sdh-title-roam" data-act="title-roam">${ICON.play}<span>DRIVE</span><kbd>ENTER</kbd></button>
+            <button type="button" class="sdh-btn sdh-title-start" data-act="title-start">${ICON.car}<span>GARAGE &amp; EVENTS</span><kbd>G</kbd></button>
+            <button type="button" class="sdh-btn sdh-title-maps" data-act="title-maps">${ICON.map}<span>MAP</span><kbd>M</kbd></button>
           </div>
           <div class="sdh-loading-options">
-            <button type="button" class="sdh-gate-toggle" data-act="toggle-start-gate" aria-pressed="true">
-              <span class="sdh-gate-dot" aria-hidden="true"></span>
-              <span>START GATE AFTER LOAD: <b data-title="gateState">ON</b></span>
-            </button>
-            <span class="sdh-title-keyhint" data-title="readyHint" hidden>ENTER START · M MAP · SPACE ROAM</span>
+            <span class="sdh-title-keyhint" data-title="readyHint" hidden>Free roam the mountain, or pick a race from Garage &amp; Events</span>
           </div>
         </div>
       </div>`;
@@ -705,16 +732,17 @@ export class Hud {
 
   settingsMarkup() {
     const name = (n) => `${this.uid}-${n}`;
-    const seg = (key, label, options) => `
+    const hint = (text) => (text ? `<small class="sdh-field-hint">${text}</small>` : '');
+    const seg = (key, label, options, help = '') => `
       <fieldset class="sdh-field">
-        <legend>${label}</legend>
+        <legend>${label}</legend>${hint(help)}
         <div class="sdh-seg" style="--n:${options.length}">
           ${options.map((o) => `<label><input type="radio" name="${name(key)}" value="${esc(o.value)}"><span>${esc(o.label)}</span></label>`).join('')}
         </div>
       </fieldset>`;
-    const slider = (key, label) => `
+    const slider = (key, label, help = '') => `
       <label class="sdh-field sdh-slider">
-        <span class="sdh-field-head"><span>${label}</span><output class="sdh-num" data-out="${key}"></output></span>
+        <span class="sdh-field-head"><span>${label}</span><output class="sdh-num" data-out="${key}"></output></span>${hint(help)}
         <input type="range" min="0" max="100" step="1" name="${name(key)}">
       </label>`;
     const toggle = (key, label, hint) => `
@@ -730,19 +758,21 @@ export class Hud {
           <h2 class="sdh-title">Settings</h2>
         </header>
         <form class="sdh-form" novalidate>
-          <div class="sdh-group-label">Graphics</div>
-          ${seg('quality', 'Quality', Object.keys(QUALITY_PRESETS).map((k) => ({ value: k, label: k })))}
-          ${seg('timeOfDay', 'Time of day', TIME_OF_DAY.map((k) => ({ value: k, label: cap(k) })))}
+          <p class="sdh-settings-note">Changes apply straight away.</p>
           <div class="sdh-group-label">Driving</div>
-          ${seg('handling', 'Handling', HANDLING_PRESETS.map((k) => ({ value: k, label: k })))}
-          ${seg('transmission', 'Transmission', [{ value: 'auto', label: 'Automatic' }, { value: 'manual', label: 'Manual' }])}
-          ${slider('driftAssist', 'Drift assist')}
-          ${toggle('abs', 'ABS', 'Anti-lock brakes')}
-          <div class="sdh-group-label">Display &amp; audio</div>
+          ${seg('handling', 'Handling', HANDLING_PRESETS.map((k) => ({ value: k, label: k })), 'Arcade is the most forgiving; Sim is the most realistic.')}
+          ${seg('transmission', 'Gears', [{ value: 'auto', label: 'Automatic' }, { value: 'manual', label: 'Manual' }], 'Manual: shift with Q and E.')}
+          ${slider('driftAssist', 'Drift assist', 'Helps you hold a slide. Lower it for more control.')}
+          ${toggle('abs', 'ABS', 'Stops the wheels locking when you brake hard')}
+          ${seg('touchSteer', 'Touch steering', [{ value: 'arrows', label: 'Arrows' }, { value: 'slider', label: 'Slider' }], 'Phones and tablets. Slider steers gradually; arrows are easier.')}
+          <div class="sdh-group-label">Graphics</div>
+          ${seg('quality', 'Quality', ['Auto', ...Object.keys(QUALITY_PRESETS)].map((k) => ({ value: k, label: k })), 'Auto lowers detail by itself if the game runs slowly.')}
+          ${seg('timeOfDay', 'Time of day', TIME_OF_DAY.map((k) => ({ value: k, label: cap(k) })))}
+          <div class="sdh-group-label">Sound &amp; display</div>
+          ${slider('volume', 'Volume')}
           ${seg('units', 'Units', [{ value: 'kmh', label: 'km/h · m' }, { value: 'mph', label: 'mph · ft' }])}
-          ${slider('volume', 'Master volume')}
-          ${toggle('cameraShake', 'Camera shake', 'Speed and impact shake')}
-          ${toggle('startGate', 'Forza start screen', 'Pause at the Start & Map screen after loading')}
+          ${toggle('cameraShake', 'Camera shake', 'At speed and on impacts')}
+          ${toggle('startGate', 'Title screen', 'Show the Drive, Garage and Map buttons after loading')}
           <div class="sdh-group-label">Controls</div>
         <div class="sdh-legend sdh-legend-settings">
           <div class="sdh-legend-keys">
@@ -756,13 +786,13 @@ export class Hud {
             <span><kbd>R</kbd> Respawn</span>
             <span><kbd>Esc</kbd> Pause</span>
           </div>
-          <div class="sdh-legend-touch">Left pad: slide to steer · Right: gas, brake, drift, nitro</div>
+          <div class="sdh-legend-touch">Left: steering arrows (or slider) · Right: gas, brake, drift, nitro</div>
           <div class="sdh-legend-pad">Gamepad: RT/LT pedals · A handbrake · B nitro · LB/RB shift</div>
         </div>
         </form>
         <footer class="sdh-panel-foot">
-          <button type="button" class="sdh-btn" data-act="settings-back">${ICON.back}<span>Back</span></button>
-          <button type="button" class="sdh-btn sdh-btn-primary" data-act="settings-apply">${ICON.check}<span>Apply</span></button>
+          <button type="button" class="sdh-btn" data-act="settings-reset"><span>Reset to defaults</span></button>
+          <button type="button" class="sdh-btn sdh-btn-primary" data-act="settings-back">${ICON.check}<span>Done</span></button>
         </footer>
       </aside>`;
   }
@@ -787,6 +817,7 @@ export class Hud {
         case 'title-start': this.onTitleStart('garage'); break;
         case 'title-maps': this.onTitleStart('map'); break;
         case 'title-roam': this.onTitleRoam(); break;
+        case 'portrait-ok': this.el.classList.add('is-portrait-ok'); break;
         case 'toggle-start-gate': {
           const next = !this.settings.startGate;
           this.setSettings({ ...this.settings, startGate: next });
@@ -865,7 +896,7 @@ export class Hud {
           break;
         }
         case 'settings-back': this.closeSettingsFromUi(false); break;
-        case 'settings-apply': this.closeSettingsFromUi(true); break;
+        case 'settings-reset': this.changeSettings({ ...DEFAULT_SETTINGS, map: this.settings.map, paint: this.settings.paint }); break;
         default: break;
       }
     };
@@ -876,6 +907,8 @@ export class Hud {
       if (event.target.type === 'range') this.renderSliderOutputs();
     };
     this.form.addEventListener('input', this.onFormInput);
+    // Every change applies at once (sliders on release), so there is no Apply step to forget.
+    this.form.addEventListener('change', () => this.changeSettings(this.readSettings()));
     this.form.addEventListener('submit', (event) => event.preventDefault());
 
     const renameInput = this.q('.sdh-pb-input');
@@ -942,7 +975,13 @@ export class Hud {
     // Capture-phase so the game's Input never sees an Escape or hub shortcut that the overlays consumed.
     this.onKeyDown = (event) => {
       if (this.loadingActive && this.titleReady && !event.repeat && !this.dialogOpen) {
-        if (event.key === 'Enter') {
+        if (event.key === 'Enter' && !event.target?.closest?.('button')) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          this.onTitleRoam();
+          return;
+        }
+        if (event.code === 'KeyG') {
           event.preventDefault();
           event.stopImmediatePropagation();
           this.onTitleStart('garage');
@@ -1130,6 +1169,7 @@ export class Hud {
     const prev = this.currentPanel;
     const activeTab = this.sub && this.screen === 'menu' ? this.sub : this.hubTab;
     this.el.dataset.screen = this.screen;
+    if (this.screen !== 'race') this.showHowTo(false); // only while driving
     this.el.dataset.hubTab = activeTab;
     this.el.classList.toggle('is-settings', Boolean(this.sub));
     this.el.classList.toggle('is-3d-stage', this.stageMode === '3d');
@@ -1261,6 +1301,11 @@ export class Hud {
       this.renderMapStage();
     }
     this.applyScreen();
+  }
+
+  /** The controls card on a new player's first drives (Game decides when). */
+  showHowTo(on) {
+    this.q('.sdh-howto')?.classList.toggle('is-on', Boolean(on));
   }
 
   showRace() {
@@ -1575,6 +1620,12 @@ export class Hud {
     this.applyScreen();
   }
 
+  /** Apply and save settings from the panel without closing it. */
+  changeSettings(next) {
+    this.setSettings(next);
+    this.onSettingsChange(this.settings);
+  }
+
   closeSettingsFromUi(apply) {
     const source = this.settingsSource;
     if (apply) {
@@ -1597,7 +1648,7 @@ export class Hud {
     const s = this.settings;
     const f = this.form || this.q('.sdh-form');
     const n = (k) => f.elements.namedItem(`${this.uid}-${k}`);
-    for (const key of ['quality', 'timeOfDay', 'handling', 'transmission', 'units']) {
+    for (const key of ['quality', 'timeOfDay', 'handling', 'transmission', 'units', 'touchSteer']) {
       const group = n(key);
       if (group) group.value = String(s[key]);
     }
@@ -1623,7 +1674,7 @@ export class Hud {
     const f = this.form;
     const n = (k) => f.elements.namedItem(`${this.uid}-${k}`);
     const out = { ...this.settings };
-    for (const key of ['quality', 'timeOfDay', 'handling', 'transmission', 'units']) {
+    for (const key of ['quality', 'timeOfDay', 'handling', 'transmission', 'units', 'touchSteer']) {
       const v = n(key)?.value;
       if (v) out[key] = v;
     }
@@ -1749,6 +1800,10 @@ export class Hud {
     this.v.loadingBar.setKey(key, (k) => `scaleX(${k / 1000})`);
     this.v.loadingPct.setKey(Math.round(p * 100), (k) => `${k}%`);
     el.setAttribute('aria-valuenow', String(Math.round(p * 100)));
+    if (typeof Worker !== 'undefined' || typeof requestAnimationFrame !== 'undefined') {
+      this.driftBg ??= new DriftBackground(this.q('.sdh-drift-bg'));
+      this.driftBg.start();
+    }
     if (label) this.v.loadingLabel.set(String(label));
     this.syncStartGateUi();
     this.syncTitleBadges();
@@ -1774,7 +1829,9 @@ export class Hud {
     if (actions) actions.hidden = false;
     if (hint) hint.hidden = false;
     this.q('.sdh-hub-top')?.setAttribute('inert', '');
-    this.q('.sdh-title-start')?.focus({ preventScroll: true });
+    this.q('.sdh-title-roam')?.focus({ preventScroll: true });
+    // The 3D showcase (TitleFx, startTitleMedia) is not started: as a second WebGL renderer it halved
+    // the frame rate and opened on a washed-out haze; the painted backdrop and road animation stay instead.
   }
 
   hideLoading() {
@@ -1785,14 +1842,57 @@ export class Hud {
     if (this.screen === 'menu' && !this.dialogOpen) {
       this.q('.sdh-hub-top')?.removeAttribute('inert');
     }
-    if (!el.classList.contains('is-on') || this.loadingHideTimer) return;
+    if (!el.classList.contains('is-on') || this.loadingHideTimer) {
+      this.stopTitleMedia(true);
+      this.driftBg?.stop();
+      return;
+    }
     el.classList.add('is-hiding');
     clearInterval(this.loadingSloganTimer);
     this.loadingSloganTimer = null;
     this.loadingHideTimer = this.later(() => {
+      this.stopTitleMedia(true);
+      this.driftBg?.stop();
       el.classList.remove('is-on', 'is-hiding');
       this.loadingHideTimer = null;
     }, this.reducedMotion?.matches ? 0 : 600);
+  }
+
+  initTitleFx() {
+    this.titleFx = new TitleFx({
+      canvas: this.q('.sdh-loading-canvas'),
+      timerEl: this.q('[data-title="recTime"]'),
+      mapId: this.mapId,
+      carId: this.selectedCarId(),
+    });
+  }
+
+  startTitleMedia() {
+    if (this.reducedMotion?.matches) return;
+    this.titleFx?.setMap?.(this.mapId);
+    this.titleFx?.setCar?.(this.selectedCarId(), this.resolveTitleCosmetics());
+    this.titleFx?.start();
+  }
+
+  resolveTitleCosmetics() {
+    const g = this.garage;
+    if (!g?.items?.length) return null;
+    const sel = g.selected || {};
+    const find = (slot, val) => g.items.find((it) => it.slot === slot && it.value === val);
+    const paint = find('paint', sel.paint);
+    const rim = find('rim', sel.rim);
+    const neon = find('neon', sel.neon);
+    return {
+      paint: paint?.color !== undefined ? { color: paint.color } : null,
+      rimColor: rim?.color,
+      neon: neon ? { color: neon.color, cycle: neon.value === 'rainbow' } : null,
+      number: sel.number || '27',
+    };
+  }
+
+  stopTitleMedia(dispose = false) {
+    if (dispose) this.titleFx?.destroy();
+    else this.titleFx?.stop();
   }
 
   syncStartGateUi() {
@@ -1805,11 +1905,19 @@ export class Hud {
 
   syncTitleBadges() {
     const map = MAPS[this.mapId];
+    this.titleFx?.setMap?.(this.mapId);
     const mapBadge = this.q('[data-title="mapBadge"]');
     if (mapBadge && map) mapBadge.textContent = `${map.label.toUpperCase()} · ${this.eventCount(map)} EVENTS`;
+    const mapSub = this.q('[data-title="mapSub"]');
+    if (mapSub) mapSub.innerHTML = mapSubtitleMarkup(this.mapId, map);
+    const teleLoc = this.q('[data-title="teleLoc"]');
+    if (teleLoc && map) teleLoc.textContent = `${map.label.toUpperCase()} PASS`;
     const car = getCar(this.selectedCarId());
+    this.titleFx?.setCar?.(this.selectedCarId(), this.resolveTitleCosmetics());
     const carBadge = this.q('[data-title="carBadge"]');
-    if (carBadge && car) carBadge.textContent = `${car.label.toUpperCase()} · ${car.classCode || ''}`;
+    if (carBadge && car) carBadge.textContent = car.label.toUpperCase();
+    const teleDrive = this.q('[data-title="teleDrive"]');
+    if (teleDrive && car) teleDrive.textContent = car.drivetrain || 'RWD';
   }
 
   setCountdown(text) {
@@ -2973,6 +3081,7 @@ export class Hud {
     this.touchRoot.removeEventListener('touchmodechange', this.onTouchMode);
     this.el.removeEventListener('click', this.onClick);
     this.overviewObserver?.disconnect();
+    this.titleFx?.destroy();
     for (const id of this.timers) clearTimeout(id);
     clearInterval(this.loadingSloganTimer);
     this.timers.clear();
