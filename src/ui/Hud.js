@@ -4,7 +4,7 @@
 
 import { MAPS } from '../world/maps.js';
 import {
-  DEFAULT_SETTINGS, HANDLING_PRESETS, MODES, QUALITY_PRESETS, TIME_OF_DAY, UI_ACCENTS, getMode, normalizeSettings,
+  DEFAULT_SETTINGS, HANDLING_PRESETS, MODES, QUALITY_PRESETS, TIME_OF_DAY, UI_ACCENTS, getMode, modesForWorld, normalizeSettings,
 } from '../config.js';
 import { CARS, getCar } from '../vehicle/cars.js';
 import { ElevationStrip, Minimap } from './Minimap.js';
@@ -2185,7 +2185,7 @@ export class Hud {
     if (!this.modes.some((m) => m.id === modeId)) return;
     this.forzaModeId = modeId;
     const mode = getMode(modeId);
-    const wantedIndex = (mode.route === 'climb' || mode.route === 'descent') ? 1
+    const wantedIndex = mode.route === 'quarter' ? 1 : mode.route === 'vanishing' ? 2 : (mode.route === 'climb' || mode.route === 'descent') ? 1
       : (mode.route === 'peak' || mode.route === 'peakdown') ? 2 : 0;
     const road = this.track?.roads?.[wantedIndex] || this.track?.roads?.[0];
     if (road && this.previewMapId === this.mapId) {
@@ -2283,7 +2283,7 @@ export class Hud {
     // Selectable events on the previewed map.
     const mapModes = here && this.modes.length
       ? this.modes
-      : MODES.filter((m) => (map.routes || []).includes(m.route));
+      : modesForWorld({config:map.config,routes:Object.fromEntries((map.routes||[]).map(id=>[id,true]))});
     if (here && !mapModes.some((m) => m.id === this.forzaModeId)) {
       this.forzaModeId = mapModes[0]?.id || 'sprint';
     }

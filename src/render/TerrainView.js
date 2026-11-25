@@ -54,6 +54,13 @@ export class TerrainView {
       grid: this.grid,
       mountain: world.config.mountain,
     });
+    if(world.config.map==='hollow'){
+      this.yardGravel=new THREE.TextureLoader().load(new URL('../assets/maps/alpine-shoulder.webp',import.meta.url).href);
+      this.yardGravel.colorSpace=THREE.SRGBColorSpace;
+      this.yardGravel.wrapS=this.yardGravel.wrapT=THREE.RepeatWrapping;
+      this.yardGravel.anisotropy=4;
+      this.uniforms.uYardGravel={value:this.yardGravel};
+    }
     this.levels = LOD_STEPS.map((step, index) => this.createLevel(step, index));
     this.stats.bakeMs = performance.now() - started;
     this.setSun(new THREE.Vector3(-0.45, 0.75, 0.35));
@@ -506,6 +513,7 @@ export class TerrainView {
     this.controlTexture.dispose();
     this.sunShadeTexture.dispose();
     this.noiseTexture.dispose();
+    this.yardGravel?.dispose();
     this.group.parent?.remove(this.group);
   }
 }

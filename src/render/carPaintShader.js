@@ -112,6 +112,7 @@ uniform vec3 uPaintCrevice;
 uniform vec3 uPaintFlop;
 uniform float uPaintFlake;
 uniform float uPaintBlend;
+uniform float uSaltline;
 uniform float uPaintMetalness;
 uniform float uPaintRoughness;
 uniform float uPaintClearcoat;
@@ -121,6 +122,13 @@ uniform float uRimRoughness;
 uniform float uVertexAoStrength;
 uniform float uGrainStrength;
 
+vec3 serviceStripes(vec3 coat) {
+  if(uSaltline<.5)return coat;
+  float band=abs(vCarLocalPos.x-.29);
+  float stripe=1.-smoothstep(.064,.075,band);
+  stripe=max(stripe,1.-smoothstep(.011,.019,abs(band-.105)));
+  return mix(coat,vec3(.71,.66,.45),stripe*.91);
+}
 float carHash31( vec3 p ) {
   p = fract( p * vec3( 443.8975, 397.2973, 491.1871 ) );
   p += dot( p, p.yxz + 19.19 );
@@ -201,7 +209,7 @@ const FRAGMENT_BEFORE_LIGHTING = /* glsl */ `
     #if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
       aoOnly = mix( vec3( 1.0 ), vColor.rgb, uVertexAoStrength );
     #endif
-    diffuseColor.rgb = coatColor * aoOnly;
+    diffuseColor.rgb = serviceStripes(coatColor) * aoOnly;
   } else if ( uPaintMode < 1.5 ) {
     // Track GT3 GT_Body: halo-free trim separation + triplanar custom skin wrap on masked body panels
     vec3 cleanTrim = max( diffuseColor.rgb - vec3( carZoneMask * 0.72 ), vec3( 0.0 ) );
@@ -220,7 +228,7 @@ const FRAGMENT_BEFORE_LIGHTING = /* glsl */ `
       float sparkle = smoothstep( 0.80, 0.99, f1 ) * uPaintFlake * detailFade * ( 0.35 + 0.65 * dotNV );
       coatColor = mix( coatColor, flopTarget * 1.14 + vec3( 0.04 ), sparkle );
     }
-    diffuseColor.rgb = cleanTrim + coatColor * ( panelAo * carZoneMask );
+    diffuseColor.rgb = cleanTrim + serviceStripes(coatColor) * ( panelAo * carZoneMask );
   } else if ( uPaintMode < 2.5 ) {
     // Track GT3 GT_Wheel: halo-free separation between matte dark tire & forged tintable alloy rim
     vec3 cleanTire = max( diffuseColor.rgb - vec3( carZoneMask * 0.52 ), vec3( 0.0 ) );
@@ -260,6 +268,7 @@ export function patchCarPaint(material, options = {}) {
   const mode = options.mode ?? PAINT_MODES.TRIM_ONLY;
   const paintUniforms = {
     uPaintMode: { value: mode },
+    uSaltline: {value:0},
     uSkinMap: { value: fallbackSkinTexture() },
     uSkinMix: { value: 0 },
     uPaintBase: { value: new THREE.Color(0xe9eef5) },
@@ -309,6 +318,7 @@ export function setCarPaintUniforms(material, options = {}) {
   if (!u) return;
   if (options.mode !== undefined) u.uPaintMode.value = options.mode;
   if (options.paint !== undefined) {
+    u.uSaltline.value=options.paint?.id==='saltline'?1:0;
     derivePaintColors(options.paint, u.uPaintBase.value, u.uPaintCrevice.value, u.uPaintFlop.value);
     const isObj = options.paint && typeof options.paint === 'object' && !options.paint.isColor;
     if (isObj) {
@@ -344,6 +354,7 @@ export function setCarPaintUniforms(material, options = {}) {
       u.uSkinMix.value = 0;
     }
   } else if (options.color !== undefined) {
+    u.uSaltline.value=0;
     derivePaintColors(options.color, u.uPaintBase.value, u.uPaintCrevice.value, u.uPaintFlop.value);
   }
   if (options.flake !== undefined) u.uPaintFlake.value = options.flake;

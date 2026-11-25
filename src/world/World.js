@@ -5,6 +5,7 @@ import { createRandom } from './noise.js';
 import { nextTask as pause } from '../core/yield.js';
 import { inWashout, WASHOUT } from './jungleStage.js';
 import { buildJungle, onBridge, BRIDGE, wetness } from './Jungle.js';
+import { buildHollowCreek } from './HollowCreek.js';
 import { MountainShape } from './MountainShape.js';
 import { TerrainGrid } from './TerrainGrid.js';
 import { Road, gradeLimitedProfile } from './Road.js';
@@ -73,6 +74,7 @@ export class World {
       onProgress(fraction, label);
       await pause();
     };
+    if (config.map === 'hollow') return buildHollowCreek(this, stage);
     if (config.map === 'jungle') return buildJungle(this, stage);
     if (this.mapData) return this.buildFromMap(stage);
 
@@ -697,12 +699,25 @@ export class World {
   // ---------------------------------------------------------------- queries
 
   /** Height of whatever the car would drive on at (x, z). */
+  waterAt(x,z) {
+    if(this.creek && ((x-this.creek.x)/98)**2+((z-this.creek.z)/86)**2<1)return this.creek.y;
+    return this.waterLevel;
+  }
+
   heightAt(x, z) {
     return this.sampleGround(x, z, scratchGround).y;
   }
 
   /** @returns {import('../core/contracts.js').GroundSample} */
   sampleGround(x, z, out) {
+    const dock=this.dock;
+    if(dock){
+      const dx=x-dock.x,dz=z-dock.z,along=-(dx*dock.rx+dz*dock.rz);
+      if(along>-.35 && along<21 && Math.abs(dx*dock.tx+dz*dock.tz)<1.68){
+        Object.assign(out,{y:dock.y+.115,nx:0,ny:1,nz:0,surface:SURFACE.WOOD,roadId:-1,...SURFACE_PROPS[SURFACE.WOOD]});
+        return out;
+      }
+    }
     const road = this.config.road;
     let bestClass = 9;
     let bestY = 0;
@@ -743,6 +758,11 @@ export class World {
         bestClass = surfaceClass;
         bestY = y;
         bestRoad = r;
+        if (this.config.map === 'hollow') {
+          roadSurface = r === 9 ? SURFACE.DIRT : r === 2
+            ? (scratchLocation.s>=1830 && scratchLocation.s<1870 ? SURFACE.WOOD : scratchLocation.s > 3310 && scratchLocation.s < 3480 ? SURFACE.MUD : SURFACE.GRAVEL)
+            : r === 1 ? SURFACE.COBBLE : SURFACE.ASPHALT;
+        }
         const lateralSlope = scratchLocation.bank + side * Road.profileSlope;
         // Horizontal tangent is (rz, -rx); height gradient = grade * tangent + lateralSlope * right.
         gradX = scratchLocation.grade * scratchLocation.rz + lateralSlope * scratchLocation.rx;
@@ -791,7 +811,7 @@ export class World {
     this.grid.normalAt(x, z, scratchNormal);
     const mountain = this.config.mountain;
     let surface = SURFACE.DIRT;
-    if (y < this.waterLevel - 0.15) surface = SURFACE.WATER;
+    if (y < this.waterAt(x,z) - 0.15) surface = SURFACE.WATER;
     else if (scratchNormal.ny < 0.78) surface = SURFACE.ROCK;
     else if (y > mountain.snowLine + 12) surface = SURFACE.SNOW;
     else if (y < mountain.treeLine + 20 && scratchNormal.ny > 0.86) surface = SURFACE.GRASS;
@@ -877,6 +897,14 @@ export class World {
       }
     }
 
+    if(this.mineGate && !this.mineOpen){
+      const f=this.mineGate,dx=x-f.x,dz=z-f.z;
+      const along=dx*f.tx+dz*f.tz;
+      if(Math.abs(along)<radius+.14 && Math.abs(dx*f.rx+dz*f.rz)<3.2+radius && y<f.y+3.5){
+        const penetration=radius+.14-Math.abs(along);
+        if(penetration>out.depth){out.hit=true;out.depth=penetration;out.nx=Math.sign(along||1)*f.tx;out.nz=Math.sign(along||1)*f.tz;}
+      }
+    }
     // The edge of the map is a soft wall so nothing can drive off the grid.
     const limit = this.grid.half - 14;
     if (Math.abs(x) + radius > limit || Math.abs(z) + radius > limit) {
@@ -961,8 +989,11 @@ export class World {
    */
   getSpawn(routeId, s, out = { position: { x: 0, y: 0, z: 0 }, quaternion: { x: 0, y: 0, z: 0, w: 1 } }) {
     const route = this.routes[routeId] || this.routes.loop;
-    const frame = this.roads[route.roadId].frameAt(s, scratchFrame);
-    const d = route.direction;
+    return this.roadSpawn(route.roadId,s,route.direction,out);
+  }
+
+  roadSpawn(roadId,s,d,out) {
+    const frame = this.roads[roadId].frameAt(s, scratchFrame);
     out.position.x = frame.x;
     out.position.y = frame.y;
     out.position.z = frame.z;
