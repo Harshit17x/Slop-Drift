@@ -4,7 +4,7 @@
 
 import { MAPS } from '../world/maps.js';
 import {
-  DEFAULT_SETTINGS, HANDLING_PRESETS, MODES, QUALITY_PRESETS, TIME_OF_DAY, getMode, normalizeSettings,
+  DEFAULT_SETTINGS, HANDLING_PRESETS, MODES, QUALITY_PRESETS, TIME_OF_DAY, UI_ACCENTS, getMode, normalizeSettings,
 } from '../config.js';
 import { CARS, getCar } from '../vehicle/cars.js';
 import { ElevationStrip, Minimap } from './Minimap.js';
@@ -771,6 +771,12 @@ export class Hud {
           <div class="sdh-group-label">Sound &amp; display</div>
           ${slider('volume', 'Volume')}
           ${seg('units', 'Units', [{ value: 'kmh', label: 'km/h · m' }, { value: 'mph', label: 'mph · ft' }])}
+          <fieldset class="sdh-field">
+            <legend>Accent colour</legend>${hint('Buttons, highlights and HUD accents.')}
+            <div class="sdh-accents">
+              ${Object.entries(UI_ACCENTS).map(([k, c]) => `<label title="${cap(k)}"><input type="radio" name="${name('uiAccent')}" value="${k}"><span style="--c:${c}" aria-label="${cap(k)}"></span></label>`).join('')}
+            </div>
+          </fieldset>
           ${toggle('cameraShake', 'Camera shake', 'At speed and on impacts')}
           ${toggle('startGate', 'Title screen', 'Show the Drive, Garage and Map buttons after loading')}
           <div class="sdh-group-label">Controls</div>
@@ -1274,7 +1280,7 @@ export class Hud {
     if (crumb) crumb.textContent = tabMeta.crumb;
     if (heading) {
       heading.textContent = activeTab === 'garage' && this.garageMode === 'customize'
-        ? 'GARAGE - PAINT & CUSTOMIZE'
+        ? 'GARAGE - SKINS & CUSTOMIZE'
         : tabMeta.heading;
     }
     for (const btn of this.el.querySelectorAll('.sdh-hub-tab')) {
@@ -1648,7 +1654,7 @@ export class Hud {
     const s = this.settings;
     const f = this.form || this.q('.sdh-form');
     const n = (k) => f.elements.namedItem(`${this.uid}-${k}`);
-    for (const key of ['quality', 'timeOfDay', 'handling', 'transmission', 'units', 'touchSteer']) {
+    for (const key of ['quality', 'timeOfDay', 'handling', 'transmission', 'units', 'touchSteer', 'uiAccent']) {
       const group = n(key);
       if (group) group.value = String(s[key]);
     }
@@ -1658,6 +1664,7 @@ export class Hud {
     n('cameraShake').checked = s.cameraShake;
     const gateEl = n('startGate');
     if (gateEl) gateEl.checked = s.startGate;
+    this.el?.style.setProperty('--marigold', UI_ACCENTS[s.uiAccent]);
     this.syncStartGateUi();
     this.syncLightingPills();
     this.renderSliderOutputs();
@@ -1674,7 +1681,7 @@ export class Hud {
     const f = this.form;
     const n = (k) => f.elements.namedItem(`${this.uid}-${k}`);
     const out = { ...this.settings };
-    for (const key of ['quality', 'timeOfDay', 'handling', 'transmission', 'units', 'touchSteer']) {
+    for (const key of ['quality', 'timeOfDay', 'handling', 'transmission', 'units', 'touchSteer', 'uiAccent']) {
       const v = n(key)?.value;
       if (v) out[key] = v;
     }
@@ -2413,11 +2420,13 @@ export class Hud {
         const on = sel[slot] === it.value;
         const locked = !it.unlocked;
         const color = Number.isFinite(it.color) ? hex(it.color) : 'transparent';
-        const swatchKind = slot === 'rim' ? ' is-rim' : slot === 'neon' ? (it.value === 'rainbow' ? ' is-neon is-rainbow' : it.value === 'off' ? ' is-neon is-off' : ' is-neon') : '';
+        const isSkin = slot === 'paint';
+        const swatchKind = isSkin ? ' is-skin' : slot === 'rim' ? ' is-rim' : slot === 'neon' ? (it.value === 'rainbow' ? ' is-neon is-rainbow' : it.value === 'off' ? ' is-neon is-off' : ' is-neon') : '';
+        const skinBg = isSkin && it.skinUrl ? `;background-image:url('${esc(it.skinUrl)}')` : '';
         return `
           <button type="button" class="sdh-cos${on ? ' is-selected' : ''}${locked ? ' is-locked' : ''}" data-act="cosmetic" data-slot="${esc(slot)}" data-value="${esc(it.value)}"
             aria-pressed="${on}" aria-disabled="${locked}" title="${esc(it.label)}${locked ? ` · ${esc(it.requirement || 'Locked')}` : ''}">
-            <span class="sdh-cos-swatch${swatchKind}" style="--c:${color}">${locked ? ICON.lock : ''}</span>
+            <span class="sdh-cos-swatch${swatchKind}" style="--c:${color}${skinBg}">${locked ? ICON.lock : ''}</span>
             <span class="sdh-cos-label">${esc(it.label)}</span>
             <span class="sdh-cos-req">${locked ? esc(it.requirement || 'Locked') : on ? 'Equipped' : ''}</span>
           </button>`;

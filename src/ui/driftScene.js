@@ -5,12 +5,12 @@
 // World units: the car is 46 long; the camera zoom maps that to about 11% of the screen's short side.
 
 const PALETTE = {
-  ground: '#17251d',
-  speck: 'rgba(159, 176, 168, 0.10)',
+  ground: '#131517',
+  speck: 'rgba(170, 176, 184, 0.08)',
   treeShadow: 'rgba(0, 0, 0, 0.35)',
-  tree: '#0f1c15',
-  treeMid: '#1b3326',
-  treeTop: '#2a4a36',
+  tree: '#0c0e10',
+  treeMid: '#191d21',
+  treeTop: '#262c31',
   parapetLight: '#EDE6D3',
   parapetDark: '#14110D',
   shoulder: '#100f0c',
@@ -19,7 +19,7 @@ const PALETTE = {
   dash: 'rgba(237, 230, 211, 0.55)',
   body: '#F2B01E',
   ink: '#14110D',
-  glass: '#1d2b23',
+  glass: '#1c2226',
   stripe: '#C8321E',
 };
 

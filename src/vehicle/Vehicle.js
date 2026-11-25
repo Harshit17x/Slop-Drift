@@ -33,7 +33,10 @@ const _rxa = new THREE.Vector3();
 const _iw = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _sample = { y: 0, nx: 0, ny: 1, nz: 0, surface: 0, grip: 1, rolling: 0.012, roughness: 0, roadId: -1 };
+const _probe = { y: 0, nx: 0, ny: 1, nz: 0, surface: 0, grip: 1, rolling: 0.012, roughness: 0, roadId: -1 };
 const _hit = { hit: false, nx: 0, nz: 0, depth: 0 };
+/** Half baseline (m) of the local slope probe used to recognise cut faces as walls. */
+const WALL_PROBE = 0.5;
 
 function makeSample() {
   return { y: 0, nx: 0, ny: 1, nz: 0, surface: SURFACE.ASPHALT, grip: 1, rolling: 0.012, roughness: 0, roadId: -1 };
@@ -110,6 +113,7 @@ export class Vehicle {
         sample: makeSample(),
         contact: false, length: 0, rawLength: 0, compression: 0, travel: 0,
         point: new THREE.Vector3(), normal: new THREE.Vector3(0, 1, 0),
+        pushNormal: new THREE.Vector3(0, 1, 0), wall: 0, bumpStop: 0,
         r: new THREE.Vector3(), rLat: new THREE.Vector3(),
         fwd: new THREE.Vector3(), axle: new THREE.Vector3(),
         load: 0, mu: 1, muN: 0, vLong: 0, vLat: 0, blend: 0,
@@ -269,6 +273,48 @@ export class Vehicle {
     return k > 1e-9 ? 1 / k : 0;
   }
 
+  /**
+   * Ground steeper than body.wallSlopeDeg[0] is treated more and more like a wall, fully at [1]:
+   * contacts there push horizontally (away from the face) instead of along the surface normal, so a
+   * car that runs into a mountainside is stopped by it instead of being ramped up it and thrown.
+   * Writes the push direction to `out` (may alias `n`) and returns the wall fraction 0..1.
+   */
+  _wallNormal(n, out, x, z) {
+    const ws = this.tuning.body.wallSlopeDeg;
+    let gx = n.x;
+    let gy = n.y;
+    let gz = n.z;
+    // The terrain's normal is smoothed over a few metres, which reads a short cut face or a bank
+    // between two road beds as a gentle slope. On anything sloped, measure the local slope too
+    // (central differences over WALL_PROBE) and go by the steeper of the two.
+    if (gy < 0.97) {
+      const sx = (this._sampleGround(x + WALL_PROBE, z, _probe).y - this._sampleGround(x - WALL_PROBE, z, _probe).y) / (2 * WALL_PROBE);
+      const sz = (this._sampleGround(x, z + WALL_PROBE, _probe).y - this._sampleGround(x, z - WALL_PROBE, _probe).y) / (2 * WALL_PROBE);
+      const inv = 1 / Math.sqrt(sx * sx + sz * sz + 1);
+      if (inv < gy) { gx = -sx * inv; gy = inv; gz = -sz * inv; }
+    }
+    const wall = smoothstep(Math.cos(ws[0] * DEG2RAD), Math.cos(ws[1] * DEG2RAD), gy);
+    const h = Math.hypot(gx, gz);
+    if (!(wall > 0) || h < 1e-6) {
+      out.copy(n);
+      return 0;
+    }
+    const k = wall / h;
+    out.set(n.x * (1 - wall) + gx * k, n.y * (1 - wall), n.z * (1 - wall) + gz * k).normalize();
+    return wall;
+  }
+
+  /** Record a penetration contact (lever arm r from the CoM, unit normal n, this step's normal impulse). */
+  _addPenetration(count, r, n, impulse) {
+    const list = this._penetrations || (this._penetrations = []);
+    if (count === list.length) list.push({ r: new THREE.Vector3(), n: new THREE.Vector3(), budget: 0 });
+    const c = list[count];
+    c.r.copy(r);
+    c.n.copy(n);
+    c.budget = impulse;
+    return count + 1;
+  }
+
   _sampleGround(x, z, out) {
     const w = this.world;
     if (w && typeof w.sampleGround === 'function') {
@@ -287,6 +333,39 @@ export class Vehicle {
     out.y = 0; out.nx = 0; out.ny = 1; out.nz = 0;
     out.surface = SURFACE.ASPHALT; out.grip = 1; out.rolling = 0.012; out.roughness = 0; out.roadId = -1;
     return out;
+  }
+
+  /**
+   * Ray from a wheel mount M along the unit strut direction d against the height field.
+   * Returns the distance to the ground in [0, reach], or Infinity when there is no ground within reach
+   * or the mount itself is below the surface (the chassis is in the ground: that is a body contact,
+   * and a wheel ray that starts underground would only find a phantom hit). `out` holds the sample at the hit.
+   */
+  _castWheel(M, dx, dy, dz, reach, out) {
+    // Fixed-point iteration: exact on flat ground and converges in a step or two on drivable slopes.
+    let t = 0;
+    let prev = 0;
+    for (let it = 0; it < 4; it++) {
+      this._sampleGround(M.x + t * dx, M.z + t * dz, out);
+      prev = t;
+      t = (M.y - out.y) / -dy;
+      if (it === 0 && !(t > 0)) return Infinity;
+    }
+    if (Math.abs(t - prev) < 0.005) return t >= 0 && t <= reach ? t : Infinity;
+    // It diverges where the ground rises along the ray faster than the ray descends (a steep face, or
+    // a strongly tilted chassis): bisect instead, so a wheel never reports a hit above its own mount.
+    let lo = 0;
+    let hi = reach;
+    this._sampleGround(M.x + hi * dx, M.z + hi * dz, out);
+    if (M.y + hi * dy > out.y) return Infinity;
+    for (let it = 0; it < 12; it++) {
+      const mid = 0.5 * (lo + hi);
+      this._sampleGround(M.x + mid * dx, M.z + mid * dz, out);
+      if (M.y + mid * dy > out.y) lo = mid;
+      else hi = mid;
+    }
+    this._sampleGround(M.x + hi * dx, M.z + hi * dz, out);
+    return hi;
   }
 
   // ---------------------------------------------------------------- public API
@@ -489,19 +568,15 @@ export class Vehicle {
       w.contact = false;
       w.load = 0;
       if (dy < -0.25) {
-        let tRay = 0;
-        const sample = w.sample;
-        for (let it = 0; it < 4; it++) {
-          this._sampleGround(M.x + tRay * dx, M.z + tRay * dz, sample);
-          tRay = (M.y - sample.y) / -dy;
-        }
+        const tRay = this._castWheel(M, dx, dy, dz, maxLen + w.radius, w.sample);
         const rawLength = tRay - w.radius;
-        if (rawLength <= maxLen && rawLength > -2) {
+        if (rawLength <= maxLen) {
           w.contact = true;
           w.rawLength = rawLength;
           w.length = clamp(rawLength, minLen, maxLen);
           w.point.set(M.x + tRay * dx, M.y + tRay * dy, M.z + tRay * dz);
-          w.normal.set(sample.nx, sample.ny, sample.nz);
+          w.normal.set(w.sample.nx, w.sample.ny, w.sample.nz);
+          w.wall = this._wallNormal(w.normal, w.pushNormal, w.point.x, w.point.z);
           w.r.subVectors(w.point, this.position);
           contacts++;
         }
@@ -530,7 +605,8 @@ export class Vehicle {
         const pen = bumpStart - w.rawLength;
         bumpStop = s.bumpStopStiffness * pen * (1 + pen / s.bumpStopLength) - vn * s.bumpStopDamping * Math.min(1, pen / s.bumpStopLength);
       }
-      w.load = spring + damper + Math.max(0, bumpStop);
+      w.bumpStop = Math.max(0, bumpStop);
+      w.load = spring + damper + w.bumpStop;
     }
     // Anti-roll bars.
     for (let axle = 0; axle < 2; axle++) {
@@ -542,12 +618,17 @@ export class Vehicle {
       if (l.contact) l.load += f;
       if (r.contact) r.load -= f;
     }
+    let penetrations = 0;
     for (let wi = 0; wi < 4; wi++) {
       const w = this.wheels[wi];
       if (!w.contact) continue;
       w.load = clamp(w.load, 0, s.maxForce);
-      const n = w.normal;
+      // On a rock face the strut pushes the car back off it rather than up it (see _wallNormal).
+      const n = w.pushNormal;
       this._addForceAt(n.x * w.load, n.y * w.load, n.z * w.load, w.r);
+      // The bump stop is a penetration penalty: remember its impulse so it cannot throw the car.
+      const bumpImpulse = Math.min(w.load, w.bumpStop) * dt;
+      if (bumpImpulse > 0) penetrations = this._addPenetration(penetrations, w.r, n, bumpImpulse);
     }
 
     // ---- drivetrain
@@ -597,6 +678,8 @@ export class Vehicle {
       w.vLat = this._pointVelocity(w.rLat, _c).dot(w.axle);
       w.mu = tire.mu * (w.front ? tire.frontGrip : tire.rearGrip) * clamp(w.sample.grip, 0, 2);
       w.mu *= tire.surfaceGrip?.[w.sample.surface] ?? 1;
+      // No traction on a face too steep to drive: throttle must not drive the car up a cliff.
+      w.mu *= 1 - w.wall;
       w.muN = w.mu * w.load;
       w.meffX = this._effectiveMass(w.r, w.fwd);
       w.meffY = this._effectiveMass(w.rLat, w.axle);
@@ -699,6 +782,7 @@ export class Vehicle {
       const depth = (_sample.y - P.y) * _sample.ny;
       if (depth <= 0) continue;
       _d.set(_sample.nx, _sample.ny, _sample.nz);
+      this._wallNormal(_d, _d, P.x, P.z);
       _e.subVectors(P, this.position);
       const vc = this._pointVelocity(_e, _b);
       const vn = vc.dot(_d);
@@ -706,6 +790,7 @@ export class Vehicle {
       fn = clamp(fn, 0, bd.contactMaxForce);
       if (fn <= 0) continue;
       this._addForceAt(_d.x * fn, _d.y * fn, _d.z * fn, _e);
+      penetrations = this._addPenetration(penetrations, _e, _d, fn * dt);
       _c.copy(vc).addScaledVector(_d, -vn);
       const vt = _c.length();
       if (vt > 1e-4) {
@@ -767,6 +852,27 @@ export class Vehicle {
         w.accY = ny;
         if (jx !== 0) this._applyImpulse(w.fwd.x * jx, w.fwd.y * jx, w.fwd.z * jx, w.r);
         if (jy !== 0) this._applyImpulse(w.axle.x * jy, w.axle.y * jy, w.axle.z * jy, w.rLat);
+      }
+    }
+
+    // ---- penetration contacts may push the body out, never throw it
+    // Bump stops and chassis contacts are stiff penalty springs. Where the ground rises faster than the
+    // car can follow (a bank, a cut face, a step between road beds) they compress a long way in a step or
+    // two and hand all that energy back as separation speed. Take back the part of this step's penalty
+    // impulse that would separate a contact point faster than maxSeparationSpeed (a max depenetration
+    // velocity): the body still comes out of the ground, but no faster than that.
+    if (penetrations > 0) {
+      const vSep = bd.maxSeparationSpeed;
+      for (let it = 0; it < 4; it++) {
+        for (let pi = 0; pi < penetrations; pi++) {
+          const c = this._penetrations[pi];
+          if (c.budget <= 0) continue;
+          const excess = this._pointVelocity(c.r, _b).dot(c.n) - vSep;
+          if (excess <= 0) continue;
+          const j = Math.min(c.budget, excess * this._effectiveMass(c.r, c.n));
+          c.budget -= j;
+          this._applyImpulse(-c.n.x * j, -c.n.y * j, -c.n.z * j, c.r);
+        }
       }
     }
 

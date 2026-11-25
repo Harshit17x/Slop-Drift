@@ -155,6 +155,7 @@ export class ModelCar extends ProceduralCar {
     this.tailMaterial = new THREE.MeshStandardMaterial();
     this.reverseLampMaterial = new THREE.MeshStandardMaterial();
     this.rimMaterial = new THREE.MeshStandardMaterial();
+    this.paintMaterials = [];
     this.rimMaterials = [];
     this.lensMaterials = [];
     this.ownMaterials = [this.stripeMaterial, this.tailMaterial, this.reverseLampMaterial, this.rimMaterial];
@@ -166,7 +167,10 @@ export class ModelCar extends ProceduralCar {
       const key = `${material.uuid}:${hasVertexColors ? 1 : 0}`;
       if (!copies.has(key)) {
         const copy = makeFinish(material, car, hasVertexColors);
-        if (copy.userData.role === 'paint') this.paintSlot = copy;
+        if (copy.userData.role === 'paint') {
+          this.paintSlot = this.paintSlot || copy;
+          this.paintMaterials.push(copy);
+        }
         if (copy.userData.role === 'tail') this.tailMaterial = copy;
         if (copy.userData.role === 'rim') {
           this.rimMaterial = copy;
@@ -202,7 +206,7 @@ export class ModelCar extends ProceduralCar {
     this.chassis.add(body);
     this.bodyMesh = body;
     // Exterior cabin sits behind the glass. CarVisual swaps it for the animated driver layout.
-    const exteriorCabin = template.getObjectByName('ROXX_cabin') || template.getObjectByName('GT3R_ExteriorCabin');
+    const exteriorCabin = template.getObjectByName('ROXX_cabin') || template.getObjectByName('GT3R_ExteriorCabin') || template.getObjectByName('Tokyo_ExteriorCabin');
     if (exteriorCabin) this.chassis.add(instance(exteriorCabin));
     this.paintable = false;
     this.bodyMaterial = new THREE.MeshStandardMaterial();
@@ -243,23 +247,26 @@ export class ModelCar extends ProceduralCar {
   setPaint(paint) {
     if (!this.paintable) return this;
     this.setColor(paint.color);
-    const defs = this.bodyMaterial.userData.paintDefaults || {};
-    const metalness = paint.metalness ?? defs.defaultMetalness ?? defs.metalness ?? 0.35;
-    const roughness = paint.roughness ?? defs.defaultRoughness ?? defs.roughness ?? 0.18;
-    const clearcoat = paint.clearcoat ?? defs.clearcoat ?? 0.9;
-    if (this.bodyMaterial.userData.paintMode === PAINT_MODES.MASKED_BODY) {
-      // Keep scalar color/metalness/roughness at 1 on GT_Body so ORM & carbon/glass maps remain untouched.
-      setCarPaintUniforms(this.bodyMaterial, {
-        paint,
-        paintMetalness: metalness,
-        paintRoughness: roughness,
-        paintClearcoat: clearcoat,
-      });
-    } else {
-      this.bodyMaterial.metalness = metalness;
-      this.bodyMaterial.roughness = roughness;
-      if ('clearcoat' in this.bodyMaterial) this.bodyMaterial.clearcoat = clearcoat;
-      setCarPaintUniforms(this.bodyMaterial, { paint });
+    const targets = this.paintMaterials?.length ? this.paintMaterials : [this.bodyMaterial];
+    for (const mat of targets) {
+      const defs = mat.userData.paintDefaults || {};
+      const metalness = paint.metalness ?? defs.defaultMetalness ?? defs.metalness ?? 0.35;
+      const roughness = paint.roughness ?? defs.defaultRoughness ?? defs.roughness ?? 0.18;
+      const clearcoat = paint.clearcoat ?? defs.clearcoat ?? 0.9;
+      if (mat.userData.paintMode === PAINT_MODES.MASKED_BODY) {
+        // Keep scalar color/metalness/roughness at 1 on GT_Body so ORM & carbon/glass maps remain untouched.
+        setCarPaintUniforms(mat, {
+          paint,
+          paintMetalness: metalness,
+          paintRoughness: roughness,
+          paintClearcoat: clearcoat,
+        });
+      } else {
+        mat.metalness = metalness;
+        mat.roughness = roughness;
+        if ('clearcoat' in mat) mat.clearcoat = clearcoat;
+        setCarPaintUniforms(mat, { paint });
+      }
     }
     return this;
   }
@@ -267,9 +274,12 @@ export class ModelCar extends ProceduralCar {
   setColor(color) {
     this.color.set(color);
     if (!this.paintable) return this;
-    setCarPaintUniforms(this.bodyMaterial, { color: this.color });
-    if (this.bodyMaterial.userData.paintMode !== PAINT_MODES.MASKED_BODY) {
-      this.bodyMaterial.color.copy(this.color);
+    const targets = this.paintMaterials?.length ? this.paintMaterials : [this.bodyMaterial];
+    for (const mat of targets) {
+      setCarPaintUniforms(mat, { color: this.color });
+      if (mat.userData.paintMode !== PAINT_MODES.MASKED_BODY) {
+        mat.color.copy(this.color);
+      }
     }
     return this;
   }

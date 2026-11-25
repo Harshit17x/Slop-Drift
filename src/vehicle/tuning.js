@@ -159,6 +159,16 @@ export const BASE_TUNING = Object.freeze({
     contactDamping: 16000,
     contactFriction: 0.55,
     contactMaxForce: 250000,
+    /**
+     * Penetration contacts (chassis points, bump stops) push a contact point out of the ground no
+     * faster than this (m/s): deep contacts come out gently instead of storing energy and launching the car.
+     */
+    maxSeparationSpeed: 1.5,
+    /**
+     * Ground slope (deg) where contacts start to treat it as a wall, and where they fully do: past it
+     * chassis and wheel contacts push the car horizontally off the face and the tyres have no grip on it.
+     */
+    wallSlopeDeg: [35, 50],
     /** Spheres tested against barriers and obstacles: [x, y, z, radius]. */
     collisionSpheres: [
       [-0.62, 0.55, -1.75, 0.3], [0.62, 0.55, -1.75, 0.3],

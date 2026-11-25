@@ -496,6 +496,7 @@ export class Game {
     this.car.setNeon({ level: old.neonLevel, on: old.neonWanted });
     old.dispose();
     this.cameraRig.cockpitEye = this.car.cockpitEye;
+    this.effects?.setExhaustTips?.(getCar(this.carId).exhaustTips || null);
     this.prewarmShaders();
   }
 

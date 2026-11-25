@@ -56,19 +56,24 @@ export function modesForWorld(world) {
   return MODES.filter((mode) => Object.prototype.hasOwnProperty.call(routes, mode.route));
 }
 
+const HAS_SKIN_URL = typeof import.meta.url === 'string';
+
 export const PAINT_OPTIONS = Object.freeze([
-  Object.freeze({ id: 'pearl', label: 'Pearl', color: 0xe9eef5, creviceColor: 0x9aa8bc, flopColor: 0xffffff, metalness: 0.24, roughness: 0.14, clearcoat: 0.95, flake: 0.20, blend: 0.70 }),
-  Object.freeze({ id: 'ember', label: 'Ember', color: 0xff5b36, creviceColor: 0x8f1106, flopColor: 0xff9b52, metalness: 0.42, roughness: 0.15, clearcoat: 0.92, flake: 0.22, blend: 0.72 }),
-  Object.freeze({ id: 'glacier', label: 'Glacier', color: 0x3fb4ff, creviceColor: 0x09357e, flopColor: 0x8ce2ff, metalness: 0.46, roughness: 0.15, clearcoat: 0.92, flake: 0.24, blend: 0.75 }),
-  Object.freeze({ id: 'acid', label: 'Acid', color: 0xb8ff47, creviceColor: 0x336304, flopColor: 0xe8ff78, metalness: 0.34, roughness: 0.14, clearcoat: 0.94, flake: 0.18, blend: 0.68 }),
-  Object.freeze({ id: 'violet', label: 'Violet', color: 0x9a6bff, creviceColor: 0x2e126e, flopColor: 0xd1b3ff, metalness: 0.48, roughness: 0.15, clearcoat: 0.92, flake: 0.26, blend: 0.76 }),
-  Object.freeze({ id: 'midnight', label: 'Midnight', color: 0x1b2330, creviceColor: 0x05080d, flopColor: 0x415678, metalness: 0.56, roughness: 0.14, clearcoat: 0.94, flake: 0.26, blend: 0.75 }),
-  // Unlockable (see UNLOCKS in src/meta/catalog.js). metalness/roughness override the default paint finish.
-  Object.freeze({ id: 'racing-green', label: 'Racing Green', color: 0x0f4d32, creviceColor: 0x031a10, flopColor: 0x29875c, metalness: 0.46, roughness: 0.15, clearcoat: 0.94, flake: 0.24, blend: 0.75 }),
-  Object.freeze({ id: 'sunburst', label: 'Sunburst', color: 0xffb21a, creviceColor: 0x914200, flopColor: 0xffe46e, metalness: 0.55, roughness: 0.18, clearcoat: 0.92, flake: 0.28, blend: 0.74 }),
-  Object.freeze({ id: 'summit', label: 'Summit Chrome', color: 0xdfe4ea, creviceColor: 0x5c6472, flopColor: 0xffffff, metalness: 1, roughness: 0.10, clearcoat: 0.85, flake: 0.08, blend: 0.55 }),
-  Object.freeze({ id: 'obsidian', label: 'Obsidian', color: 0x0b0b0e, creviceColor: 0x020204, flopColor: 0x2c3442, metalness: 0.70, roughness: 0.16, clearcoat: 0.95, flake: 0.22, blend: 0.68 }),
+  Object.freeze({ id: 'pearl', label: 'Himalayan Topo', skinUrl: HAS_SKIN_URL ? new URL('./assets/skins/himalayan-topo.webp', import.meta.url).href : null, color: 0xe9eef5, creviceColor: 0x9aa8bc, flopColor: 0xffffff, metalness: 0.24, roughness: 0.16, clearcoat: 0.94, flake: 0.16, blend: 0.56 }),
+  Object.freeze({ id: 'ember', label: 'Tokyo Touge', skinUrl: HAS_SKIN_URL ? new URL('./assets/skins/tokyo-touge.webp', import.meta.url).href : null, color: 0xff5b36, creviceColor: 0x8f1106, flopColor: 0xff9b52, metalness: 0.36, roughness: 0.16, clearcoat: 0.92, flake: 0.20, blend: 0.58 }),
+  Object.freeze({ id: 'glacier', label: 'Alpine Glacier', skinUrl: HAS_SKIN_URL ? new URL('./assets/skins/alpine-glacier.webp', import.meta.url).href : null, color: 0x3fb4ff, creviceColor: 0x09357e, flopColor: 0x8ce2ff, metalness: 0.42, roughness: 0.16, clearcoat: 0.92, flake: 0.22, blend: 0.58 }),
+  Object.freeze({ id: 'acid', label: 'Acid Splinter', skinUrl: HAS_SKIN_URL ? new URL('./assets/skins/acid-splinter.webp', import.meta.url).href : null, color: 0xb8ff47, creviceColor: 0x263814, flopColor: 0xe8ff78, metalness: 0.30, roughness: 0.20, clearcoat: 0.86, flake: 0.18, blend: 0.52 }),
+  Object.freeze({ id: 'violet', label: 'Midnight Sakura', skinUrl: HAS_SKIN_URL ? new URL('./assets/skins/midnight-sakura.webp', import.meta.url).href : null, color: 0x9a6bff, creviceColor: 0x2e126e, flopColor: 0xff7bd5, metalness: 0.44, roughness: 0.15, clearcoat: 0.94, flake: 0.24, blend: 0.60 }),
+  Object.freeze({ id: 'midnight', label: 'Forged Carbon', skinUrl: HAS_SKIN_URL ? new URL('./assets/skins/forged-carbon.webp', import.meta.url).href : null, color: 0x1b2330, creviceColor: 0x05080d, flopColor: 0xd9a24b, metalness: 0.48, roughness: 0.18, clearcoat: 0.90, flake: 0.22, blend: 0.55 }),
+  // Unlockable skins (see UNLOCKS in src/meta/catalog.js).
+  Object.freeze({ id: 'racing-green', label: 'Monsoon Emerald', skinUrl: HAS_SKIN_URL ? new URL('./assets/skins/monsoon-emerald.webp', import.meta.url).href : null, color: 0x0f4d32, creviceColor: 0x031a10, flopColor: 0xd9be6b, metalness: 0.44, roughness: 0.15, clearcoat: 0.94, flake: 0.22, blend: 0.56 }),
+  Object.freeze({ id: 'sunburst', label: 'Sunburst Drift', skinUrl: HAS_SKIN_URL ? new URL('./assets/skins/sunburst-rising.webp', import.meta.url).href : null, color: 0xffb21a, creviceColor: 0x914200, flopColor: 0xffe46e, metalness: 0.50, roughness: 0.18, clearcoat: 0.92, flake: 0.24, blend: 0.58 }),
+  Object.freeze({ id: 'summit', label: 'Liquid Chrome', skinUrl: HAS_SKIN_URL ? new URL('./assets/skins/summit-chrome.webp', import.meta.url).href : null, color: 0xdfe4ea, creviceColor: 0x5c6472, flopColor: 0xffffff, metalness: 0.92, roughness: 0.12, clearcoat: 0.88, flake: 0.10, blend: 0.52 }),
+  Object.freeze({ id: 'obsidian', label: 'Obsidian Oni', skinUrl: HAS_SKIN_URL ? new URL('./assets/skins/obsidian-oni.webp', import.meta.url).href : null, color: 0x0b0b0e, creviceColor: 0x020204, flopColor: 0xe62945, metalness: 0.60, roughness: 0.18, clearcoat: 0.94, flake: 0.20, blend: 0.55 }),
 ]);
+
+export const SKIN_OPTIONS = PAINT_OPTIONS;
+export function getSkin(id) { return getPaint(id); }
 
 /**
  * Render quality presets.
@@ -86,6 +91,16 @@ export const HANDLING_PRESETS = Object.freeze(['Arcade', 'Balanced', 'Sim']);
 
 export const TIME_OF_DAY = Object.freeze(['dawn', 'day', 'sunset', 'night']);
 
+/** UI accent colours the player can pick in Settings (buttons, highlights, HUD accents). */
+export const UI_ACCENTS = Object.freeze({
+  amber: '#F2B01E',
+  red: '#FF5A3C',
+  blue: '#4EA3FF',
+  teal: '#2ED3B7',
+  pink: '#FF5FA2',
+  lime: '#B6E34A',
+});
+
 export const DEFAULT_SETTINGS = Object.freeze({
   map: DEFAULT_MAP,
   quality: 'Auto',
@@ -100,6 +115,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   cameraShake: true,
   startGate: true,
   touchSteer: 'arrows',
+  uiAccent: 'amber',
 });
 
 export const CONFIG = Object.freeze({
@@ -176,6 +192,7 @@ export function normalizeSettings(input = {}) {
     cameraShake: Boolean(merged.cameraShake),
     startGate: Boolean(merged.startGate),
     touchSteer: merged.touchSteer === 'slider' ? 'slider' : 'arrows',
+    uiAccent: UI_ACCENTS[merged.uiAccent] ? merged.uiAccent : DEFAULT_SETTINGS.uiAccent,
   };
 }
 

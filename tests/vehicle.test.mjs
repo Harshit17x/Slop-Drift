@@ -731,8 +731,8 @@ function testCars() {
     let s = run(v, 2, () => controls());
     const contacts = s.wheels.filter((w) => w.contact).length;
     check(`${car.id} settles on four wheels`, contacts === 4 && Math.abs(s.position.y) < 0.05 && s.speed < 0.2, `y ${s.position.y.toFixed(3)}`);
-    // Standing starts on flat dry asphalt, with the same assists for all three cars.
-    const target = { hatch: [100, 4, 9], gt: [100, 2.6, 4.2], thar: [60, 3.8, 6.5] }[car.id];
+    // Standing starts on flat dry asphalt, with the same assists for all selectable cars.
+    const target = { hatch: [100, 4, 9], gt: [100, 2.6, 4.2], thar: [60, 3.8, 6.5], tokyo: [100, 2.8, 5.4] }[car.id];
     let reached = null;
     s = run(v, 12, (time, st) => {
       if (reached === null && st.speed * 3.6 >= target[0]) reached = time;
@@ -740,6 +740,10 @@ function testCars() {
     });
     check(`${car.id} 0-${target[0]} km/h in a realistic time`, reached !== null && reached >= target[1] && reached <= target[2], `${reached?.toFixed(2)} s`);
     check(`${car.id} drives the right wheels`, v.wheels.filter((w) => w.driven).length === (car.tuning?.drivetrain?.awd ? 4 : 2));
+    if (car.id === 'tokyo') {
+      check('Tokyo Sedan wheelbase, 6-speed gearbox, nitro and twin exhaust tips',
+        Math.abs(v.wheelbase - 2.70) < 1e-6 && v.drivetrain.gearCount === 6 && car.nitro === true && car.exhaustTips?.length === 2);
+    }
     if (car.id === 'gt') {
       check('GT3 R wheelbase and staggered slick radii', Math.abs(v.wheelbase - 2.507) < 1e-6 &&
         v.wheels.every(w => Math.abs(w.radius - (w.front ? .340 : .355)) < 1e-6 && w.driven === !w.front));

@@ -97,19 +97,19 @@ export function levelForXp(xp) {
  * `rim` and `number` are new slots. `requires` is one of: { level }, { medalCount: { tier, count } }, { achievement }.
  */
 export const UNLOCKS = Object.freeze([
-  { id: 'paint:pearl', slot: 'paint', value: 'pearl', label: 'Pearl', requires: { level: 1 } },
-  { id: 'paint:ember', slot: 'paint', value: 'ember', label: 'Ember', requires: { level: 1 } },
-  { id: 'paint:glacier', slot: 'paint', value: 'glacier', label: 'Glacier', requires: { level: 2 } },
+  { id: 'paint:pearl', slot: 'paint', value: 'pearl', label: 'Himalayan Topo skin', requires: { level: 1 } },
+  { id: 'paint:ember', slot: 'paint', value: 'ember', label: 'Tokyo Touge skin', requires: { level: 1 } },
+  { id: 'paint:violet', slot: 'paint', value: 'violet', label: 'Midnight Sakura skin', requires: { level: 1 } },
+  { id: 'paint:racing-green', slot: 'paint', value: 'racing-green', label: 'Monsoon Emerald skin', requires: { level: 1 } },
+  { id: 'paint:glacier', slot: 'paint', value: 'glacier', label: 'Alpine Glacier skin', requires: { level: 2 } },
   { id: 'rim:graphite', slot: 'rim', value: 'graphite', label: 'Graphite rims', requires: { level: 3 } },
-  { id: 'paint:acid', slot: 'paint', value: 'acid', label: 'Acid', requires: { level: 4 } },
+  { id: 'paint:acid', slot: 'paint', value: 'acid', label: 'Acid Splinter skin', requires: { level: 4 } },
   { id: 'number:custom', slot: 'number', value: 'custom', label: 'Custom door number', requires: { level: 5 } },
-  { id: 'paint:violet', slot: 'paint', value: 'violet', label: 'Violet', requires: { level: 6 } },
   { id: 'rim:bronze', slot: 'rim', value: 'bronze', label: 'Bronze rims', requires: { level: 7 } },
-  { id: 'paint:midnight', slot: 'paint', value: 'midnight', label: 'Midnight', requires: { level: 8 } },
-  { id: 'paint:racing-green', slot: 'paint', value: 'racing-green', label: 'Racing Green', requires: { level: 10 } },
-  { id: 'paint:sunburst', slot: 'paint', value: 'sunburst', label: 'Sunburst', requires: { medalCount: { tier: 'gold', count: 3 } } },
+  { id: 'paint:midnight', slot: 'paint', value: 'midnight', label: 'Forged Carbon skin', requires: { level: 8 } },
+  { id: 'paint:sunburst', slot: 'paint', value: 'sunburst', label: 'Sunburst Drift skin', requires: { medalCount: { tier: 'gold', count: 3 } } },
   { id: 'rim:gold', slot: 'rim', value: 'gold', label: 'Gold rims', requires: { medalCount: { tier: 'gold', count: 5 } } },
-  { id: 'paint:summit', slot: 'paint', value: 'summit', label: 'Summit Chrome', requires: { medalCount: { tier: 'author', count: 1 } } },
+  { id: 'paint:summit', slot: 'paint', value: 'summit', label: 'Liquid Chrome skin', requires: { medalCount: { tier: 'author', count: 1 } } },
   { id: 'neon:cyan', slot: 'neon', value: 'cyan', label: 'Cyan neon', requires: { level: 1 } },
   { id: 'neon:magenta', slot: 'neon', value: 'magenta', label: 'Magenta neon', requires: { level: 2 } },
   { id: 'neon:lime', slot: 'neon', value: 'lime', label: 'Lime neon', requires: { level: 3 } },
@@ -118,7 +118,7 @@ export const UNLOCKS = Object.freeze([
   { id: 'neon:violet', slot: 'neon', value: 'violet', label: 'Violet neon', requires: { level: 9 } },
   { id: 'neon:ice', slot: 'neon', value: 'ice', label: 'Ice White neon', requires: { level: 12 } },
   { id: 'neon:rainbow', slot: 'neon', value: 'rainbow', label: 'Rainbow neon', requires: { achievement: 'night-run' } },
-  { id: 'paint:obsidian', slot: 'paint', value: 'obsidian', label: 'Obsidian', requires: { achievement: 'all-gold' } },
+  { id: 'paint:obsidian', slot: 'paint', value: 'obsidian', label: 'Obsidian Oni skin', requires: { achievement: 'all-gold' } },
 ]);
 
 /** Rim colours by unlock value. */
