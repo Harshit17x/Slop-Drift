@@ -14,19 +14,36 @@ import { CARS, getCar } from '../vehicle/cars.js';
 const WHEEL_NODES = { frontLeft: 'wheel_FL', frontRight: 'wheel_FR', rearLeft: 'wheel_RL', rearRight: 'wheel_RR' };
 const templates = new Map();
 
-/** Load every car model once (call before building cars). Failures fall back to the procedural car. */
-export async function loadCarModels() {
+const loading = new Map();
+let rallyKitLoading = null;
+
+/**
+ * Load car models once (all of them, or just `ids`); concurrent calls share the download.
+ * Failures fall back to the procedural car.
+ * @param {string[]} [ids]
+ */
+export function loadCarModels(ids) {
   const loader = new GLTFLoader();
-  const kit = loadRallyKit(loader).catch(error => console.warn('[cars] rally kit failed to load', error));
-  await Promise.all(CARS.filter((car) => car.model && !templates.has(car.id)).map(async (car) => {
-    try {
-      const gltf = await loader.loadAsync(car.model);
-      templates.set(car.id, gltf.scene);
-    } catch (error) {
-      console.warn(`[cars] ${car.id} model failed to load`, error);
+  const wanted = CARS.filter((car) => car.model && (!ids || ids.includes(car.id)));
+  const tasks = wanted.map((car) => {
+    if (!loading.has(car.id)) {
+      loading.set(car.id, loader.loadAsync(car.model)
+        .then((gltf) => templates.set(car.id, gltf.scene))
+        .catch((error) => console.warn(`[cars] ${car.id} model failed to load`, error)));
     }
-  }));
-  await kit;
+    return loading.get(car.id);
+  });
+  if (!ids || ids.includes('hatch')) {
+    rallyKitLoading ??= loadRallyKit(loader)
+      .catch((error) => console.warn('[cars] rally kit failed to load', error));
+    tasks.push(rallyKitLoading);
+  }
+  return Promise.all(tasks);
+}
+
+/** True once this car's model is loaded and createCarModel will build it. */
+export function hasCarModel(carId) {
+  return templates.has(getCar(carId).id);
 }
 
 /**

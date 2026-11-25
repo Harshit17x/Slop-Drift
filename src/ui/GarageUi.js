@@ -28,6 +28,17 @@ export const CAR_SORT_MODES = Object.freeze([
 const HAS_URL = typeof import.meta.url === 'string';
 export const TITLE_BACKDROP_URL = HAS_URL ? new URL('../assets/ui/title-backdrop.webp', import.meta.url).href : '';
 
+export const MAP_SUBTITLES = {
+  mussoorie: '<span lang="hi">मसूरी</span> · Mussoorie · Landour',
+  alpine: 'Alpine Peak · High Summit Hairpins',
+  jungle: 'Monsoon Run · Emerald Valley Pass',
+};
+
+export function mapSubtitleMarkup(mapId, map = null) {
+  if (MAP_SUBTITLES[mapId]) return MAP_SUBTITLES[mapId];
+  return escHtml(map?.label || mapId || 'Mussoorie');
+}
+
 /** Sort vehicles cleanly according to the active Wreckfest-style garage sort mode. */
 export function sortCars(cars = CARS, sortMode = 'default', favorites = []) {
   const favSet = new Set(Array.isArray(favorites) ? favorites : []);

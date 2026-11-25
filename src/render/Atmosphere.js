@@ -40,6 +40,45 @@ const PRESETS = Object.freeze({
   }),
 });
 
+const MUSSOORIE_OVERRIDES = Object.freeze({
+  day: Object.freeze({
+    skyElevation: 26, lightElevation: 24, azimuth: 232,
+    turbidity: 3.0, rayleigh: 1.45, mie: 0.0046, mieG: 0.82,
+    exposure: 0.59, sun: 0xffe4bd, sunIntensity: 5.5,
+    hemiSky: 0xbfd9ff, hemiGround: 0x5c6248, hemiIntensity: 1.18, envIntensity: 0.86,
+    fogDensity: 0.00031, fogTint: 0xf5f8ff,
+    clouds: 0.44, cloudDensity: 0.45,
+  }),
+  dawn: Object.freeze({
+    skyElevation: 8.5, lightElevation: 12, azimuth: 78,
+    turbidity: 4.8, rayleigh: 2.35, mie: 0.0054,
+    sun: 0xffba7a, sunIntensity: 4.5,
+    hemiSky: 0xc8d4ee, hemiGround: 0x524c42, hemiIntensity: 1.0, envIntensity: 0.88,
+    fogDensity: 0.00038, clouds: 0.46, cloudDensity: 0.42,
+  }),
+  sunset: Object.freeze({
+    skyElevation: 4.8, lightElevation: 8.5, azimuth: 256,
+    turbidity: 6.2, rayleigh: 3.35, mie: 0.0065,
+    sun: 0xff9252, sunIntensity: 4.8,
+    hemiSky: 0xd0a2c8, hemiGround: 0x45343c, hemiIntensity: 0.92, envIntensity: 0.92,
+    fogDensity: 0.00036, fogTint: 0xffe6d6,
+    clouds: 0.5, cloudDensity: 0.44,
+  }),
+  night: Object.freeze({
+    lightElevation: 31, azimuth: 214,
+    sunIntensity: 1.45, hemiSky: 0x6f84ac, hemiIntensity: 0.9, envIntensity: 1.05,
+    fogDensity: 0.00032, clouds: 0.34, cloudDensity: 0.34,
+  }),
+});
+
+/** Resolve sky and lighting preset for a time of day and map id (Mussoorie gets Himalayan Winterline lighting). */
+export function resolveAtmospherePreset(name, mapId = null) {
+  const key = PRESETS[name] ? name : 'day';
+  const base = PRESETS[key];
+  if (mapId !== 'mussoorie') return base;
+  return Object.freeze({ ...base, ...(MUSSOORIE_OVERRIDES[key] || {}) });
+}
+
 const SHADOW_EXTENT = 72; // half-size of the shadow frustum around the focus, metres
 const SHADOW_DISTANCE = 320; // how far back along the sun direction the shadow camera sits
 const HORIZON_PROBES = 8;
@@ -222,8 +261,9 @@ export class Atmosphere {
   }
 
   setTimeOfDay(name) {
-    const preset = PRESETS[name] || PRESETS.day;
-    this.timeOfDay = PRESETS[name] ? name : 'day';
+    const key = PRESETS[name] ? name : 'day';
+    const preset = resolveAtmospherePreset(key, this.world?.config?.map);
+    this.timeOfDay = key;
     this.preset = preset;
     this.isNight = preset.moon;
 

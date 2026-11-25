@@ -69,11 +69,14 @@ export function createAsphaltTexture(anisotropy = 8, size = 512) {
   const context = canvas.getContext('2d');
   const image = context.createImageData(size, size);
   const blotch = tileableNoise(size, random, 3, 5);
+  const hairline = tileableNoise(size, random, 6, 4);
   for (let i = 0; i < size * size; i += 1) {
     const speckle = random();
-    let value = 86 + (blotch[i] - 0.5) * 46 + (speckle - 0.5) * 30;
-    if (speckle > 0.965) value += 46; // pale stone chips
-    else if (speckle < 0.03) value -= 26; // open pores
+    let value = 86 + (blotch[i] - 0.5) * 48 + (speckle - 0.5) * 32;
+    if (speckle > 0.962) value += 48; // pale stone chips
+    else if (speckle < 0.032) value -= 28; // open pores
+    const vein = Math.abs(hairline[i] - 0.5);
+    if (vein < 0.0085) value -= 24 * (1 - vein / 0.0085); // subtle sealed hairline frost tar seam
     image.data[i * 4] = value;
     image.data[i * 4 + 1] = value + 1;
     image.data[i * 4 + 2] = value + 4;
@@ -81,6 +84,34 @@ export function createAsphaltTexture(anisotropy = 8, size = 512) {
   }
   context.putImageData(image, 0, 0);
   return finishTexture(canvas, anisotropy);
+}
+
+/**
+ * Tileable roughness & surface-relief texture for asphalt: crushed stone grit bump + worn sealant lines.
+ */
+export function createAsphaltReliefTexture(anisotropy = 8, size = 512) {
+  const random = createRandom(6283);
+  const canvas = makeCanvas(size, size);
+  const context = canvas.getContext('2d');
+  const image = context.createImageData(size, size);
+  const grit = tileableNoise(size, random, 5, 5);
+  const crack = tileableNoise(size, random, 6, 4);
+  for (let i = 0; i < size * size; i += 1) {
+    const pebble = random();
+    let value = 178 + (grit[i] - 0.5) * 58 + (pebble - 0.5) * 54;
+    if (pebble > 0.95) value += 36;
+    const vein = Math.abs(crack[i] - 0.5);
+    if (vein < 0.011) value = 68 + (vein / 0.011) * 45; // smooth shiny tar seal inside crack
+    value = Math.max(48, Math.min(248, value));
+    image.data[i * 4] = value;
+    image.data[i * 4 + 1] = value;
+    image.data[i * 4 + 2] = value;
+    image.data[i * 4 + 3] = 255;
+  }
+  context.putImageData(image, 0, 0);
+  const texture = finishTexture(canvas, anisotropy);
+  texture.colorSpace = THREE.NoColorSpace;
+  return texture;
 }
 
 /** Neutral gravel/soil grain around mid-white; hue comes from vertex colours. */
