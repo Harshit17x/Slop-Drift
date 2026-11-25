@@ -57,9 +57,9 @@ export const CARS = Object.freeze([
   }),
   Object.freeze({
     id: 'gt',
-    label: 'Porsche 911 GT3 R',
-    titleLines: Object.freeze(['911', 'GT3 R']),
-    blurb: '992 endurance racer · 4.2 L flat-six',
+    label: 'Track GT3',
+    titleLines: Object.freeze(['TRACK', 'GT3']),
+    blurb: 'Rear-engine endurance racer · 4.2 L flat-six',
     classCode: 'S312',
     classRank: 312,
     classBand: 's',
