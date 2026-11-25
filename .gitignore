@@ -27,3 +27,13 @@ slop-drift-*.zip
 
 # Standalone nested sub-projects
 my-game/
+
+# Environment variables and local secrets
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+*.pem
+*.key
