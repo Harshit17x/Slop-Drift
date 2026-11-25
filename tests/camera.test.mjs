@@ -1,5 +1,6 @@
 // Headless camera-rig tests: node tests/camera.test.mjs
 import * as THREE from 'three';
+import { cockpitEye } from '../src/render/Cockpit.js';
 import { CameraRig } from '../src/render/CameraRig.js';
 
 let passes = 0;
@@ -219,6 +220,22 @@ function flatDistance(rig, state) {
   ));
   check('free-look turns the view without moving the rig yaw', diff > 0.35 && diff < 0.45,
     `${(diff * 57.3).toFixed(1)} deg`);
+}
+
+// ROXX driver position and forward view after the camera transition.
+{
+  const rig = new CameraRig({ world });
+  const seat = cockpitEye('suv');
+  rig.cockpitEye = seat;
+  rig.setMode('cockpit');
+  settle(rig, makeState());
+  const camera = rig.camera;
+  camera.updateMatrixWorld();
+  check('ROXX camera settles in the right-hand seat', camera.position.x > 0.3 &&
+    camera.position.distanceTo(new THREE.Vector3(seat.x, seat.y, seat.z)) < 0.01);
+  const road = new THREE.Vector3(seat.x, 0, -10).project(camera);
+  check('ten metres of road ahead projects into the middle half of the frame', Math.abs(road.y) < 0.5);
+  check('hatch and GT retain their left-hand seating positions', cockpitEye('drift').x < 0 && cockpitEye('gt').x < 0);
 }
 
 // ------------------------------------------------------------------ modes, ground and shake

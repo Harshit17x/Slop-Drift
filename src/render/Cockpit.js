@@ -1,8 +1,9 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // A stripped drift-car interior for the cockpit camera, in the car's chassis space
-// (x right, y up, front toward -z; the driver sits on the left at x = -0.37).
+// (x right, y up, front toward -z; the driver position is set by cabin style).
 // Static trim is merged into one mesh per material; the steering wheel, the driver's arms and hands,
 // the shifter and the hydraulic handbrake move every frame, and the gauge cluster is a live canvas.
 
@@ -100,7 +101,8 @@ export const STYLES = Object.freeze({
   // lever with the 4x4 lever beside it, a light roof lining, and a high seating position. No cage.
   suv: {
     scale: 1.12, y: 0.366, z: 0.09,
-    dash: 0x1a1a1a, dashInsert: 0xc9b99a, trim: 0x4a4a4a, headliner: 0xd8d2c4, carpet: 0x1a1a1a, seat: 0xc9b99a, seatAccent: 0x2a2a2a,
+    eye: { x: 0.37, y: 1.098, z: 0.10 }, headPitch: -0.135,
+    dash: 0x1a1a1a, dashInsert: 0xded6c4, trim: 0x4a4a4a, headliner: 0xd8d2c4, carpet: 0x1a1a1a, seat: 0xded6c4, seatAccent: 0x2a2a2a,
     cage: null, strip: false, extinguisher: false, seatType: 'suv', grabHandle: true, uprightDash: true,
     wheelType: 'suv', wheelStripe: null, rim: 0x1c1c1c, spoke: 0x3a3a3a,
     shifter: 'auto', handbrake: 'button', cluster: 'twin', aux: null, screen: 'suv',
@@ -111,7 +113,8 @@ export const STYLES = Object.freeze({
 /** The driver's eye in the car's chassis space for a style (the cockpit camera's position). */
 export function cockpitEye(styleName) {
   const st = STYLES[styleName] || STYLES.drift;
-  return { x: COCKPIT_EYE.x * st.scale, y: COCKPIT_EYE.y * st.scale + st.y, z: COCKPIT_EYE.z * st.scale + st.z };
+  const eye = st.eye ?? COCKPIT_EYE;
+  return { x: eye.x * st.scale, y: eye.y * st.scale + st.y, z: eye.z * st.scale + st.z, pitch: st.headPitch ?? -0.1 };
 }
 
 export class Cockpit extends THREE.Group {
@@ -160,8 +163,8 @@ export class Cockpit extends THREE.Group {
     this.statics.get(material).push(geometry);
   }
 
-  boxGeo(w, h, d, x, y, z, rx = 0, ry = 0, rz = 0) {
-    const geometry = new THREE.BoxGeometry(w, h, d);
+  boxGeo(w, h, d, x, y, z, rx = 0, ry = 0, rz = 0, radius = 0) {
+    const geometry = radius > 0 ? new RoundedBoxGeometry(w, h, d, 2, radius) : new THREE.BoxGeometry(w, h, d);
     if (rx || ry || rz) geometry.rotateX(rx).rotateY(ry).rotateZ(rz);
     geometry.translate(x, y, z);
     return geometry;
@@ -177,6 +180,7 @@ export class Cockpit extends THREE.Group {
 
   build() {
     const st = this.style;
+    const driverX = (st.eye ?? COCKPIT_EYE).x;
     const dash = this.mat({ color: st.dash, roughness: 0.88, metalness: 0.05 });
     const trim = this.mat({ color: st.trim, roughness: 0.7, metalness: st.cageLayout === 'rear' ? 0.35 : 0.1 });
     const headliner = this.mat({ color: st.headliner, roughness: 0.95 });
@@ -222,24 +226,45 @@ export class Cockpit extends THREE.Group {
     this.add_(extrudeAcross(dashProfile, -0.76, 0.76), dash);
     if (st.dashInsert) {
       // Beige band across the dash face, the two-tone that marks this cabin.
-      this.add_(this.boxGeo(1.5, 0.09, 0.012, 0, 0.79, -0.386), insert);
+      this.add_(this.boxGeo(1.5, 0.126, 0.025, 0, 0.79, -0.388, 0, 0, 0, 0.01), insert);
     }
     if (st.cluster !== 'twin') {
       // Instrument binnacle: a hood over the cluster in front of the driver.
-      this.add_(this.boxGeo(0.42, 0.016, 0.17, DRIVER_X, 0.955, -0.46, -0.16), dash);
-      for (const side of [-1, 1]) this.add_(this.boxGeo(0.016, 0.085, 0.16, DRIVER_X + side * 0.205, 0.915, -0.46, -0.16), dash);
-      this.add_(this.boxGeo(0.42, 0.09, 0.02, DRIVER_X, 0.905, -0.535, -0.16), dash);
+      this.add_(this.boxGeo(0.42, 0.016, 0.17, driverX, 0.955, -0.46, -0.16), dash);
+      for (const side of [-1, 1]) this.add_(this.boxGeo(0.016, 0.085, 0.16, driverX + side * 0.205, 0.915, -0.46, -0.16), dash);
+      this.add_(this.boxGeo(0.42, 0.09, 0.02, driverX, 0.905, -0.535, -0.16), dash);
     }
     if (st.grabHandle) {
-      // Grab handle across the dash in front of the passenger.
-      this.add_(tube(V(0.12, 0.9, -0.42), V(0.2, 0.96, -0.4), 0.017, 8), trim);
-      this.add_(tube(V(0.2, 0.96, -0.4), V(0.56, 0.96, -0.4), 0.017, 8), trim);
-      this.add_(tube(V(0.56, 0.96, -0.4), V(0.64, 0.9, -0.42), 0.017, 8), trim);
+      // Padded passenger grip stands clear of the ivory fascia on two satin mounts.
+      for (const x of [-0.54, -0.22]) {
+        this.add_(tube(V(x, 0.78, -0.39), V(x, 0.77, -0.32), 0.019, 10), metal);
+      }
+      this.add_(tube(V(-0.555, 0.77, -0.32), V(-0.205, 0.77, -0.32), 0.022, 12), suede);
+      for (const [start, end] of [[-0.63, -0.17], [0.18, 0.62]]) {
+        this.add_(this.boxGeo(end - start, 0.005, 0.005, (start + end) / 2, 0.847, -0.374), metal);
+        for (let x = start; x < end; x += 0.021) {
+          this.add_(this.boxGeo(0.011, 0.002, 0.002, x, 0.833, -0.374), trim);
+        }
+      }
+      // Four recessed air outlets. The central pair sit below the touchscreen.
+      for (const [x, y] of [[-0.68, 0.795], [-0.07, 0.728], [0.07, 0.728], [0.68, 0.795]]) {
+        const z = Math.abs(x) < 0.1 ? -0.293 : -0.371;
+        this.add_(new THREE.CircleGeometry(0.043, 20).translate(x, y, z), pad);
+        this.add_(new THREE.TorusGeometry(0.043, 0.005, 6, 20).translate(x, y, z + 0.003), metal);
+        for (const dy of [-0.017, 0, 0.017]) {
+          this.add_(this.boxGeo(0.068, 0.004, 0.011, x, y + dy, z + 0.006, -0.24), trim);
+        }
+      }
+      for (const x of [-0.08, 0.08]) {
+        this.add_(new THREE.CylinderGeometry(0.022, 0.022, 0.023, 16)
+          .rotateX(Math.PI / 2).translate(x, 0.60, -0.293), metal);
+        this.add_(this.boxGeo(0.004, 0.01, 0.003, x, 0.608, -0.28), pad);
+      }
     }
     // Steering column shroud.
-    this.add_(tube(V(DRIVER_X, 0.7, -0.42), V(DRIVER_X, 0.735, -0.25), 0.045, 12), trim);
+    this.add_(tube(V(driverX, 0.7, -0.42), V(driverX, st.uprightDash ? 0.71 : 0.735, -0.25), 0.045, 12), trim);
     // Centre stack, switch panel with a red ignition button and toggles.
-    this.add_(this.boxGeo(0.28, 0.32, 0.06, 0.0, 0.6, -0.33), trim);
+    this.add_(this.boxGeo(0.28, 0.32, 0.06, 0.0, 0.6, -0.33, 0, 0, 0, st.uprightDash ? 0.024 : 0), trim);
     this.add_(this.boxGeo(0.22, 0.05, 0.012, 0.0, 0.53, -0.297), pad);
     for (let i = 0; i < 4; i += 1) this.add_(this.boxGeo(0.014, 0.03, 0.02, -0.07 + i * 0.03, 0.47, -0.293), metal);
     const button = new THREE.CylinderGeometry(0.018, 0.018, 0.02, 14);
@@ -248,41 +273,58 @@ export class Cockpit extends THREE.Group {
     this.add_(button, st.shifter === 'h' ? red : pad);
     if (st.screen) this.buildScreen(st.screen, pad);
     // Rear-view mirror.
-    this.add_(this.boxGeo(0.2, 0.058, 0.022, 0.0, 1.17, -0.26, -0.12), pad);
-    this.add_(this.boxGeo(0.184, 0.044, 0.004, 0.0, 1.168, -0.247, -0.12), mirrorGlass);
-    this.add_(tube(V(0, 1.2, -0.25), V(0, 1.24, -0.2), 0.008, 6), pad);
+    const mirrorLift = st.uprightDash ? 0.074 : 0;
+    this.add_(this.boxGeo(0.2, 0.058, 0.022, 0.0, 1.17 + mirrorLift, -0.26, -0.12), pad);
+    this.add_(this.boxGeo(0.184, 0.044, 0.004, 0.0, 1.168 + mirrorLift, -0.247, -0.12), mirrorGlass);
+    this.add_(tube(V(0, 1.2 + mirrorLift, -0.25), V(0, 1.24 + mirrorLift, -0.2), 0.008, 6), pad);
 
     // ---- pillars, header, roof lining, doors
     for (const side of [-1, 1]) {
-      this.add_(tube(V(side * 0.75, 0.83, -0.79), V(side * 0.635, 1.245, -0.15), 0.038, 8), trim);
+      // The ROXX shell already carries both windscreen pillars at their true rake.
+      if (!st.uprightDash || this.paint) {
+        this.add_(tube(V(side * 0.75, 0.83, -0.79), V(side * 0.635, 1.245, -0.15), 0.038, 8), trim);
+      }
       this.add_(this.boxGeo(0.06, 0.45, 0.07, side * 0.7, 1.05, 0.34), trim); // B-pillar
       // Door card below the window line, a pull strap, the window ledge.
       this.add_(this.boxGeo(0.03, 0.58, 1.16, side * 0.765, 0.55, -0.18), dash);
       this.add_(this.boxGeo(0.07, 0.035, 1.16, side * 0.745, 0.845, -0.18), trim);
       this.add_(this.boxGeo(0.02, 0.025, 0.2, side * 0.735, 0.68, -0.05), red);
+      if (st.uprightDash) {
+        this.add_(this.boxGeo(0.033, 0.145, 0.72, side * 0.735, 0.64, -0.055), insert);
+        this.add_(this.boxGeo(0.085, 0.045, 0.43, side * 0.702, 0.615, 0.045), suede);
+        this.add_(this.boxGeo(0.026, 0.02, 0.11, side * 0.71, 0.73, -0.22), metal);
+      }
       // Rear quarter behind the B-pillar.
       this.add_(this.boxGeo(0.04, 0.8, 0.7, side * 0.75, 0.7, 0.72), dash);
     }
-    this.add_(this.boxGeo(1.28, 0.05, 0.06, 0, 1.235, -0.15), trim); // header
-    this.add_(this.boxGeo(1.3, 0.02, 1.2, 0, 1.252, 0.45), headliner);
+    const ceilingLift = st.uprightDash ? 0.106 : 0;
+    this.add_(this.boxGeo(1.28, 0.05, 0.06, 0, 1.235 + ceilingLift, -0.15), trim);
+    this.add_(this.boxGeo(1.3, 0.02, 1.2, 0, 1.252 + ceilingLift, 0.45), headliner);
     this.add_(this.boxGeo(1.56, 0.03, 1.8, 0, 0.13, -0.05), carpet);
     // Transmission tunnel and console.
     this.add_(this.boxGeo(0.24, 0.3, 0.75, 0.0, 0.33, 0.02), dash);
     this.add_(this.boxGeo(0.22, 0.02, 0.4, 0.0, 0.49, -0.05), trim);
 
     // ---- passenger seat: a bucket with harness, or an SUV seat with a separate headrest
-    const sx = 0.38;
     if (st.seatType === 'suv') {
-      this.add_(this.boxGeo(0.5, 0.14, 0.5, sx, 0.38, 0.2), seat);
-      this.add_(this.boxGeo(0.5, 0.62, 0.12, sx, 0.74, 0.5, -0.14), seat);
-      for (const side of [-1, 1]) {
-        this.add_(this.boxGeo(0.06, 0.5, 0.14, sx + side * 0.25, 0.72, 0.48, -0.14), seatShell);
-        this.add_(this.boxGeo(0.06, 0.1, 0.46, sx + side * 0.25, 0.44, 0.2), seatShell);
-        this.add_(tube(V(sx + side * 0.07, 1.04, 0.58), V(sx + side * 0.07, 1.1, 0.6), 0.007, 6), metal); // headrest posts
+      for (const sx of [-driverX, driverX]) {
+        this.add_(this.boxGeo(0.5, 0.14, 0.5, sx, 0.38, 0.2, 0, 0, 0, 0.045), seat);
+        this.add_(this.boxGeo(0.5, 0.62, 0.12, sx, 0.74, 0.5, -0.14, 0, 0, 0.047), seat);
+        for (const side of [-1, 1]) {
+          this.add_(this.boxGeo(0.06, 0.5, 0.14, sx + side * 0.25, 0.72, 0.48, -0.14), seatShell);
+          this.add_(this.boxGeo(0.06, 0.1, 0.46, sx + side * 0.25, 0.44, 0.2), seatShell);
+          this.add_(tube(V(sx + side * 0.07, 1.04, 0.58), V(sx + side * 0.07, 1.1, 0.6), 0.007, 6), metal); // headrest posts
+        }
+        this.add_(this.boxGeo(0.3, 0.17, 0.1, sx, 1.18, 0.62, -0.1, 0, 0, 0.038), seat);
+        for (let row = 0; row < 5; row++) {
+          const y = 0.57 + 0.071 * row;
+          this.add_(this.boxGeo(0.32, 0.006, 0.009, sx, y, 0.438 + (y - 0.74) * 0.14, -0.14), insert);
+        }
       }
-      this.add_(this.boxGeo(0.3, 0.17, 0.1, sx, 1.18, 0.62, -0.1), seat);
-      this.add_(this.boxGeo(0.5, 0.03, 0.01, sx, 0.9, 0.44, -0.14), seatShell); // stitched band
+      this.add_(this.boxGeo(1.23, 0.14, 0.43, 0, 0.39, 1.02), seat);
+      this.add_(this.boxGeo(1.23, 0.53, 0.13, 0, 0.68, 1.24, -0.1), seat);
     } else {
+      const sx = 0.38;
       this.add_(this.boxGeo(0.46, 0.1, 0.48, sx, 0.36, 0.22), seat);
       this.add_(this.boxGeo(0.46, 0.72, 0.1, sx, 0.78, 0.5, -0.16), seatShell);
       for (const side of [-1, 1]) {
@@ -356,7 +398,7 @@ export class Cockpit extends THREE.Group {
 
     // ---- steering wheel: mount (tilt) -> spin (turns with the steering)
     this.wheelMount = new THREE.Group();
-    this.wheelMount.position.set(DRIVER_X, 0.745, -0.2);
+    this.wheelMount.position.set(driverX, st.uprightDash ? 0.71 : 0.745, -0.2);
     this.wheelMount.rotation.x = -0.42;
     this.add(this.wheelMount);
     this.wheel = new THREE.Group();
@@ -369,6 +411,12 @@ export class Cockpit extends THREE.Group {
       const to = V(Math.sin(angle) * 0.04, Math.cos(angle) * 0.04, -dish);
       if (st.wheelType === 'dish') this.mesh(tube(from, to, 0.012, 8), metal, this.wheel);
       else this.mesh(this.boxGeo(0.045, from.distanceTo(to), 0.016, 0, 0, 0).applyQuaternion(_q1.setFromUnitVectors(Y_AXIS, _v1.subVectors(from, to).normalize())).translate((from.x + to.x) / 2, (from.y + to.y) / 2, (from.z + to.z) / 2), spokeMetal, this.wheel);
+    }
+    if (st.wheelType === 'suv') {
+      for (const side of [-1, 1]) {
+        this.mesh(this.boxGeo(0.071, 0.039, 0.016, side * 0.104, 0.002, 0.009, 0, 0, side * 0.12), metal, this.wheel);
+        this.mesh(this.boxGeo(0.058, 0.028, 0.01, side * 0.104, 0.004, 0.02), pad, this.wheel);
+      }
     }
     const hubRadius = st.wheelType === 'suv' ? 0.068 : 0.05;
     const hub = new THREE.CylinderGeometry(hubRadius, hubRadius + 0.004, 0.035, 20);
@@ -447,16 +495,16 @@ export class Cockpit extends THREE.Group {
     this.textures.push(this.cluster.texture);
     const clusterMaterial = this.mat({ map: this.cluster.texture, toneMapped: false }, true);
     if (st.cluster === 'twin') {
-      // A free-standing 10.25-inch driver display on top of the dash, in a black bezel.
+      // Low-set digital cluster immediately behind the wheel.
       const screen = new THREE.PlaneGeometry(0.3, 0.122);
       screen.rotateX(-0.2);
-      screen.translate(DRIVER_X, 0.935, -0.43);
+      screen.translate(driverX, 0.864, -0.347);
       this.mesh(screen, clusterMaterial);
-      this.add_(this.boxGeo(0.32, 0.14, 0.03, DRIVER_X, 0.935, -0.447, -0.2), pad);
+      this.add_(this.boxGeo(0.32, 0.14, 0.03, driverX, 0.864, -0.365, -0.2, 0, 0, 0.011), pad);
     } else {
       const clusterPlane = new THREE.PlaneGeometry(0.38, 0.154);
       clusterPlane.rotateX(-0.42);
-      clusterPlane.translate(DRIVER_X, 0.893, -0.468);
+      clusterPlane.translate(driverX, 0.893, -0.468);
       this.mesh(clusterPlane, clusterMaterial);
     }
 
@@ -487,7 +535,7 @@ export class Cockpit extends THREE.Group {
     }
 
     // ---- the driver's arms and gloved hands
-    this.shoulders = { left: V(DRIVER_X - 0.21, 0.84, 0.46), right: V(DRIVER_X + 0.21, 0.84, 0.46) };
+    this.shoulders = { left: V(driverX - 0.21, 0.84, 0.46), right: V(driverX + 0.21, 0.84, 0.46) };
     this.poles = { left: V(-0.7, -0.7, 0.1).normalize(), right: V(0.7, -0.7, 0.1).normalize() };
     this.arms = {};
     for (const side of ['left', 'right']) {
@@ -551,11 +599,11 @@ export class Cockpit extends THREE.Group {
       plane.translate(0, 0.755, -0.358);
       this.add_(this.boxGeo(0.26, 0.15, 0.02, 0, 0.755, -0.37, -0.1, -0.12), bezel);
     } else {
-      // Standing on the dash top beside the driver display.
+      // Face the centre display toward the right-hand seat.
       plane.rotateX(-0.2);
-      plane.rotateY(-0.18);
-      plane.translate(0.02, 0.94, -0.43);
-      this.add_(this.boxGeo(0.27, 0.16, 0.03, 0.02, 0.94, -0.447, -0.2, -0.18), bezel);
+      plane.rotateY(0.12);
+      plane.translate(0, 0.874, -0.339);
+      this.add_(this.boxGeo(0.27, 0.16, 0.03, 0, 0.874, -0.357, -0.2, 0.12, 0, 0.012), bezel);
     }
     this.mesh(plane, material);
   }

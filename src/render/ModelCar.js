@@ -181,6 +181,9 @@ export class ModelCar extends ProceduralCar {
     body.position.set(0, 0, 0);
     this.chassis.add(body);
     this.bodyMesh = body;
+    // Exterior cabin sits behind the glass. CarVisual swaps it for the animated driver layout.
+    const exteriorCabin = template.getObjectByName('ROXX_cabin');
+    if (exteriorCabin) this.chassis.add(instance(exteriorCabin));
     this.paintable = false;
     this.bodyMaterial = new THREE.MeshStandardMaterial();
     this.ownMaterials.push(this.bodyMaterial);

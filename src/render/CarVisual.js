@@ -43,7 +43,7 @@ export class CarVisual {
     this.interior = false;
     const eye = cockpitEye(style);
     /** Driver's eye in car space, for the cockpit camera. */
-    this.cockpitEye = { x: eye.x, y: eye.y + this.model.chassisOffsetY, z: eye.z };
+    this.cockpitEye = { ...eye, y: eye.y + this.model.chassisOffsetY };
 
     this.neonWanted = true;
     this.neonLevel = 0.2;
