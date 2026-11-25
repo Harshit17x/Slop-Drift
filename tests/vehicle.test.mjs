@@ -689,8 +689,28 @@ async function testRealWorld() {
 
 // ------------------------------------------------------------------ run
 
+function testRallyGravel() {
+  const world = { waterLevel: -Infinity, sampleGround: (x, z, out) => fillGround(out, 0, 0, 1, 0, 1, 0.74, 0.029) };
+  const car = makeVehicle(world);
+  car.setHandling('Balanced', CARS.find(entry => entry.id === 'hatch').tuning);
+  car.teleport(spawn());
+  run(car, 12, (_, state) => state.speed < 20 ? controls({ throttle: 1 }) : null);
+  const entry = run(car, 2, (_, state) => Math.abs(state.slipAngle) < 26 * DEG
+    ? controls({ steer: 1, handbrake: true, throttle: 0.15 }) : null);
+  const angle = Math.abs(entry.slipAngle) / DEG;
+  const locks = car.wheels.map(wheel => wheel.locked);
+  check('gravel hatch rotates on the hydraulic rear brake at speed',
+    angle >= 25 && !locks[0] && !locks[1] && locks[2] && locks[3], angle.toFixed(1) + ' degrees');
+  const exit = run(car, 4, (_, state) => controls({ throttle: 0.44,
+    steer: Math.max(-1, Math.min(1, state.slipAngle * 3)) }));
+  check('gravel hatch pulls straight under power after countersteer',
+    Math.abs(exit.slipAngle) < 5 * DEG && exit.speed > 15 && exit.up.y > 0.95,
+    (Math.abs(exit.slipAngle) / DEG).toFixed(1) + ' degrees, ' + (exit.speed * 3.6).toFixed(0) + ' km/h');
+}
+
 const t0 = Date.now();
 testPedalAndWheelResponse();
+testRallyGravel();
 testSettle();
 testGradeHold();
 testBank();
