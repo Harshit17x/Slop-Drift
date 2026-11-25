@@ -731,7 +731,7 @@ function testCars() {
     let s = run(v, 2, () => controls());
     const contacts = s.wheels.filter((w) => w.contact).length;
     check(`${car.id} settles on four wheels`, contacts === 4 && Math.abs(s.position.y) < 0.05 && s.speed < 0.2, `y ${s.position.y.toFixed(3)}`);
-    // Launch times against the real cars: Track RS 0-100 km/h 3.2 s (Porsche), Hill 4x4 0-60 km/h 4.8 s (Mahindra).
+    // Standing starts on flat dry asphalt, with the same assists for all three cars.
     const target = { hatch: [100, 4, 9], gt: [100, 2.6, 4.2], thar: [60, 3.8, 6.5] }[car.id];
     let reached = null;
     s = run(v, 12, (time, st) => {
@@ -740,6 +740,21 @@ function testCars() {
     });
     check(`${car.id} 0-${target[0]} km/h in a realistic time`, reached !== null && reached >= target[1] && reached <= target[2], `${reached?.toFixed(2)} s`);
     check(`${car.id} drives the right wheels`, v.wheels.filter((w) => w.driven).length === (car.tuning?.drivetrain?.awd ? 4 : 2));
+    if (car.id === 'gt') {
+      check('GT3 R wheelbase and staggered slick radii', Math.abs(v.wheelbase - 2.507) < 1e-6 &&
+        v.wheels.every(w => Math.abs(w.radius - (w.front ? .340 : .355)) < 1e-6 && w.driven === !w.front));
+      let peakKW = 0;
+      for (let rpm = 1500; rpm <= 9250; rpm += 10) {
+        peakKW = Math.max(peakKW, v.drivetrain.torqueAt(rpm) * rpm * Math.PI / 30000);
+      }
+      check('GT3 R six-speed box and nominal peak engine power', v.drivetrain.gearCount === 6 &&
+        peakKW > 414 && peakKW <= 416, peakKW.toFixed(1) + ' kW');
+      const from = s.position.clone();
+      s = run(v, 8, (time, st) => st.speed > .05 ? controls({ brake: 1 }) : null);
+      const metres = horizDist(s.position, from);
+      check('GT3 R dry ABS stop from 100 km/h', s.speed <= .05 && metres > 20 && metres < 37,
+        metres.toFixed(1) + ' m');
+    }
   }
 }
 

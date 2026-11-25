@@ -173,9 +173,12 @@ export class Vehicle {
     const frontFraction = (g.rearAxleZ - t.com.z) / wheelbase;
     for (let wi = 0; wi < 4; wi++) {
       const w = this.wheels[wi];
-      const x = w.left ? -g.halfTrack : g.halfTrack;
+      const halfTrack = w.front ? g.frontHalfTrack ?? g.halfTrack : g.halfTrack;
+      const x = w.left ? -halfTrack : halfTrack;
+      w.radius = w.front ? g.frontWheelRadius ?? g.wheelRadius : g.wheelRadius;
+      const centreY = g.wheelCenterY + (w.radius - g.wheelRadius);
       const z = w.front ? g.frontAxleZ : g.rearAxleZ;
-      w.mount.set(x, g.wheelCenterY + s.staticLength, z);
+      w.mount.set(x, centreY + s.staticLength, z);
       w.driven = !w.front || Boolean(t.drivetrain.awd);
       w.k = w.front ? s.springFront : s.springRear;
       w.bump = w.front ? s.bumpFront : s.bumpRear;
@@ -184,7 +187,7 @@ export class Vehicle {
       w.freeLength = s.staticLength + staticLoad / w.k;
       const layout = this.wheelLayout[w.index];
       layout.x = x;
-      layout.y = g.wheelCenterY;
+      layout.y = centreY;
       layout.z = z;
     }
     this.bodyPoints = t.body.contactPoints.map((p) => new THREE.Vector3(p[0], p[1], p[2]));
@@ -492,7 +495,7 @@ export class Vehicle {
           this._sampleGround(M.x + tRay * dx, M.z + tRay * dz, sample);
           tRay = (M.y - sample.y) / -dy;
         }
-        const rawLength = tRay - radius;
+        const rawLength = tRay - w.radius;
         if (rawLength <= maxLen && rawLength > -2) {
           w.contact = true;
           w.rawLength = rawLength;
@@ -593,6 +596,7 @@ export class Vehicle {
       w.vLong = vc.dot(w.fwd);
       w.vLat = this._pointVelocity(w.rLat, _c).dot(w.axle);
       w.mu = tire.mu * (w.front ? tire.frontGrip : tire.rearGrip) * clamp(w.sample.grip, 0, 2);
+      w.mu *= tire.surfaceGrip?.[w.sample.surface] ?? 1;
       w.muN = w.mu * w.load;
       w.meffX = this._effectiveMass(w.r, w.fwd);
       w.meffY = this._effectiveMass(w.rLat, w.axle);
@@ -795,7 +799,7 @@ export class Vehicle {
       if (w.contact) onGround++;
       if (w.locked) w.spinSpeed = 0;
       else if (w.contact) {
-        let spin = w.vLong / radius;
+        let spin = w.vLong / w.radius;
         if (w.driven && w.slip > 1 && driveForce !== 0) spin += Math.sign(driveForce) * Math.min(60, (w.slip - 1) * 40);
         w.spinSpeed = spin;
       } else {

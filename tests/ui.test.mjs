@@ -129,7 +129,7 @@ test('GarageUi car metadata, sorting, ratings and drivetrain SVG', () => {
   const byFav = sortCars(CARS, 'favorites', ['thar']);
   assert.equal(byFav[0].id, 'thar');
   const byName = sortCars(CARS, 'name', []);
-  assert.equal(byName[0].id, 'thar'); // Hill 4x4 < Rally Hatch < Track RS
+  assert.equal(byName[0].id, 'thar'); // Hill 4x4 < Porsche 911 GT3 R < Rally Hatch
   for (const car of CARS) {
     const rows = carRatingRows(car);
     assert.equal(rows.length, 4);
