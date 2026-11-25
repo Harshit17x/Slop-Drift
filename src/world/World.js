@@ -989,8 +989,11 @@ export class World {
    */
   getSpawn(routeId, s, out = { position: { x: 0, y: 0, z: 0 }, quaternion: { x: 0, y: 0, z: 0, w: 1 } }) {
     const route = this.routes[routeId] || this.routes.loop;
-    const frame = this.roads[route.roadId].frameAt(s, scratchFrame);
-    const d = route.direction;
+    return this.roadSpawn(route.roadId,s,route.direction,out);
+  }
+
+  roadSpawn(roadId,s,d,out) {
+    const frame = this.roads[roadId].frameAt(s, scratchFrame);
     out.position.x = frame.x;
     out.position.y = frame.y;
     out.position.z = frame.z;

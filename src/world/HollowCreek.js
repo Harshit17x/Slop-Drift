@@ -1,3 +1,4 @@
+import { surveyDepots, setHollowRails } from './hollowDistricts.js';
 import { surveySites } from './hollowSites.js';
 import { Road } from './Road.js';
 import { CONFIG } from '../config.js';
@@ -18,7 +19,7 @@ function ring(length, id) {
     // the old quarter and a long waterfront sweep on the main road.
     const ridge=id===2?Math.exp(-((t-3.87)**2)/.054):0;
     const turn=id===1?.049*Math.sin(8*t+.7):0;
-    const bend=t+ridge*.076*Math.sin((t-3.87)*21);
+    const bend=t+ridge*.032*Math.sin((t-3.87)*21);
     points.push([(radius+turn+ridge*.10*Math.cos((t-3.87)*19))*Math.cos(bend),
       .84*(radius+turn)*Math.sin(bend)]);
   }
@@ -84,6 +85,8 @@ export async function buildHollowCreek(world,stage) {
       checkpoints:Array.from({length:count-1},(_,i)=>(40+(i+1)*r.length/count)%r.length)};
   }
   world.sites=surveySites(world);
+  world.depots=surveyDepots(world);
+  setHollowRails(world);
   const dock=world.sites.wharf;
   dock.y=Math.max(dock.y,world.creek.y+.48);
   world.dock=dock;

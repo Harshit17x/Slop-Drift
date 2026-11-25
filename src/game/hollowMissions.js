@@ -15,7 +15,18 @@ export function hollowMissions(world) {
   const pursuitStart=at('Meet the tail lights',0,merge.s-140);
   const pursuitPath=[[0,merge.s-140,merge.s],[4,0,fork.length],[2,exit.s,exit.s+230]];
   const junction=(road,end,name)=>at(name,road,end?world.roads[road].length-4:4);
+  const freight=id=>{
+    const d=world.depots.find(p=>p.id===id);
+    return {...d,name:d.label,radius:6};
+  };
   return [
+    place('deadletter','Dead Letter Run','Read the undelivered prescription at the parcel office. Stop beside the pharmacy lamp, then trace its addressee to the chain ferry.',
+      [{...freight('parcel'),clue:'Bag 17. A prescription for the ferryman, still awaiting collection.'},
+       {...freight('dispenser'),clue:'The ledger gives a delivery address: chain winch, east landing.'},
+       {...freight('float'),clue:'Under the winch cover lies the unopened return receipt.'}],{hold:2.5}),
+    place('shift','The Empty Shift','Clock in at the assembly hall, stop under the ore tram lamp, then carry its final shift ticket to the mine.',
+      [site('factory'),{...freight('tram'),clue:'A shift ticket drops from the empty ore bucket.'},
+       {...site('mine'),clue:'Six names punched in. All six punched out at the same second.'}],{hold:2}),
     place('transmission','The Last Transmission','Tune five receivers across town.',signals),
     place('pursuit','Phantom Pursuit','Meet the phantom at the turnoff. Stay close to its tail lights.',[pursuitStart],{pursuitPath}),
     place('mist','Into the Mist','Finish the Vanishing Road as the fog closes in.',[],{race:'vanishing'}),

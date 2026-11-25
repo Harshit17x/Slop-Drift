@@ -601,7 +601,7 @@ export class Game {
     const retryJump = cut && (cut.missed || (loc.roadId === 0 && inWashout(loc.s)));
     const pose = retryJump ? this.world.getSpawn('loop', WASHOUT.retry, this.pose) : bridge?.falling || bridge?.loaded
       ? this.world.getSpawn('loop', BRIDGE.recovery, this.pose)
-      : this.session.getRespawnPose(this.pose);
+      : this.adventure?.recoveryPose(this.pose) ?? this.session.getRespawnPose(this.pose);
     bridge?.reset();
     cut?.reset();
     this.vehicle.teleport(pose);
@@ -744,6 +744,7 @@ export class Game {
     this.audioFlags.boosting = boosting;
     this.audio.update(dt, state, this.audioFlags);
     if (state.shifted) this.audio.shift();
+    if(this.state==='running')this.adventure?.checkBounds(dt,state);
     this.checkStuck(dt, state);
     return state;
   }

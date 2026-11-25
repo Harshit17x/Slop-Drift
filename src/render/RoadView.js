@@ -106,6 +106,10 @@ export class RoadView {
       this.buildSurfaces();
       this.asphaltMesh.material[0].color.setHex(0x999d95);
       this.asphaltMesh.material[0].roughness=.53;
+      this.steelMaterial.color.setHex(0x787a71);
+      this.steelMaterial.roughness=.72;
+      this.buildRails();
+      this.buildReflectors();
       this.buildMarkings();
     } else if (world.bridge) {
       this.jungle = new JungleRoad(this);
@@ -273,6 +277,30 @@ export class RoadView {
       const cobble=this.track(new THREE.MeshStandardMaterial({map:setts,bumpMap:setts,bumpScale:.17,roughness:.61,color:0xb1b5b3}));
       const gravel=this.track(new THREE.MeshStandardMaterial({map:this.textures.grain,bumpMap:this.textures.grain,bumpScale:.12,color:0x776c59,roughness:.89}));
       const mud=this.track(new THREE.MeshStandardMaterial({map:this.textures.asphalt,bumpMap:this.textures.asphalt,bumpScale:.12,color:0x765437,roughness:.44}));
+      // Water collects in irregular depressions. Reuse the street texture to
+      // break up the edges, then let the scene environment light the smooth film.
+      for(const surface of [asphaltMaterial,cobble]){
+        const base=surface.onBeforeCompile.bind(surface);
+        const baseKey=surface.customProgramCacheKey();
+        surface.onBeforeCompile=(shader,renderer)=>{
+          base(shader,renderer);
+          shader.fragmentShader=shader.fragmentShader.replace('#include <metalnessmap_fragment>', `
+            #include <metalnessmap_fragment>
+            float waterLevel = sin(vMapUv.x * 1.9 + sin(vMapUv.y * 2.4)) * .24
+                + cos(vMapUv.y * 3.7 - vMapUv.x * .8) * .20
+                + texture2D(map, vMapUv * .65).g * .75;
+            waterLevel += .16 * sin(vMapUv.y * .67 + 5.0 * cos(vMapUv.x * .49))
+                + .08 * sin(vMapUv.y * 11.0 + 3.0 * sin(vMapUv.x * 8.7));
+            float wet = smoothstep(.23, .53, waterLevel);
+            roughnessFactor = mix(roughnessFactor, .22, wet);
+            diffuseColor.rgb *= 1.0 - .32 * wet;
+          `).replace('#include <normal_fragment_maps>', `
+            #include <normal_fragment_maps>
+            normal = normalize(mix(normal, nonPerturbedNormal, .65 * wet));
+          `);
+        };
+        surface.customProgramCacheKey=()=>baseKey+'-hollow-water-film';
+      }
       const geo=this.asphaltMesh.geometry;let start=0;
       this.asphaltMesh.material=[asphaltMaterial,cobble,gravel,mud];
       for(const {id,count} of hollowGroups){

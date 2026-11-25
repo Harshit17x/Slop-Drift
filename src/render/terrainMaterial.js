@@ -36,7 +36,9 @@ uniform float uTreeLine;
 uniform float uWaterLevel;
 uniform float uValleyFloor;
 uniform float uRainforest;
-uniform float uHollow;
+#ifdef HOLLOW_YARDS
+uniform sampler2D uYardGravel;
+#endif
 uniform float uSunShadeStrength;
 uniform vec4 uGrassBank;      // xy: centre (world x, z), z: radius (0 = none); grass holds on steeper banks inside
 varying vec3 vTerrainPos;
@@ -157,7 +159,14 @@ const FRAGMENT_COLOR = /* glsl */ `
   terrainOcclusion = clamp(control.b / 0.86, 0.0, 1.16);
   terrainSunShade = mix(1.0, texture2D(uSunShade, controlUv).r, uSunShadeStrength);
   terrainRoughness = rough;
-  if(uHollow>.5) albedo=mix(vec3(.041,.049,.045),vec3(.115,.108,.09),clamp(dot(albedo,vec3(.3,.6,.1))*3.8,0.,1.));
+  #ifdef HOLLOW_YARDS
+    vec3 grit = texture2D(uYardGravel, wp.xz * .27 + nMid.xy * .11).rgb;
+    float grain = dot(grit, vec3(.30,.59,.11));
+    float weeds = smoothstep(.38,.73, nFine.g*.45 + nMid.r*.55 - bed*.15);
+    vec3 silt = mix(vec3(.057,.045,.032), vec3(.12,.135,.068),weeds);
+    albedo = silt * (.49 + 3.3 * sqrt(grain)) * (.70 + .54*nMicro.b);
+    terrainRoughness=mix(.56,.94,weeds);
+  #endif
   diffuseColor.rgb = albedo * mix(0.72, 1.0, min(1.0, terrainOcclusion));
 }
 `;
@@ -179,7 +188,7 @@ reflectedLight.directSpecular *= terrainSunShade;
  * @param {THREE.Texture} options.noise    Tiling RGBA noise.
  * @param {THREE.Texture} options.sunShade Coarse R8 sun shadow.
  */
-export function createTerrainUniforms({ control, noise, sunShade, grid, mountain, rainforest = false, hollow = false, grassBank = null }) {
+export function createTerrainUniforms({ control, noise, sunShade, grid, mountain, rainforest = false, grassBank = null }) {
   return {
     uControl: { value: control },
     uNoise: { value: noise },
@@ -192,7 +201,6 @@ export function createTerrainUniforms({ control, noise, sunShade, grid, mountain
     uSnowLine: { value: mountain.snowLine },
     uTreeLine: { value: mountain.treeLine },
     uWaterLevel: { value: mountain.waterLevel },
-    uHollow: { value:hollow?1:0 },
     uRainforest: { value: rainforest ? 1 : 0 },
     uValleyFloor: { value: mountain.valleyFloor },
     uSunShadeStrength: { value: 0.8 },
@@ -203,6 +211,7 @@ export function createTerrainUniforms({ control, noise, sunShade, grid, mountain
 /** One material per level of detail: they share a program and differ only in three uniforms. */
 export function createTerrainMaterial(shared, { heightMap, lodStep, skirtDepth }) {
   const material = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0 });
+  if(shared.uYardGravel)material.defines={HOLLOW_YARDS:1};
   const own = {
     uHeightMap: { value: heightMap },
     uLodStep: { value: lodStep },

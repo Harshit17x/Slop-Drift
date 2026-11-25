@@ -25,7 +25,7 @@ export class HollowRadio {
     for(const o of this.select.options){
       const m=this.missions.find(d=>d.id===o.value);o.textContent=(this.journal.completed.has(m.id)?'✓ ':'')+m.name;
     }
-    this.status.textContent=this.journal.found.size+' / 8 locations   ·   '+this.journal.completed.size+' / 12 missions';
+    this.status.textContent=this.journal.found.size+' / 8 locations   ·   '+this.journal.completed.size+' / '+this.missions.length+' missions';
   }
   dispose(){this.panel.remove();}
 }

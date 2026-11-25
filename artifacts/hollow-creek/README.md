@@ -8,14 +8,18 @@ Select **Hollow Creek → Free Roam** to start at The Last Garage. Open **Garage
 |---|---:|---:|---:|
 | The Forgotten Quarter | 3,000 m | 8 | 100 s |
 | Hollow Creek Circuit | 5,002 m | 15 | 159 s |
-| The Vanishing Road | 6,992 m | 21 | 273 s |
+| The Vanishing Road | 7,004 m | 21 | 233 s |
 
 Six cross streets connect the circuits at grade. A seventh road branches inside Signal Tunnel and rejoins the outer loop beyond the mine. A service shutter opens during the Forgotten Route dispatch or a rare repeat tunnel visit in exploration. Ordered race gates use the existing RaceSession travel checks. The quarter has wet setts, downtown has patched asphalt, and the outer road crosses gravel, mud and timber.
+
+The outside of the Vanishing Road has 6.86 km of steel barrier and reflectors. Access gaps serve the intersections and yards. In free roam, four seconds beyond the drivable district returns the car to its last grounded road and heading.
 
 ## Dispatch board
 
 | Mission | Completion condition |
 |---|---|
+| Dead Letter Run | Stop at the parcel office, Bell Street Pharmacy and chain ferry to trace a missing prescription. |
+| The Empty Shift | Read the shift ticket at the assembly hall, Incline No. 2 and the mine. |
 | The Last Transmission | Tune five receivers and read the intercepted messages. |
 | Phantom Pursuit | Rendezvous with a ghost car, follow it down a connecting street and reach its destination. |
 | Into the Mist | Finish the outer rally as visibility falls with checkpoint progress. |
@@ -39,7 +43,11 @@ The eight discoverable sites are the garage, gas station, church, railway statio
 
 ## Assets and implementation
 
+The Bell Street frontage draws on stocked ghost-town shops and the parcel siding draws on a railway commercial district. The mine headframe, suspended skips and haul cables take their cues from aerial copper-ore tramways. [Bodie State Historic Park](https://www.parks.ca.gov/pages/509/files/BodieSHPFinalWebLayout2016.pdf) · [Thurmond Historic District](https://www.nps.gov/neri/learn/historyculture/thurmond.htm) · [Kennecott Mines](https://www.nps.gov/places/kennecott-mines.htm)
+
 The supplied images guided the palette, overcast streets, timber porches, weathering and dock composition. Bodie’s preserved ghost-town streets provided secondary architectural reference. [National Park Service](https://www.nps.gov/places/bodie-historic-district.htm)
+
+The new ImageGen trade sheet contains the pharmacy, parcels counter, oxidised metal and damp fieldstone. A second sheet contains an isolated elm and willow. The town renders both as compressed WebP atlases. The four-wheel parcels van, mine headframe and chain winches use instanced parts.
 
 Original ImageGen facade and asphalt images are stored as compressed WebP textures. The slate and sett textures combine the generated surface with procedural tile patterns. Local Blender 5.3 MCP produced the missing coupe GLB with seven materials and 973 authored polygons. The environment reuses the game's foliage atlas and ghost vehicle renderer. All new environmental audio is synthesized with Web Audio. The district photographs in this folder are game renders.
 
@@ -48,10 +56,10 @@ World generation, surveyed sites and the service road live in `src/world/HollowC
 ## Verification
 
 - The repository test suite and Vite production build passed.
-- The Hollow Creek regression test surveys actual 3D lengths, every connector endpoint, ground contacts, surface materials, mine shutter collision and journal persistence.
-- The local Chrome harness drove all three official circuits with the vehicle simulation. It also ran both race dispatches, including a recorded ghost, and exercised all twelve completion paths. It placed the car at exploration targets and supplied banked points for the district drift checks.
-- Browser checks exercised the Watcher fade, ambient phantom, blackout, static, tunnel reveal, jump-scare mute, saved journal and equippable paint reward.
-- Intel UHD Graphics, Chrome D3D11, Low quality, 942 × 504. A 180-frame driving sample ending at 115 km/h measured 16.7 ms median and 17.6 ms at the 95th percentile. A separate downtown camera sample showed 73 draw calls and about 181,200 triangles.
+- The Hollow Creek regression test surveys actual 3D lengths, every connector endpoint, ground contacts, surface materials, mine shutter collision guardrail contact normals, landmark access, turning aprons and journal persistence.
+- The local Chrome harness drove all three official circuits with the vehicle simulation. It also ran both race dispatches, including a recorded ghost, and exercised all fourteen completion paths. It placed the car at exploration targets and supplied banked points for the district drift checks.
+- Browser checks exercised the Watcher fade, ambient phantom, blackout, static, tunnel reveal, jump-scare mute, saved journal, equippable paint reward, parked-only logbook reading and off-map recovery on a two-way connector.
+- Intel UHD Graphics, Chrome D3D11, Low quality, 942 × 504. A 180-frame driving sample ending at 115 km/h measured 16.9 ms median and 20.6 ms at the 95th percentile. A separate downtown camera sample showed 92 draw calls and about 222,400 triangles.
 - The capture harness starts a temporary loopback Vite server. Run `node artifacts/hollow-creek/verify.cjs` from the repository with Chrome available. Set `CHROME_PATH` for another installation.
 
 The frame sample covers a short drive. Higher resolutions and quality presets still need profiling. The architecture reuses visible modules, wet-road highlights use environment lighting, and fog uses distance and sprite layers. Human driving difficulty, audio balance on headphones, and resemblance to the photographic references remain playtest judgments.

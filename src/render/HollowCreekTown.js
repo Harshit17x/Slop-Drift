@@ -1,11 +1,29 @@
-import { buildHeroBoughs, buildTexturedGrassGeometry } from './Scenery.js';
+import { buildTexturedGrassGeometry } from './Scenery.js';
 import { HollowWeather } from './HollowWeather.js';
+import { inDepot } from '../world/hollowDistricts.js';
+import { buildCreekIndustry } from './hollowIndustry.js';
 import { buildLandmarks } from './hollowLandmarks.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as T from 'three';
 import { createRandom } from '../world/noise.js';
 
 const sheetURL = new URL('../assets/maps/hollow-facades.webp',import.meta.url).href;
+// Two cutout planes preserve the crown silhouette as the car passes the tree.
+function winterTree(tile) {
+  const positions=[],uv=[],indices=[];
+  for(const [x,z] of [[.5,0],[0,.5]]){
+    const start=positions.length/3;
+    positions.push(-x,0,-z, x,0,z, x,1,z, -x,1,-z);
+    const left=(tile+.004)/2,right=(tile+.996)/2;
+    uv.push(left,.012, right,.012, right,.995, left,.995);
+    indices.push(start,start+1,start+2,start,start+2,start+3);
+  }
+  const geometry=new T.BufferGeometry();
+  geometry.setAttribute('position',new T.Float32BufferAttribute(positions,3));
+  geometry.setAttribute('uv',new T.Float32BufferAttribute(uv,2));
+  geometry.setIndex(indices);geometry.computeVertexNormals();
+  return geometry;
+}
 function gable() {
   const g=new T.BufferGeometry();
   g.setAttribute('position',new T.Float32BufferAttribute([
@@ -44,6 +62,21 @@ export class HollowCreekTown {
       for(let j=0;j<uv.count;j++) uv.setXY(j,(i%2+.008+.984*uv.getX(j))/2,((i<2?1:0)+.008+.984*uv.getY(j))/2);
       this.parts['wall'+i]=[geom,walls];
     }
+    const tradeMap=new T.TextureLoader().load(new URL('../assets/maps/hollow-trade-atlas.webp',import.meta.url).href);
+    tradeMap.colorSpace=T.SRGBColorSpace;tradeMap.anisotropy=4;this.textures.push(tradeMap);
+    const tradeWalls=new T.MeshStandardMaterial({map:tradeMap,bumpMap:tradeMap,bumpScale:.045,roughness:.83});
+    ['pharmacy','parcels','oxidised','setwall'].forEach((key,i)=>{
+      const geometry=this.parts['wall'+i][0].clone();
+      if(i<2){
+        // Only the street elevation carries signage. Corrugated siding wraps
+        // the remaining walls, including the elevation facing the hinterland.
+        const uv=geometry.attributes.uv,metal=this.parts.wall2[0].attributes.uv;
+        const normal=geometry.attributes.normal,streetNormal=i===0?1:-1;
+        for(let j=0;j<uv.count;j++)if(normal.getZ(j)!==streetNormal)uv.setXY(j,metal.getX(j),metal.getY(j));
+      }
+      this.parts[key]=[geometry,tradeWalls];
+    });
+    this.parts.crate=[cube,new T.MeshStandardMaterial({color:0x6b5840,roughness:.92})];
     const tiles=new T.TextureLoader().load(new URL('../assets/maps/hollow-roof.webp',import.meta.url).href);
     tiles.colorSpace=T.SRGBColorSpace;tiles.wrapS=tiles.wrapT=T.RepeatWrapping;tiles.repeat.set(2,1);
     this.textures.push(tiles);this.parts.roof=[roof,new T.MeshStandardMaterial({map:tiles,bumpMap:tiles,bumpScale:.06,roughness:.78,side:T.DoubleSide,color:0xacb4b2})];
@@ -78,10 +111,20 @@ export class HollowCreekTown {
       s.vertexShader=s.vertexShader.replace('#include <common>','#include <common>\nuniform float hcWind;')
         .replace('#include <begin_vertex>','#include <begin_vertex>\ntransformed.x+=sin(hcWind+instanceMatrix[3].z*.31)*position.y*.019;');
     };
+    const winterMap=new T.TextureLoader().load(new URL('../assets/maps/hollow-winter-trees.webp',import.meta.url).href);
+    winterMap.colorSpace=T.SRGBColorSpace;this.textures.push(winterMap);
+    const twigs=new T.MeshLambertMaterial({map:winterMap,side:T.DoubleSide,alphaTest:.32,alphaToCoverage:true,color:0xaeb2ac});
+    this.parts.elm=[winterTree(0),twigs];this.parts.willow=[winterTree(1),twigs];
     this.parts.scrub=[buildTexturedGrassGeometry(),canopy];
     this.parts.slab=[cube,new T.MeshStandardMaterial({color:0x66635a,roughness:.9})];
     this.parts.rubber=[cube,new T.MeshStandardMaterial({color:0x242827,roughness:.88})];
     this.parts.rock=[new T.DodecahedronGeometry(.56),stone];
+    this.parts.drum=[new T.CylinderGeometry(.5,.5,1,12),new T.MeshStandardMaterial({color:0x615043,metalness:.52,roughness:.72})];
+    this.parts.wheel=[new T.CylinderGeometry(.5,.5,1,14).rotateX(Math.PI/2),iron];
+    this.parts.rim=[new T.CylinderGeometry(.51,.51,1,12),iron];
+    const pavement=new T.TextureLoader().load(new URL('../assets/maps/hollow-road.webp',import.meta.url).href);
+    pavement.colorSpace=T.SRGBColorSpace;this.textures.push(pavement);
+    this.parts.slab[1].map=pavement;this.parts.slab[1].color.setHex(0xbab2a4);
     const lightTex=document.createElement('canvas');lightTex.width=lightTex.height=96;
     const lc=lightTex.getContext('2d'),falloff=lc.createRadialGradient(48,48,1,48,48,47);
     falloff.addColorStop(0,'rgba(255,225,166,.55)');falloff.addColorStop(.28,'rgba(253,202,125,.24)');falloff.addColorStop(1,'rgba(246,199,123,0)');
@@ -92,20 +135,49 @@ export class HollowCreekTown {
     this.parts.tunnelLamp=[cube,amber];this.parts.exitLamp=[cube,amber];this.parts.trainLamp=[cube,amber];
     for(const rd of world.roads) {
       let pole=null;
-      for(let s=12,i=0;s<rd.length;s+=rd.id===2?36:23,i++){
+      for(let s=12,i=0;s<rd.length;s+=rd.id===2?36:rd.id===1?16:rd.id===0&&s<1750?18:23,i++){
         const f=rd.frameAt(s,{}), yaw=Math.atan2(f.rx,f.rz);
         for(const side of [-1,1]){
-          const offset=side*(rd.config.halfWidth+8+random()*5);
+          const offset=side*(rd.config.halfWidth+(rd.id<=1?7.4:9)+random()*(rd.id<=1?2.8:5));
           const x=f.x+offset*f.rx,z=f.z+offset*f.rz;
           const w=8+random()*7,d=7+random()*3;
-          if(!clear(x,z,Math.hypot(w,d)*.5) || rd.id===9 || (rd.id===1 && Math.abs(s-470)<30 && side<0) ||
+          if(world.depots.some(depot=>inDepot(x,z,depot,9)) || !clear(x,z,Math.min(d*.56+1,w*.57)) || rd.id===9 || (rd.id===1 && Math.abs(s-470)<30 && side<0) ||
              Object.values(world.sites).some(p=>Math.hypot(p.x-x,p.z-z)<(p.id==='factory'?45:32)) ||
              Math.hypot((world.creek.x-x)/102,(world.creek.z-z)/90)<1.1)continue;
           if(rd.id===2 && (s<1800 || s>5200) && i%7!==0)continue;
           const y=world.heightAt(x,z)-.48;
           const type=rd.id===1?(i%7===0?2:0):rd.id===2?(i%5===0?3:0):Math.floor(s/590)%3===1?1:i%4===0?3:0;
           const h=type===1?12+random()*11:type===3?8+random()*5:5.3+random()*3;
+          const masonry=rd.id===1 && (Math.floor(s/125)%3!==1);
           place('wall'+type,x,y+h/2,z,w,h,d,yaw);
+          const frontZ=side*(d*.5+.08),sx=x-frontZ*f.rx,sz=z-frontZ*f.rz;
+          if(masonry){
+            place('setwall',sx,y+.77,sz,w,1.55,.18,yaw);
+            if(i%3===0)place('wood',sx,y+2.7,sz,w*.49,.28,.44,yaw);
+          }
+          if(type===1){
+            // Awnings, cornices and downpipes break up the storefront silhouette.
+            place('oxidised',sx-side*.64*f.rx,y+3.1,sz-side*.64*f.rz,w*.86,.3,1.6,yaw);
+            place('stone',x,y+h-.6,z,w+.27,.24,d+.22,yaw);
+            if(i%4===2){
+              // Fire escapes hang off the masonry. The landing, balusters
+              // and diagonal stair leave distinct silhouettes above the awning.
+              for(let floor=4.8;floor<h-1.5;floor+=3.4){
+                const bx=sx-side*f.rx*.68,bz=sz-side*f.rz*.68;
+                place('iron',bx,y+floor,bz,4.5,.12,1.45,yaw);
+                const ox=bx-side*f.rx*.69,oz=bz-side*f.rz*.69;
+                place('iron',ox,y+floor+.95,oz,4.5,.07,.065,yaw);
+                for(const j of [-2,-1,0,1,2])place('iron',ox+f.tx*j,y+floor+.47,oz+f.tz*j,.055,.94,.055);
+                if(floor+3.4<h-1.5)beam('iron',{x:ox-2*f.tx,y:y+floor,z:oz-2*f.tz},
+                  {x:ox+2*f.tx,y:y+floor+3.4,z:oz+2*f.tz},.18);
+              }
+            }
+            place('iron',sx+f.tx*w*.43,y+h*.46,sz+f.tz*w*.43,.13,h*.91,.13);
+          }
+          if(type===3 && i%2===0){
+            place('oxidised',sx,y+2.2,sz,w*.56,4.4,.24,yaw);
+            for(const k of [-1,1])place('iron',sx+k*w*.3*f.tx,y+2.5,sz+k*w*.3*f.tz,.18,5,.26,yaw);
+          }
           obstacles.push(x,z,Math.min(w,d)*.53);
           if(type!==1)place('roof',x,y+h-.12,z,d+.8,2.3,w+.65,yaw+Math.PI/2);
           else place('stone',x,y+h,z,w+.55,.45,d+.55,yaw);
@@ -122,18 +194,26 @@ export class HollowCreekTown {
             const gx=px+f.tx*(7+j*.7)-side*f.rx*2.8,gz=pz+f.tz*(7+j*.7)-side*f.rz*2.8;
             if(clear(gx,gz,.3))place('wood',gx,world.heightAt(gx,gz)+.57,gz,.15,1.14,.085,yaw,j*.012);
           }
+          // Stock and street furniture stay against the frontage, leaving the
+          // driving line and the side-street turning aprons open.
+          if(type!==0 && i%5===1 && clear(px,pz,1.35)){
+            for(let k=0;k<2;k++){
+              const bx=px+f.tx*(1.1*k-1.3),bz=pz+f.tz*(1.1*k-1.3),by=world.heightAt(bx,bz);
+              place('drum',bx,by+.49,bz,.64,.98,.64);
+              for(const lift of [.23,.74])place('rim',bx,by+lift,bz,.66,.045,.66);
+            }
+          }else if(type===0 && i%4===1){
+            for(let step=0;step<3;step++){
+              const back=side*(1.6-step*.35),ax=px-back*f.rx+w*.21*f.tx,az=pz-back*f.rz+w*.21*f.tz;
+              if(clear(ax,az,.8))place('slab',ax,world.heightAt(ax,az)+.07*step,az,1.65,.16+.13*step,.42,yaw);
+            }
+          }
           if(i%2===0){
             const tx=x-side*6*f.rx+8*f.tx,tz=z-side*6*f.rz+8*f.tz;
-            place('wood',tx,y+2.6,tz,.29,5.3,.3,yaw,.05);
-            for(let j=0;j<7;j++){
-              const angle=random()*6.28,dx=Math.sin(angle),dz=Math.cos(angle);
-              const a={x:tx,y:y+3+random()*2,z:tz},b={x:tx+dx*2,y:y+6+random()*2,z:tz+dz*2};
-              beam('wood',a,b,.17);
-              for(let twig=-1;twig<=1;twig++){
-                const c={x:b.x+dx*1.4+twig*dz*.95,y:b.y+1.2+random(),z:b.z+dz-twig*dx*.95};
-                beam('wood',b,c,.085);
-                beam('wood',c,{x:c.x+dx*.62+dz*.32,y:c.y+1,z:c.z+dz*.85},.046);
-              }
+            if(clear(tx,tz,1.5) && !world.depots.some(d=>inDepot(tx,tz,d,2))){
+              const h=7+random()*4.5,w=h*(.75+.21*random());
+              place(rd.id===0 && s>2040 && s<2480?'willow':'elm',tx,world.heightAt(tx,tz)-.05,tz,w,h,w,random()*Math.PI);
+              obstacles.push(tx,tz,.27);
             }
           }
         }
@@ -222,18 +302,68 @@ export class HollowCreekTown {
     };
     this.parts.window=[cube,new T.MeshBasicMaterial({color:0x87c6ad})];
     buildLandmarks(world,place,registerSign,obstacles);
+    buildCreekIndustry(world,place,beam,registerSign,obstacles);
     // Stone foundations, collapsed fencing, evergreen silhouettes and gutters
     // keep the roadside readable as it changes from settlement into forest.
-    this.parts.pine=[buildHeroBoughs({height:11,trunkHeight:1.4,layers:5,baseRadius:3.2,topRadius:.65,branchesPerRing:5,quadrant:0}),canopy];
     for(let s=0;s<world.roads[2].length;s+=11){
       const f=world.roads[2].frameAt(s,{});
       for(const side of [-1,1]){
         const off=side*(9+random()*36),x=f.x+off*f.rx,z=f.z+off*f.rz;
-        if(!clear(x,z,3)||Object.values(world.sites).some(p=>Math.hypot(p.x-x,p.z-z)<38))continue;
+        if(!clear(x,z,3)||world.depots.some(d=>inDepot(x,z,d,5))||Object.values(world.sites).some(p=>Math.hypot(p.x-x,p.z-z)<38))continue;
         const y=world.heightAt(x,z),h=7+random()*9;
-        place('wood',x,y+h*.32,z,.35,h*.64,.35);
-        place('pine',x,y,z,h/10,h/11,h/10,random()*Math.PI);
+        const crown=h*(.74+.25*random());
+        place(s<2300?'willow':'elm',x,y,z,crown,h,crown,random()*Math.PI);
+        obstacles.push(x,z,.32);
+        const offset=side*(38+random()*18),bx=f.x+offset*f.rx,bz=f.z+offset*f.rz;
+        if(clear(bx,bz,4) && !world.depots.some(d=>inDepot(bx,bz,d,6)) &&
+           !Object.values(world.sites).some(p=>Math.hypot(p.x-bx,p.z-bz)<40)){
+          const height=11+random()*9;
+          place(s>1800 && s<2700?'willow':'elm',bx,world.heightAt(bx,bz),bz,height*.93,height,height*.93,random()*Math.PI);
+        }
       }
+    }
+    // Thickets and cuts form a second layer behind the boundary rail. Preserve
+    // the clear silhouettes of the ferry, mine entrance and timber headframe.
+    const outer=world.roads[2];
+    for(let s=8;s<outer.length;s+=8.4){
+      const f=outer.frameAt(s,{}),offset=-(outer.config.halfWidth+4+random()*7);
+      const x=f.x+offset*f.rx,z=f.z+offset*f.rz;
+      if(!clear(x,z,2.4) || world.depots.some(d=>inDepot(x,z,d,8)) ||
+         Object.values(world.sites).some(p=>Math.hypot(x-p.x,z-p.z)<38))continue;
+      const y=world.heightAt(x,z), rot=Math.atan2(f.tx,f.tz);
+      if(s>3200 && s<4640){
+        const h=2+.9*Math.sin(s/28)+random()*1.8;
+        place('setwall',x,y+h*.46,z,2.6,h,7.8,rot);
+        place('rock',x-2*f.rx,y+h*.75,z-2*f.rz,4.8,h,5.6,rot);
+      }else if(s<1780 || s>5250){
+        const h=7+random()*8;place('willow',x,y,z,h*.77,h,h*.77,random()*6.28);
+        for(let j=0;j<3;j++)place('scrub',x+f.tx*j,y,z+f.tz*j,2.6,1.8,2.4,random()*6.28);
+      }
+    }
+    // Willow beds behind the incline obscure the bare horizon while the logbook
+    // and the towers occupy the foreground. Leave a channel for the cross street.
+    // The next row reads through alley mouths and around the parcel siding.
+    // Keep the water sightline and the discoverable landmark yards open.
+    for(const rd of world.roads.slice(0,2)){
+      for(let s=8;s<rd.length;s+=21){
+        const f=rd.frameAt(s,{});
+        for(const side of [-1,1]){
+          const off=side*(27+random()*22),x=f.x+off*f.rx,z=f.z+off*f.rz;
+          if(!clear(x,z,6)||world.depots.some(d=>inDepot(x,z,d,2))||
+             Object.values(world.sites).some(p=>Math.hypot(x-p.x,z-p.z)<40)||
+             Math.hypot((x-world.creek.x)/106,(z-world.creek.z)/95)<1.25)continue;
+          const h=8+random()*11,w=h*(.68+random()*.28);
+          place(s%130<62?'elm':'willow',x,world.heightAt(x,z),z,w,h,w,random()*Math.PI);
+        }
+      }
+    }
+    const incline=world.depots.find(d=>d.id==='tram');
+    for(let n=0;n<100;n++){
+      const along=(random()-.5)*198,back=48+random()*48;
+      const x=incline.x+along*incline.tx+back*incline.rx,z=incline.z+along*incline.tz+back*incline.rz;
+      if(!clear(x,z,5))continue;
+      const h=8+random()*12;
+      place(n%4?'elm':'willow',x,world.heightAt(x,z),z,h*.85,h,h*.85,random()*Math.PI);
     }
     // The shutter is inside the maintenance road, clear of the ranked tunnel.
     const gate=world.roads[9].frameAt(28,{});
