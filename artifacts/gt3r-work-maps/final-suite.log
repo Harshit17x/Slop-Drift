@@ -1,0 +1,559 @@
+
+> slop-drift@1.0.0 test
+> node tests/world.test.mjs && node tests/map.test.mjs && node tests/roads.test.mjs && node tests/vehicle.test.mjs && node tests/session.test.mjs && node tests/career.test.mjs && node tests/ghost.test.mjs && node tests/net.test.mjs && node tests/party.test.mjs && node tests/camera.test.mjs && node tests/jungle.test.mjs && node tests/ui.test.mjs
+
+
+Build 1364 ms
+  start                          0 ms
+  Surveying the mountain         41 ms
+  Raising the terrain            773 ms
+  Eroding ridges and gullies     275 ms
+  Grading the roads              20 ms
+  Cutting the roadbed            249 ms
+
+Roads
+  loop: 5.70 km, 2848 samples, altitude 76-280 m, max grade 9.9%, min radius 16.3 m, tight corners 4, max bank 5.0 deg
+  ok    loop grade within limit  (9.9%)
+  ok    loop min radius drivable  (16.3 m)
+  ok    loop grade changes smoothly  (0.0055 per sample)
+  spur: 2.99 km, 1497 samples, altitude 275-512 m, max grade 9.9%, min radius 13.3 m, tight corners 3, max bank 5.0 deg
+  ok    spur grade within limit  (9.9%)
+  ok    spur min radius drivable  (13.3 m)
+  ok    spur grade changes smoothly  (0.0118 per sample)
+  ok    loop is long  (5697 m)
+  ok    spur is long  (2992 m)
+  ok    loop closes  (gap 2.00 m)
+  ok    loop legs keep apart  (45.9 m at samples 1896,1964)
+  ok    spur legs keep apart  (49.4 m at samples 376,444)
+  ok    spur clears the loop after the fork  (38.1 m)
+  ok    centreline is asphalt everywhere
+  ok    no bumps along the centreline  (0.30 cm beyond grade per 0.5 m)
+  ok    no step between road edge and terrain  (10.6 cm per 0.25 m)
+  ok    terrain stays under the road ribbon  (0.0 cm)
+
+Guardrails  loop 86% left, 10% right  |  spur 28% left, 61% right
+  ok    loop spawn faces the driving direction  (advances 6.0 m)
+        loop: 5.70 km, 17 checkpoints
+  ok    climb spawn faces the driving direction  (advances 6.0 m)
+        climb: 2.74 km, 8 checkpoints
+  ok    descent spawn faces the driving direction  (advances 6.0 m)
+        descent: 2.74 km, 8 checkpoints
+  ok    guardrail blocks and points inward  (depth 0.30)
+  ok    centre of the road is clear
+
+Terrain  1281x1281 nodes, height 24 to 518 m, plaza at 512 m
+  ok    all heights finite  (0 bad)
+  ok    ground query is cheap  (0.81 us per query)
+
+All world checks passed
+
+Mussoorie build 596 ms
+  ok    loop is a closed circuit of useful length  (2932 m)
+  ok    spur climbs to Lal Tibba  (1750 m, +111 m)
+  ok    loop grade within limit  (9.9 %)
+  ok    spur grade within limit  (9.9 %)
+  ok    no corner tighter than a hairpin  (min radius 9.0 m)
+  ok    Lal Tibba displays about 2,250 m  (2224 m)
+  ok    centreline is asphalt everywhere  (0 samples off)
+  ok    surface matches road profile  (max gap 0.00 m)
+  ok    roads stay above the water
+  ok    terrain stays below the asphalt  (0 points)
+  ok    no building on the road  (90 placements)
+  ok    spawn on loop is clear
+  ok    spawn on climb is clear
+  ok    spawn on descent is clear
+  ok    spawn on peak is clear
+  ok    spawn on peakdown is clear
+  ok    one plaza per open road  (2 plazas)
+  ok    plaza alias is the spur plaza
+  ok    laltibba plaza is reached by its road  (end 0.0 m from centre)
+  ok    laltibba plaza entry is open
+  ok    nagtibba plaza is reached by its road  (end 0.0 m from centre)
+  ok    nagtibba plaza entry is open
+  ok    spur starts on the loop  (3.1 m off)
+  ok    peak starts on the loop  (0.0 m off)
+  ok    one summit marker per plaza and one junction marker per fork
+  Nag Tibba road: 2848 m, +229 m, max grade 9.9 %, min radius 10.4 m, plaza 2371 m displayed
+  ok    peak road is a long climb  (2848 m, +229 m)
+  ok    peak grade within limit  (9.9 %)
+  ok    peak hairpins are drivable  (min radius 10.4 m)
+  ok    peak road is continuous asphalt  (0 bad metres)
+  ok    peak routes exist  (2.60 km)
+  ok    peak plaza is named  (Nag Tibba)
+  ok    landmark labels exported  (15)
+
+All map checks passed
+  ok    three roads, ids are indices
+  ok    roads ordered loop, spur, peak by name
+  ok    one plaza per open road
+  ok    plaza ids and labels from map.json
+  ok    world.plaza is the spur plaza
+  ok    summit is the highest plaza
+  ok    a junction per open road
+  ok    laltibba: plaza surface is asphalt of its road
+  ok    laltibba: road arrives level with the plaza
+  ok    laltibba: rail ring blocks the far side
+  ok    laltibba: rail ring is open at the entry
+  ok    laltibba: carved terrain stays under the plaza
+  ok    nagtibba: plaza surface is asphalt of its road
+  ok    nagtibba: road arrives level with the plaza
+  ok    nagtibba: rail ring blocks the far side
+  ok    nagtibba: rail ring is open at the entry
+  ok    nagtibba: carved terrain stays under the plaza
+  ok    loop is unbanked through every fork  (0.0000, 0.0000)
+  ok    loop banks away from the forks  (-0.0160)
+  ok    fork mouths open the loop on both sides of the circle
+  ok    branches start flush with the loop  (0.000 m)
+  ok    every road is continuous asphalt at its own height  (0 bad samples)
+  ok    routes for every road
+  ok    peak routes run on the peak road
+  ok    climb routes stay on the spur
+  ok    peak spawn faces the driving direction  (advances 6.0 m)
+  ok    peakdown spawn faces the driving direction  (advances 6.0 m)
+  ok    modes offered include the Nag Tibba events
+  ok    map data: a summit marker per plaza, a junction marker per fork
+  ok    map data: summit markers carry plaza labels
+  ok    unlabelled plaza names are added to the map labels once
+  ok    two-road map still builds with the legacy plaza
+  ok    no peak routes without a peak road
+  ok    modes without a route are not offered
+  ok    carve: single plaza and one-plaza list agree
+  ok    carve: no plazas leaves the ground alone
+
+All N-road checks passed
+  ok   inside front wheel turns tighter in a left hairpin
+  ok   inside front wheel turns tighter in a right hairpin
+  ok   full pedal takes up torque progressively
+  ok   wheel spin interpolates between physics ticks
+  ok   braking cuts residual drive torque on the next tick
+  ok   respawn clears the previous wheel pose
+  ok   gravel hatch rotates on the hydraulic rear brake at speed  (26.4 degrees)
+  ok   gravel hatch pulls straight under power after countersteer  (0.2 degrees, 74 km/h)
+
+Settling at rest
+  ok   Arcade: settles with no jitter  (max speed 4.73e-16 m/s, drift 0.00 mm)
+  ok   Balanced: settles with no jitter  (max speed 4.73e-16 m/s, drift 0.00 mm)
+  ok   origin sits on the ground at rest  (y = 0.0000)
+  ok   all four wheels loaded  (3376/3376/3001/3001)
+  ok   Sim: settles with no jitter  (max speed 4.73e-16 m/s, drift 0.00 mm)
+
+Holding on a 12% grade
+  ok   brake holds on 12% (uphill, pedal held through the stop)  (creep 0.00 mm, gear 1)
+  ok   handbrake holds on 12% (facing uphill)  (creep 0.02 mm)
+  ok   hill-hold with no input on 12% (facing uphill)  (creep 0.02 mm)
+  ok   handbrake holds on 12% (facing downhill)  (creep 0.02 mm)
+  ok   hill-hold with no input on 12% (facing downhill)  (creep 0.02 mm)
+  ok   coasts down the grade once rolling  (1.22 -> 4.33 m/s after 4 s)
+  ok   coasting on flat decelerates gently  (0.83 m/s^2)
+
+6 degree bank
+  ok   holds still on a 6 degree bank  (creep 0.01 mm)
+  ok   drives along the bank upright  (min up.y 0.994, x 0.25)
+
+Straight-line performance
+  ok   0-100 km/h about 5.5 s  (5.54 s)
+  ok   top speed 210-225 km/h from drag  (223.4 km/h in gear 6)
+  ok   100-0 km/h in 36-42 m with ABS  (37.1 m)
+  ok   straight-line braking stays straight  (max yaw rate 0.000)
+  ok   locked-wheel stop is longer than ABS  (47.1 m)
+  ok   ABS: steering works under full braking  (heading change 45.1 deg vs 0.6 deg locked)
+  ok   nitro shortens 0-100  (4.72 s)
+
+Steady cornering, 20 m/s on a 60 m radius
+  ok   Arcade: holds the circle without spinning  (max slip 1.44 deg, radius err 0.34 m, min speed 20.0)
+  ok   Balanced: holds the circle without spinning  (max slip 1.56 deg, radius err 0.44 m, min speed 20.0)
+  ok   Sim: holds the circle without spinning  (max slip 1.33 deg, radius err 0.39 m, min speed 20.0)
+
+Full throttle + full lock from rest
+  ok   Arcade steer right: stays on its wheels  (min up.y 1.000, max roll 0.5 deg)
+  ok   Arcade steer left: stays on its wheels  (min up.y 1.000, max roll 0.5 deg)
+  ok   Balanced steer right: stays on its wheels  (min up.y 1.000, max roll 0.5 deg)
+  ok   Balanced steer left: stays on its wheels  (min up.y 1.000, max roll 0.5 deg)
+  ok   Sim steer right: stays on its wheels  (min up.y 1.000, max roll 0.7 deg)
+  ok   Sim steer left: stays on its wheels  (min up.y 1.000, max roll 0.7 deg)
+
+Handbrake drift at 22 m/s and recovery
+  ok   Arcade: handbrake + steer at 22 m/s exceeds 20 deg slip  (peak 28.3 deg after 0.62 s, 17.8 m/s)
+  ok   Arcade: countersteer recovers under 5 deg without spinning  (recovered in 0.98 s, worst 43.8 deg)
+  ok   Balanced: handbrake + steer at 22 m/s exceeds 20 deg slip  (peak 28.7 deg after 0.68 s, 18.3 m/s)
+  ok   Balanced: countersteer recovers under 5 deg without spinning  (recovered in 1.48 s, worst 51.0 deg)
+  ok   Sim: handbrake + steer at 22 m/s exceeds 20 deg slip  (peak 28.0 deg after 0.69 s, 18.6 m/s)
+  ok   Sim: countersteer recovers under 5 deg without spinning  (recovered in 2.38 s, worst 64.2 deg)
+  ok   assist 0: handbrake still rotates the car  (peak 90.0 deg)
+  ok   throttle steals rear grip (power oversteer)  (slip 1.3 vs 5.9 deg)
+
+1.5 m drop
+  ok   lands and settles within 1.5 s  (settled 1.35 s after touchdown, landing 5.23 m/s)
+  ok   no bottom-through on landing  (min underbody 0.033 m, min hub height 0.465 m)
+
+Barrier hit at 25 m/s, 30 degrees
+  ok   stays on the road side of the wall  (max origin x 3.08)
+  ok   deflected along the wall  (v = (-0.0, -19.2), heading 0.0 deg)
+  ok   impact strength reported  (12.48 m/s)
+
+Reverse
+  ok   brake from rest engages reverse and backs up  (gear R, v -11.29)
+  ok   throttle brakes the reverse and returns to 1st  (gear 1, v 8.46)
+  ok   manual shift request changes gear  (gear 2)
+
+Robustness
+  ok   non-finite state restores the last good pose
+  ok   garbage ground samples do not produce NaN
+
+Fuzz, determinism, frame-time independence
+  ok   60 s random-input fuzz stays finite  (max speed 14.9 m/s, end (58.0, 0.2, -47.5))
+  ok   identical inputs give identical results
+  ok   fuzz seed 99 stays finite  (max speed 13.6 m/s)
+  ok   fuzz seed 2024 stays finite  (max speed 16.8 m/s)
+  ok   fuzz seed 31337 stays finite  (max speed 11.2 m/s)
+  ok   irregular frame times match a regular run  (position diff 0.00 cm)
+  ok   frame cap: one long frame runs at most maxSubSteps steps
+
+Drift scorer
+  ok   drift is detected and banked  (bank 13)
+
+Selectable cars
+  ok   hatch settles on four wheels  (y 0.000)
+  ok   hatch 0-100 km/h in a realistic time  (4.48 s)
+  ok   hatch drives the right wheels
+  ok   gt settles on four wheels  (y 0.000)
+  ok   gt 0-100 km/h in a realistic time  (2.72 s)
+  ok   gt drives the right wheels
+  ok   GT3 R wheelbase and staggered slick radii
+  ok   GT3 R six-speed box and nominal peak engine power  (415.6 kW)
+  ok   GT3 R dry ABS stop from 100 km/h  (24.4 m)
+  ok   thar settles on four wheels  (y 0.000)
+  ok   thar 0-60 km/h in a realistic time  (4.07 s)
+  ok   thar drives the right wheels
+
+Real World integration
+  ok   loop: settles at rest at the start (grade 2.0%)  (max speed 1.17e-4, creep 0.00 mm)
+  ok   loop: holds on the grade with the handbrake  (creep 0.00 mm)
+  ok   loop: drives 300 m along the road on asphalt  (travelled 300 m, closest edge 4.59 m inside, off-asphalt wheel samples 0, end speed 16.0 m/s)
+  ok   climb: settles at rest at the start (grade 6.6%)  (max speed 5.92e-4, creep 0.06 mm)
+  ok   climb: holds on the grade with the handbrake  (creep 0.02 mm)
+  ok   climb: drives 300 m along the road on asphalt  (travelled 300 m, closest edge 4.47 m inside, off-asphalt wheel samples 0, end speed 15.8 m/s)
+
+Measured figures (Balanced)
+  figure                                         value  unit    target
+  Coast decel from 72 km/h                        0.08  g       0.03-0.15
+  0-100 km/h                                      5.54  s       ~5.5
+  Top speed                                     223.40  km/h    210-225
+  100-0 km/h (ABS)                               37.14  m       36-42
+  100-0 km/h (no ABS)                            47.15  m       longer
+  0-100 km/h with nitro                           4.72  s       < 0-100
+  Steady 20 m/s / R60 body slip                   1.56  deg     < 6
+  Steady 20 m/s / R60 lateral g                   0.68  g       ~0.68
+  Handbrake entry: peak body slip                28.70  deg     > 20
+  Drift recovery time (assist 0.6)                1.48  s       < 3
+  Drift worst slip                               51.01  deg     < 100
+  1.5 m drop: settle time after touchdown         1.35  s       < 1.5
+  1.5 m drop: min underbody clearance             0.03  m       > 0
+  Barrier hit: reported impact                   12.48  m/s     ~12.5
+
+82 passed, 0 failed in 2.3 s
+ok   clean lap completes with the right time
+ok   circuit needs two laps; HUD lap counter advances
+ok   reversing across the line does not count
+ok   reversing over the line after a lap does not count another
+ok   skipping checkpoints does not count; going back for them does
+ok   skipped checkpoint can be fixed by reversing to it
+ok   full-speed gate pass detected at 120 Hz
+ok   full-speed gate pass detected at 20 Hz
+ok   high speed with a low frame rate on the loop
+ok   teleport across a gate is not a crossing
+ok   respawn: pose on the route, not ahead of progress, no crossing
+ok   respawn pose before any driving is the start pose area
+ok   descent drives the spur backwards
+ok   descent start at road end clamps, driving up the descent is wrong way
+ok   drift mode ends on time with bank + score
+ok   drift mode HUD counts down
+ok   roam never finishes but tracks progress
+ok   wrong way debounces and clears immediately
+ok   off road debounces and clears immediately
+ok   records and splits update only on improvement
+ok   records are stored per map; Alpine keeps the pre-map save
+ok   constructor rejects unknown routes, HUD shape matches HudFrame.session
+ok   update reuses its events array and HUD object
+ok   AudioEngine: no AudioContext available, nothing throws
+ok   AudioEngine: minimal stub context, nothing throws, no nodes per frame for beds
+
+25 passed, 0 failed
+  ok   xp curve starts at level 1 with 0 xp
+  ok   xp curve is increasing
+  ok   levelForXp inverts xpForLevel
+  ok   every paint unlock has a paint colour
+  ok   every achievement unlock requirement exists
+  ok   medal targets are ordered
+  ok   achievement ids are unique
+  ok   sanitizeName keeps a valid name
+  ok   sanitizeName rejects junk
+  ok   formatTarget
+  ok   new profile is saved
+  ok   new profile needs a name
+  ok   rename works
+  ok   profile reloads with the same id and name
+  ok   damaged save is repaired
+  ok   garbage save starts fresh
+  ok   no storage still works
+  ok   distance xp is paid while driving  (216 vs 216)
+  ok   level up announced mid-run  (levelUp,unlock,unlock)
+  ok   level unlocks announced
+  ok   distance stat tracked
+  ok   abandoning keeps the xp and reports it
+  ok   drainEvents empties the queue
+  ok   no medal above bronze time
+  ok   bronze at the bronze time
+  ok   author medal
+  ok   drift medal by score
+  ok   roam has no medal
+  ok   first run straight to gold pays bronze+silver+gold
+  ok   medal is new
+  ok   next medal is author
+  ok   finish and pb xp
+  ok   achievements: finish, summit, clean, first gold  (first-gold,first-finish,summit)
+  ok   summary xp matches profile delta  (820 vs 820)
+  ok   repeating a medal pays no medal xp
+  ok   a worse run does not downgrade the medal
+  ok   medal board
+  ok   no duplicate unlock notifications  (Glacier, Graphite rims, Magenta neon, Lime neon, Acid)
+  ok   3 golds unlock Sunburst
+  ok   gold everywhere unlocks Mountain Master
+  ok   Mountain Master unlocks Obsidian
+  ok   5 golds unlock gold rims
+  ok   cannot pick a locked paint
+  ok   can pick a free paint
+  ok   custom number locked at level 1
+  ok   custom number after level 5
+  ok   silver rims always allowed
+  ok   garage lists every unlock plus silver rims and no neon
+  ok   neon is off by default and always switchable off
+  ok   cyan neon fits at level 5
+  ok   ice neon locked until level 12
+  ok   rainbow neon needs the night achievement
+  ok   unknown neon rejected
+  ok   rally hatch is the default car
+  ok   every car can be picked
+  ok   unknown car rejected
+  ok   favorite car toggles and persists
+  ok   unknown favorite car rejected
+  ok   garage locked items explain why
+  ok   drift achievements
+  ok   drift xp
+  ok   airtime achievement after a second airborne
+  ok   daily is deterministic for a date
+  ok   daily has a target and text
+  ok   completing the daily pays out and starts a streak
+  ok   daily pays only once a day
+  ok   streak carries into the next day
+  ok   two days in a row is a 2-day streak
+  ok   missing a day breaks the streak
+  ok   dailies rotate through several events  (descent,circuit,drift,climb,sprint)
+  ok   respawn denies the clean-lap achievement
+  ok   night finish achievement
+  ok   respawn stat
+  ok   alpine track key is the bare mode id
+  ok   other maps are namespaced
+  ok   parseTrackKey inverts trackKey
+  ok   modeOfTrack
+  ok   mussoorie targets are ordered
+  ok   mussoorie timed targets are quicker than alpine (shorter tracks)
+  ok   track targets resolve through the track key
+  ok   unranked tracks have no targets
+  ok   every map ranks its own events
+  ok   Nag Tibba is ranked on Mussoorie only
+  ok   Nag Tibba targets are longer than the Lal Tibba climb
+  ok   alpine medal is stored under the bare mode id
+  ok   alpine medals do not show on mussoorie
+  ok   mussoorie next medal uses mussoorie targets
+  ok   an alpine-gold time is no medal on mussoorie
+  ok   mussoorie medal is keyed by track
+  ok   achievements still use plain mode ids on any map
+  ok   finishing the Nag Tibba climb earns its achievement and a medal
+  ok   setMap switches the board back to alpine
+  ok   same event on every map that has it, keyed per map
+  ok   alpine never rolls a Nag Tibba daily  (drift,descent,circuit,sprint,climb)
+  ok   mussoorie dailies can be Nag Tibba events  (drift,peakdown,circuit,descent,sprint,climb,peak)
+  ok   maps agree on the daily whenever both have the event
+  ok   ranked modes follow the map
+  ok   mussoorie medal board lists the Nag Tibba events
+  ok   daily label stays friendly
+  ok   a run on another map does not complete the daily
+  ok   a run on the daily's map completes it
+  ok   mussoorie daily target comes from mussoorie medals
+
+102 passed, 0 failed
+
+Codec
+  ok   encode returns a base64 string
+  ok   decode restores the header
+  ok   positions survive within 1 cm  (codec 0.50 mm, vs true path 0.73 mm)
+  ok   rotations survive within 0.1 deg  (0.0028 deg)
+  ok   steer bytes survive exactly
+  ok   3-minute synthetic run encodes under 30 KB  (1801 samples, 22.4 KB base64)
+  ok   3-minute run decodes
+  ok   garbage decodes to null without throwing  (15 inputs)
+  ok   encode rejects malformed ghosts with null
+  ok   URL-safe base64 decodes
+
+Recorder
+  ok   sample count independent of frame rate (30/60/144 Hz)  (counts 201/201/201)
+  ok   samples agree across frame rates  (max 0.11 mm (30 vs 144 Hz))
+  ok   irregular frame steps give the same count  (count 201)
+  ok   negative (countdown) times are ignored
+  ok   discard drops the run
+
+Playback
+  ok   duration matches the run  (20.000 s)
+  ok   interpolated path stays on the circle  (max 0.8 mm off)
+  ok   no velocity spikes between samples  (max dv per frame 0.068 m/s, bound 0.195, linear interp would jump 1.56)
+  ok   speed is steady through samples  (max speed error 0.021 m/s)
+  ok   poseAt clamps before the start and after the end
+  ok   poseAt returns a reused result object
+  ok   steer decodes to radians
+
+Teleport
+  ok   one teleport sample is stored and survives encoding
+  ok   playback snaps across the teleport instead of interpolating  (worst distance from either path 2.92 m, snap at 5.100 s)
+  ok   snap happens within one sample of the respawn
+  ok   path after the teleport is accurate  (max 1.0 mm)
+
+Store
+  ok   saveLocalGhost stores under the v1 prefix
+  ok   loadLocalGhost returns the ghost
+  ok   missing mode loads null
+  ok   corrupt entry loads null
+  ok   map ghost stores under its track key
+  ok   map ghost loads for its track only
+  ok   alpine ghost under a map key is rejected
+  ok   recorder stamps the track key
+  ok   quota error returns false
+  ok   clearLocalGhost removes it
+  ok   blocked storage never throws
+  ok   no storage at all returns false/null
+
+Real vehicle on the real world
+  ok   3-minute real drive encodes under 30 KB  (1801 samples, 19.5 KB base64 (19952 chars), 0.554 s to simulate)
+  ok   vehicle wheel spin is positive driving forward (GhostCar uses the same sign)
+  ok   replayed run stays on the road the whole way  (1543 poses, 3921 m, closest 3.05 m inside the edge)
+  ok   replay matches the live car between samples  (max 0.3 cm)
+
+42 passed, 0 failed
+ok   protocol: packet sizes
+ok   protocol: round trip keeps pose, speed, steer and flags
+ok   protocol: rejects garbage and NaN without touching the output
+    delay 250 ms, max error 0.169 m, max frame step 0.533 m
+ok   interpolation: smooth and accurate under jitter, clock offset and loss
+ok   interpolation: dead reckoning when packets stop, capped, then stale
+ok   interpolation: respawn teleports instead of sliding
+ok   sendState: 6 Hz moving, 1 Hz stationary, extra packet on stop, never above 15 Hz
+ok   NetClient: never throws on bad input
+ok   local mode: two clients over BroadcastChannel see each other
+ok   local mode: party create, join, select, ready, synchronised start, finish, results, host hand-over
+ok   local mode: joining a party nobody hosts fails
+ok   server party host: create/join refusals, ops, alarms, persistence, migration
+ok   Leaderboard local: time ascending, score descending, best per player
+ok   Leaderboard: unreachable host falls back to local
+ok   Leaderboard local: each map's track is its own board
+ok   MetaLayer: rooms, leaderboards and submissions use the map's track keys
+ok   validate: limits from medal targets
+ok   validate: names, ids, cosmetics, origins
+ok   validate: HMAC tokens
+    ghost for a 100 s run at 10 Hz: 10788 chars
+ok   validate: ghost header agrees with src/ghost/ghostCodec.js
+ok   validate: submissions
+
+21 passed, 0 failed (set NET_LIVE=http://127.0.0.1:8787 to include live server tests)
+ok   codes: format, alphabet, normalisation, room names
+ok   modes: every ranked event of the map, never roam
+ok   join: first member hosts, join order, rejoin keeps place, names sanitised
+ok   join: at most 8 members
+ok   leave: host migrates to the earliest remaining member; last one empties the party
+ok   select: host only, lobby/results only, valid modes of the map, resets ready
+ok   ready: members toggle in lobby, booleans only
+ok   start: host only, countdown to now + 5 s, tick goes racing at startAt
+ok   finish: validation, ordering by time, grace deadline, results when all done
+ok   finish: a DNF does not start the grace period; everyone DNF ends the round
+ok   deadline: unfinished racers become DNF; the round cap ends abandoned races
+ok   leave mid-race: remaining finishers complete the round; host migrates
+ok   drift: ranked by score, higher first; score required
+ok   rematch / select from results: back to the lobby, results cleared, round + 1
+ok   invalid input never throws and never changes state
+ok   RouteProgress: counts laps on a loop from behind the line; open routes are direct
+ok   buildStandings: finishers by time, then distance, unknown, DNF; details
+ok   buildResults: shared results rows
+ok   PartyRace: create, lobby view, synchronised start, standings, finish, results, rematch
+ok   PartyRace: quitting mid-race is a DNF; late joiners wait; refused joins show an error
+ok   PartyRace: a party on another map stores the code and switches the map
+
+21 passed, 0 failed
+  ok   chase camera sits 6-9 m behind at speed  (7.24 m)
+  ok   chase camera is behind the car  (-7.24)
+  ok   chase camera is above the car  (2.03)
+  ok   no NaN in the camera after settling
+  ok   field of view opens with speed  (62.0 -> 74.4 deg)
+  ok   nitro adds a visible FOV kick  (74.4 -> 79.9 deg)
+  ok   field of view stays in a usable range  (79.9)
+  ok   camera pulls back with speed
+  ok   drift camera frames the car between travel and nose  (camera -0.281 rad, travel -0.436, nose 0)
+  ok   drift angle stays readable (15-42% nose in frame)  (0.36)
+  ok   drift camera banks into the slide  (1.72 deg)
+  ok   drift camera pulls back a little  (7.26 m)
+  ok   drift framing differs from grip framing  (-0.286 vs 0.000)
+  ok   tiny slip changes framing continuously  (0.0265)
+  ok   camera yaw is framerate independent  (0.22 deg)
+  ok   camera position is framerate independent  (0.028 m)
+  ok   camera FOV is framerate independent  (68.48 vs 68.51)
+  ok   snap puts the camera at the respawn without a swing  (6.38 m)
+  ok   snap clears the blend
+  ok   orbit holds its radius  (9.00)
+  ok   orbit looks at the focus height  (8.20)
+  ok   chase camera is behind before look-back  (-7.08)
+  ok   look-back puts the camera in front of the car  (7.08)
+  ok   look-back looks back down the road  (-1.00)
+  ok   look-back does not bank the camera  (0.0000)
+  ok   free-look turns the view without moving the rig yaw  (22.9 deg)
+  ok   ROXX camera settles in the right-hand seat
+  ok   ten metres of road ahead projects into the middle half of the frame
+  ok   hatch and GT retain their left-hand seating positions
+  ok   a camera-mode change starts a blend  (0.04)
+  ok   far mode sits farther back than chase  (6.9 -> 11.9 m)
+  ok   the blend completes
+  ok   camera stays above the ground  (10.85)
+  ok   the shake toggle really stops the shake  (0.002)
+
+34 passed, 0 failed
+Jungle circuit, wet tyre ruts, safe crossing, collapse, water and recovery passed.
+Flood Cut and Cloud Ridge passed {
+  slow: {
+    landed: false,
+    missed: true,
+    airborne: 0.7083333333333333,
+    launchSpeed: 94.91245076862965,
+    notified: false
+  },
+  fast: {
+    landed: true,
+    missed: false,
+    airborne: 0.6833333333333333,
+    launchSpeed: 109.8961338250838,
+    notified: true
+  }
+}
+ok - formatTime
+ok - formatDelta
+ok - formatInt groups thousands without locale
+ok - recordKind per mode
+ok - applyDeadzone rescales
+ok - isFormField
+ok - bindings keep the documented keys
+ok - normalizeTrack computes bounds when missing
+ok - formatTarget
+ok - medalFor uses MEDAL_TARGETS direction
+ok - validateName
+ok - party code input sanitising
+ok - paintColor only passes safe colours
+ok - startGate setting defaults true and normalizes booleans
+ok - GarageUi car metadata, sorting, ratings and drivetrain SVG
+
+15 passed
