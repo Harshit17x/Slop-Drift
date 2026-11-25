@@ -610,7 +610,7 @@ export class AudioEngine {
     );
 
     this._g = {
-      output, sfxBus, noiseBuffer, sources, beds,
+      output, sfxBus, envBus, noiseBuffer, sources, beds,
       engineAmp, limiterGate, body, tone, driveMix, onBus, offBus, intakeGain, intakeFilter,
       fallbackGain, fallbackTone, fallbackOsc, clatterLevel, clatterOsc, turboGain, turboOsc,
       layers: null, // { rpm, on: [{src, gain}], off: [...] }
@@ -989,7 +989,7 @@ export class AudioEngine {
   }
 
   /** Enveloped oscillator one-shot (UI cues only). */
-  _tone({ freq, freqEnd, dur, vol, type = 'sine', when = 0, attack = 0.006 }) {
+  _tone({ freq, freqEnd, dur, vol, type = 'sine', when = 0, attack = 0.006, target = this._g.sfxBus }) {
     const ctx = this.ctx;
     const t = ctx.currentTime + when;
     const osc = ctx.createOscillator();
@@ -1001,7 +1001,7 @@ export class AudioEngine {
     env.gain.linearRampToValueAtTime(Math.max(0.0002, vol), t + attack);
     env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     osc.connect(env);
-    env.connect(this._g.sfxBus);
+    env.connect(target);
     osc.onended = () => {
       try {
         osc.disconnect();
@@ -1015,7 +1015,7 @@ export class AudioEngine {
   }
 
   /** Enveloped, filtered noise one-shot (UI cues and the no-sample fallback). */
-  _noise({ dur, vol, filter = 'lowpass', freq = 1000, freqEnd, q = 0.8, when = 0, attack = 0.004 }) {
+  _noise({ dur, vol, filter = 'lowpass', freq = 1000, freqEnd, q = 0.8, when = 0, attack = 0.004, target = this._g.sfxBus }) {
     const ctx = this.ctx;
     const t = ctx.currentTime + when;
     const src = ctx.createBufferSource();
@@ -1031,7 +1031,7 @@ export class AudioEngine {
     env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     src.connect(biquad);
     biquad.connect(env);
-    env.connect(this._g.sfxBus);
+    env.connect(target);
     src.onended = () => {
       try {
         src.disconnect();

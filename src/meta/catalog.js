@@ -51,6 +51,13 @@ function keyedByTrack(mapId, targets) {
  * bare mode ids of MEDAL_TARGETS. Its keys are exactly the tracks with medals and leaderboards.
  */
 export const TRACK_MEDAL_TARGETS = Object.freeze({
+  ...keyedByTrack('hollow', {
+    sprint:{kind:'time',bronze:276,silver:235,gold:205,author:186},
+    circuit:{kind:'time',bronze:552,silver:470,gold:410,author:372},
+    drift:MEDAL_TARGETS.drift,
+    quarter:{kind:'time',bronze:176,silver:151,gold:133,author:120},
+    vanishing:{kind:'time',bronze:385,silver:337,gold:292,author:264},
+  }),
   ...keyedByTrack('jungle', {
     sprint: { kind: 'time', bronze: 310, silver: 270, gold: 235, author: 210 },
     circuit: { kind: 'time', bronze: 620, silver: 540, gold: 470, author: 420 },
@@ -118,6 +125,7 @@ export const UNLOCKS = Object.freeze([
   { id: 'neon:violet', slot: 'neon', value: 'violet', label: 'Violet neon', requires: { level: 9 } },
   { id: 'neon:ice', slot: 'neon', value: 'ice', label: 'Ice White neon', requires: { level: 12 } },
   { id: 'neon:rainbow', slot: 'neon', value: 'rainbow', label: 'Rainbow neon', requires: { achievement: 'night-run' } },
+  { id: 'paint:saltline', slot:'paint', value:'saltline', label:'Saltline Service', requires:{achievement:'hollow-pumps'} },
   { id: 'paint:obsidian', slot: 'paint', value: 'obsidian', label: 'Obsidian', requires: { achievement: 'all-gold' } },
 ]);
 
@@ -134,6 +142,8 @@ export const RIM_OPTIONS = Object.freeze([
  * awarded by Career when the named moment happens. `xp` is granted once on unlock.
  */
 export const ACHIEVEMENTS = Object.freeze([
+  { id:'hollow-pumps', title:'Saltline Service', description:'Find the abandoned fuel station in Hollow Creek.', xp:55 },
+  { id:'hollow-cartographer', title:'Town Archivist', description:'Discover every Hollow Creek landmark.', xp:150 },
   { id: 'first-finish', title: 'Off the Line', description: 'Finish any timed event.', event: 'finish', xp: 50 },
   { id: 'first-drift', title: 'Sideways', description: 'Bank your first drift.', event: 'drift', xp: 30 },
   { id: 'summit', title: 'Top of the World', description: 'Finish the Summit Climb.', event: 'finish:climb', xp: 100 },

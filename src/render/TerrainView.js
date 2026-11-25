@@ -46,6 +46,7 @@ export class TerrainView {
     const bankSpec = world.config.mountain.grassBank;
     const bankPlaza = bankSpec && world.plazas?.find((plaza) => plaza.id === bankSpec.plaza);
     this.uniforms = createTerrainUniforms({
+      hollow: world.config.map === 'hollow',
       rainforest: Boolean(world.bridge),
       grassBank: bankPlaza ? { x: bankPlaza.x, z: bankPlaza.z, radius: bankSpec.radius } : null,
       control: this.controlTexture,

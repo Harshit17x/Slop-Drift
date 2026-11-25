@@ -8,7 +8,7 @@ const STORAGE_KEY = 'slop-drift-settings-v2';
 const RECORDS_KEY = 'slop-drift-records-v1';
 
 /** Surface ids returned by World.sampleGround(). Index into SURFACE_PROPS. */
-export const SURFACE = Object.freeze({ ASPHALT: 0, GRAVEL: 1, GRASS: 2, DIRT: 3, ROCK: 4, SNOW: 5, WATER: 6, MUD: 7, WOOD: 8, HARDPACK: 9 });
+export const SURFACE = Object.freeze({ ASPHALT: 0, GRAVEL: 1, GRASS: 2, DIRT: 3, ROCK: 4, SNOW: 5, WATER: 6, MUD: 7, WOOD: 8, HARDPACK: 9, COBBLE: 10 });
 
 export const SURFACE_PROPS = Object.freeze([
   Object.freeze({ name: 'asphalt', grip: 1.0, rolling: 0.012, roughness: 0.02 }),
@@ -21,6 +21,7 @@ export const SURFACE_PROPS = Object.freeze([
   Object.freeze({ name: 'mud', grip: 0.90, rolling: 0.017, roughness: 0.32 }),
   Object.freeze({ name: 'wet timber', grip: 0.7, rolling: 0.022, roughness: 0.15 }),
   Object.freeze({ name: 'hardpack', grip: 0.90, rolling: 0.015, roughness: 0.14 }),
+  Object.freeze({ name:'wet cobblestone', grip:.93, rolling:.016, roughness:.17 }),
 ]);
 
 /**
@@ -40,11 +41,13 @@ export const MODES = Object.freeze([
   Object.freeze({ id: 'drift', label: 'Drift Session', tagline: '120 s · score attack', route: 'loop', laps: 0, timeLimit: 120 }),
   Object.freeze({ id: 'peak', label: 'Nag Tibba Hill Climb', tagline: 'Switchbacks to the top', route: 'peak', laps: 1, tab: 'Nag Tibba' }),
   Object.freeze({ id: 'peakdown', label: 'Nag Tibba Descent', tagline: 'Hairpins all the way down', route: 'peakdown', laps: 1, tab: 'Nag Descent' }),
+  Object.freeze({ id:'quarter', label:'Forgotten Quarter', tagline:'3 km · Clock Square time trial', route:'quarter', laps:1 }),
+  Object.freeze({ id:'vanishing', label:'The Vanishing Road', tagline:'7 km · Signal Tunnel endurance run', route:'vanishing', laps:1 }),
   Object.freeze({ id: 'roam', label: 'Free Roam', tagline: 'Explore the whole mountain', route: 'loop', laps: 0 }),
 ]);
 
 export function getMode(id) {
-  return MODES.find((mode) => mode.id === id) || MODES[0];
+  return MODES.find((mode) => mode.id === id) || MODES.find(mode => mode.id === 'sprint');
 }
 
 /**
@@ -53,7 +56,11 @@ export function getMode(id) {
  */
 export function modesForWorld(world) {
   const routes = world?.routes || {};
-  return MODES.filter((mode) => Object.prototype.hasOwnProperty.call(routes, mode.route));
+  const modes=MODES.filter((mode) => Object.prototype.hasOwnProperty.call(routes, mode.route));
+  if(world?.config?.map!=='hollow')return modes;
+  return modes.map(mode=>mode.id==='sprint'?{...mode,label:'Hollow Creek Circuit',tagline:'5 km · main circuit'}:
+    mode.id==='circuit'?{...mode,label:'Creek Endurance',tagline:'Two laps of the main circuit'}:
+    mode.id==='roam'?{...mode,tagline:'Garage dispatch and exploration'}:mode);
 }
 
 export const PAINT_OPTIONS = Object.freeze([
@@ -67,6 +74,7 @@ export const PAINT_OPTIONS = Object.freeze([
   Object.freeze({ id: 'racing-green', label: 'Racing Green', color: 0x0f4d32, creviceColor: 0x031a10, flopColor: 0x29875c, metalness: 0.46, roughness: 0.15, clearcoat: 0.94, flake: 0.24, blend: 0.75 }),
   Object.freeze({ id: 'sunburst', label: 'Sunburst', color: 0xffb21a, creviceColor: 0x914200, flopColor: 0xffe46e, metalness: 0.55, roughness: 0.18, clearcoat: 0.92, flake: 0.28, blend: 0.74 }),
   Object.freeze({ id: 'summit', label: 'Summit Chrome', color: 0xdfe4ea, creviceColor: 0x5c6472, flopColor: 0xffffff, metalness: 1, roughness: 0.10, clearcoat: 0.85, flake: 0.08, blend: 0.55 }),
+  Object.freeze({ id:'saltline', label:'Saltline Service', color:0x507b76, creviceColor:0x1b3639, flopColor:0xe6d6ab, metalness:.58, roughness:.36, clearcoat:.67, flake:.14, blend:.66 }),
   Object.freeze({ id: 'obsidian', label: 'Obsidian', color: 0x0b0b0e, creviceColor: 0x020204, flopColor: 0x2c3442, metalness: 0.70, roughness: 0.16, clearcoat: 0.95, flake: 0.22, blend: 0.68 }),
 ]);
 

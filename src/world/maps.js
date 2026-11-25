@@ -55,6 +55,15 @@ export const MAPS = Object.freeze({
       props: HAS_URL ? new URL('../assets/maps/mussoorie/props.glb', import.meta.url).href : null,
     }),
   }),
+  hollow: Object.freeze({
+    id: 'hollow', label: 'Hollow Creek', tagline: 'Three circuits through a town abandoned to the fog',
+    highlights: ['Clock Square', 'Signal Tunnel', 'East Wharf'],
+    routes: ['loop','quarter','vanishing'], assets: null,
+    preview: HAS_URL ? new URL('../assets/maps/previews/hollow.jpg', import.meta.url).href : null,
+    config: Object.freeze({...WORLD, map:'hollow',seed:3927,grid:{size:513,cell:6},
+      mountain:{...WORLD.mountain,waterLevel:-18,valleyFloor:0,lake:null,snowLine:9999,treeLine:9999},
+      road:{...WORLD.road,halfWidth:5.5,shoulder:.7,bedMargin:4}}),
+  }),
   jungle: Object.freeze({
     id: 'jungle', label: 'Monsoon Run',
     tagline: 'A five-kilometre rally through the rainforest',

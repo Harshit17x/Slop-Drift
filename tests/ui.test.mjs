@@ -43,7 +43,7 @@ test('formatInt groups thousands without locale', () => {
 
 test('recordKind per mode', () => {
   const kinds = Object.fromEntries(MODES.map((m) => [m.id, recordKind(m)]));
-  assert.deepEqual(kinds, { sprint: 'time', circuit: 'time', climb: 'time', descent: 'time', drift: 'score', peak: 'time', peakdown: 'time', roam: 'none' });
+  assert.deepEqual(kinds, { sprint: 'time', circuit: 'time', climb: 'time', descent: 'time', drift: 'score', peak: 'time', peakdown: 'time', quarter:'time', vanishing:'time', roam: 'none' });
 });
 
 test('applyDeadzone rescales', () => {

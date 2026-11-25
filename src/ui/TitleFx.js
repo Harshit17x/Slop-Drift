@@ -24,6 +24,11 @@ const TRACK_HALF_WIDTH = 5.6;
 const UP = new THREE.Vector3(0, 1, 0);
 
 const MAP_PALETTES = {
+  hollow: {
+    turbidity:8, rayleigh:1.25, mie:.012, mieG:.78, elevation:7, azimuth:215,
+    exposure:.61, clouds:.76, cloudDensity:.72, fog:0x526d78, fogDensity:.011,
+    sun:0xbacbd0, hemiSky:0xa3bac0, hemiGround:0x283337, neon:0xb6cebd, paint:0xd7dcd7, snowLevel:99
+  },
   mussoorie: {
     turbidity: 6.4,
     rayleigh: 3.1,

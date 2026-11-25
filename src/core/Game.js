@@ -18,6 +18,8 @@ import { TerrainView } from '../render/TerrainView.js';
 import { WaterView } from '../render/WaterView.js';
 import { WASHOUT, inWashout } from '../world/jungleStage.js';
 import { BRIDGE } from '../world/Jungle.js';
+import { HollowAdventure } from '../game/HollowAdventure.js';
+import { HollowCreekTown } from '../render/HollowCreekTown.js';
 import { JungleCanopy } from '../render/JungleCanopy.js';
 import { RoadView } from '../render/RoadView.js';
 import { Scenery } from '../render/Scenery.js';
@@ -156,7 +158,7 @@ export class Game {
           this.landmarks = null;
         }
       }],
-      ['Planting the forest', () => { const Forest = this.world.bridge ? JungleCanopy : Scenery; this.scenery = new Forest({ world: this.world, quality }); this.scene.add(this.scenery.group); }],
+      ['Building roadside scenery', async () => { const Forest = this.map.id === 'hollow' ? HollowCreekTown : this.world.bridge ? JungleCanopy : Scenery; this.scenery = new Forest({ world: this.world, quality }); this.scene.add(this.scenery.group); if(this.map.id==='hollow') await this.scenery.loadCoupe(this.world); }],
       ['Lighting the sky', () => { this.atmosphere = new Atmosphere({ scene: this.scene, renderer: this.renderer, world: this.world, quality }); }],
       // Only the equipped car's model (they are megabytes each); the rest download after the loading screen.
       ['Warming the engine', async () => { await loadCarModels([this.career.profile.cosmetics.car]); this.createVehicle(); }],
@@ -172,6 +174,7 @@ export class Game {
     this.hud.setMap(this.map.id);
     this.hud.setTrack(this.world.getMapData());
     this.meta = new MetaLayer({ career: this.career, hud: this.hud, scene: this.scene, wheelLayout: this.vehicle.wheelLayout, game: this, mapId: this.map.id });
+    if(this.map.id==='hollow')this.adventure=new HollowAdventure(this);
     this.createNetwork();
     this.applySettings(this.settings, { save: false });
     this.meta.refreshAll();
@@ -413,7 +416,7 @@ export class Game {
    *   instead of the usual 3 s (party races start everyone together). party: this is a party round.
    */
   beginRun(modeId, options = {}) {
-    const mode = getMode(modeId);
+    const mode = this.modes?.find(m=>m.id===modeId) || getMode(modeId);
     const route = this.world.routes[mode.route];
     if (!route) {
       this.hud.toast(`${mode.label} is not on ${this.map.label}`, 'warn');
@@ -425,7 +428,14 @@ export class Game {
     this.audio.unlock();
     this.mode = mode;
     this.session = new RaceSession({ world: this.world, mode: this.mode, records: this.records });
-    this.vehicle.teleport(this.session.getStartPose(this.pose));
+    const spawn=this.session.getStartPose(this.pose);
+    if(mode.id==='roam' && this.world.sites){
+      const p=this.world.sites.garage;
+      Object.assign(spawn.position,{x:p.x-4*p.rx,y:this.world.heightAt(p.x-4*p.rx,p.z-4*p.rz),z:p.z-4*p.rz});
+      const angle=Math.atan2(p.rx,p.rz);Object.assign(spawn.quaternion,{x:0,y:Math.sin(angle/2),z:0,w:Math.cos(angle/2)});
+    }
+    this.vehicle.teleport(spawn);
+    this.adventure?.runStart(modeId);
     this.meta.beginRun(this.mode.id, this.settings.timeOfDay);
     this.meta.joinRoom(this.mode.id);
     this.drift.reset();
@@ -522,6 +532,7 @@ export class Game {
   /** First launch: once the driver has a name, go straight onto the mountain instead of a menu. */
   startFirstDrive() {
     this.beginRun('roam');
+    if(this.map.id==='hollow'){this.hud.toast('Garage radio opens the Hollow Creek dispatch board.', 'info');return;}
     this.hud.toast('Explore the mountain. Esc opens the events board.', 'info');
   }
 
@@ -554,6 +565,7 @@ export class Game {
     saveRecords(this.records, this.map.id);
     this.hud.setRecords(this.records);
     this.hud.setCountdown('');
+    this.adventure?.finishRace();
     const rewards = this.meta.finish(result);
     if (result?.isRecord || rewards?.medal?.tier === 'gold') {
       this.platform?.happytime();
@@ -726,6 +738,7 @@ export class Game {
     this.effects.emit(dt, state);
     if (state.impact > 9) this.slogan();
     this.sendNetState(state, boosting, drift.active);
+    if(this.state==='running')this.adventure?.update(dt,state,drift);
     this.audioFlags.drifting = drift.active;
     this.audioFlags.boosting = boosting;
     this.audio.update(dt, state, this.audioFlags);
@@ -776,7 +789,7 @@ export class Game {
 
   /** Put the car back on the road if it ends up on its roof, in the lake, or far out of bounds. */
   checkStuck(dt, state) {
-    const drowned = state.position.y < this.world.waterLevel - 0.9;
+    const drowned = state.position.y < this.world.waterAt(state.position.x,state.position.z) - 0.9;
     const flipped = state.upsideDown && state.speed < 3;
     if (drowned || flipped) this.stuckTimer += dt;
     else this.stuckTimer = 0;
@@ -828,6 +841,7 @@ export class Game {
 
     const input = this.input.update();
     this.handleGlobalInput(input);
+    this.adventure?.visibility();
 
     let state;
     const paused = this.state === 'paused';
@@ -953,6 +967,7 @@ export class Game {
     this.partyRace?.dispose();
     this.remotePlayers?.dispose();
     this.net?.dispose();
+    this.adventure?.dispose();
     this.audio?.dispose();
     this.effects?.dispose();
     this.car?.dispose();

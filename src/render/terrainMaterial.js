@@ -36,6 +36,7 @@ uniform float uTreeLine;
 uniform float uWaterLevel;
 uniform float uValleyFloor;
 uniform float uRainforest;
+uniform float uHollow;
 uniform float uSunShadeStrength;
 uniform vec4 uGrassBank;      // xy: centre (world x, z), z: radius (0 = none); grass holds on steeper banks inside
 varying vec3 vTerrainPos;
@@ -156,6 +157,7 @@ const FRAGMENT_COLOR = /* glsl */ `
   terrainOcclusion = clamp(control.b / 0.86, 0.0, 1.16);
   terrainSunShade = mix(1.0, texture2D(uSunShade, controlUv).r, uSunShadeStrength);
   terrainRoughness = rough;
+  if(uHollow>.5) albedo=mix(vec3(.041,.049,.045),vec3(.115,.108,.09),clamp(dot(albedo,vec3(.3,.6,.1))*3.8,0.,1.));
   diffuseColor.rgb = albedo * mix(0.72, 1.0, min(1.0, terrainOcclusion));
 }
 `;
@@ -177,7 +179,7 @@ reflectedLight.directSpecular *= terrainSunShade;
  * @param {THREE.Texture} options.noise    Tiling RGBA noise.
  * @param {THREE.Texture} options.sunShade Coarse R8 sun shadow.
  */
-export function createTerrainUniforms({ control, noise, sunShade, grid, mountain, rainforest = false, grassBank = null }) {
+export function createTerrainUniforms({ control, noise, sunShade, grid, mountain, rainforest = false, hollow = false, grassBank = null }) {
   return {
     uControl: { value: control },
     uNoise: { value: noise },
@@ -190,6 +192,7 @@ export function createTerrainUniforms({ control, noise, sunShade, grid, mountain
     uSnowLine: { value: mountain.snowLine },
     uTreeLine: { value: mountain.treeLine },
     uWaterLevel: { value: mountain.waterLevel },
+    uHollow: { value:hollow?1:0 },
     uRainforest: { value: rainforest ? 1 : 0 },
     uValleyFloor: { value: mountain.valleyFloor },
     uSunShadeStrength: { value: 0.8 },
