@@ -613,7 +613,20 @@ export class Vehicle {
 
       // Longitudinal: drive / engine braking (driven wheels) + rolling resistance.
       let fx = 0;
-      if (w.driven && drivenInContact > 0) fx += driveForce / drivenInContact;
+      if (w.driven && drivenInContact > 0) {
+        const diff = t.drivetrain;
+        if (diff.axleTorqueBias) {
+          // Fixed axle split; a limited-slip approximation biases torque toward the loaded wheel.
+          const mate = this.wheels[wi ^ 1];
+          const available = w.load * w.sample.grip;
+          const opposite = mate.contact ? mate.load * mate.sample.grip : 0;
+          const limit = 1 / (1 + diff.axleTorqueBias);
+          const share = clamp(available / Math.max(1, available + opposite), limit, 1 - limit);
+          fx += driveForce * (w.front ? diff.frontDriveShare : 1 - diff.frontDriveShare) * share;
+        } else {
+          fx += driveForce / drivenInContact;
+        }
+      }
       const rollingRes = w.sample.rolling * w.load;
       fx -= rollingRes * clamp(w.vLong / 0.3, -1, 1);
 
@@ -621,7 +634,10 @@ export class Vehicle {
       let fy = 0;
       if (w.blend > 0) {
         const alpha = Math.atan2(Math.abs(w.vLat), Math.max(Math.abs(w.vLong), 0.5));
-        let mag = w.muN * lateralCurve(alpha / peakSlip, tire.slideRatio, tire.falloff);
+        const loose = tire.gravelPeakDeg && (w.sample.surface === SURFACE.GRAVEL ||
+          w.sample.surface === SURFACE.DIRT || w.sample.surface === SURFACE.MUD);
+        const peak = loose ? tire.gravelPeakDeg * DEG2RAD : peakSlip;
+        let mag = w.muN * lateralCurve(alpha / peak, loose ? tire.gravelSlideRatio : tire.slideRatio, tire.falloff);
         const cap = (w.meffY * Math.abs(w.vLat) / dt) * tire.cancelCap;
         if (mag > cap) mag = cap;
         fy = -Math.sign(w.vLat) * mag * w.blend;

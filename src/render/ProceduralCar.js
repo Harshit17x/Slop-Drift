@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { PAINT_MODES, patchCarPaint, setCarPaintUniforms } from './carPaintShader.js';
 import { patchUnderglow } from './underglowLight.js';
+import { rallyLivery, rallyPart, textureRallySurface, tyreCoat } from './RallyKit.js';
+import { SURFACE } from '../config.js';
 import { frontWheelAngle } from '../vehicle/steering.js';
 
 /** Underglow light output per metre of LED strip at full (night) level. */
@@ -11,13 +13,8 @@ const WHEEL_KEYS = ['frontLeft', 'frontRight', 'rearLeft', 'rearRight'];
 
 // Side silhouettes in chassis space as [z, y] pairs, front of the car toward -z.
 // The chassis group sits `chassisOffsetY` above the car origin (ground level at rest).
-const BODY_TOP = [
-  [-2.12, 0.16], [-2.2, 0.36], [-2.19, 0.53], [-2.05, 0.65], [-1.55, 0.73], [-1.0, 0.79], [-0.8, 0.82],
-  [0.95, 0.86], [1.55, 0.88], [1.97, 0.84], [2.1, 0.64], [2.13, 0.36], [2.05, 0.16],
-];
-const GLASSHOUSE = [[-0.8, 0.8], [-0.13, 1.27], [0.95, 1.29], [1.63, 0.95], [1.5, 0.8]];
-const ROOF = [[-0.16, 1.255], [0.96, 1.275], [0.99, 1.315], [-0.1, 1.31]];
-const SILL_Y = 0.16;
+const GLASSHOUSE = [[-0.88, 0.82], [-0.29, 1.33], [-0.13, 1.37], [1.40, 1.37], [1.54, 1.30], [1.99, 0.962], [1.54, 0.914]];
+const ROOF = [[-0.31, 1.318], [-0.11, 1.398], [1.37, 1.398], [1.58, 1.315], [1.48, 1.305], [1.32, 1.345], [-0.13, 1.345]];
 const ARCH_Y = 0.21;
 const ARCH_RADIUS = 0.43;
 
@@ -55,20 +52,59 @@ function taper(geometry, fromY, toY, amount) {
   return geometry;
 }
 
-/** Body outline: the top line from BODY_TOP, then the underside with both wheel arches cut in. */
-function bodyOutline(wheelbase) {
-  const points = BODY_TOP.map((point) => point.slice());
-  const half = wheelbase / 2;
-  const arch = (centre) => {
-    const start = Math.asin((SILL_Y - ARCH_Y) / ARCH_RADIUS);
-    for (let i = 0; i <= 14; i += 1) {
-      const angle = start + ((Math.PI - 2 * start) * i) / 14;
-      points.push([centre + Math.cos(angle) * ARCH_RADIUS, ARCH_Y + Math.sin(angle) * ARCH_RADIUS]);
+/** Loft the pressed bodywork over both wheel openings. Each station carries a sill,
+ * shoulder crease and crowned bonnet; the arch openings are cut into the actual silhouette. */
+function stageShell(width, wheelbase) {
+  const roofline = [[-2.22,.62],[-2.07,.68],[-1.48,.766],[-.86,.832],
+    [.45,.874],[1.28,.942],[1.75,.985],[2.05,.933],[2.16,.83]];
+  const stations = new Set(roofline.map(([z]) => z));
+  for (let i = 0; i <= 82; i++) stations.add(-2.22 + 4.38 * i / 82);
+  for (const axle of [-wheelbase / 2, wheelbase / 2]) {
+    for (let i = 0; i <= 32; i++) stations.add(axle + 0.435 * Math.cos(i * Math.PI / 32));
+  }
+  const rings = [...stations].sort((a,b) => a-b).map(z => {
+    const next = roofline.findIndex(([end]) => z < end);
+    const floor = next < 0 ? roofline.length - 2 : Math.max(0, next - 1);
+    const [za, ya] = roofline[floor], [zb, yb] = roofline[floor + 1];
+    const crown = THREE.MathUtils.lerp(ya, yb, (z - za) / (zb - za));
+    const gap = Math.abs(Math.abs(z) - wheelbase / 2);
+    const arch = gap < 0.435 ? 0.222 + Math.sqrt(0.435 ** 2 - gap ** 2) : 0.158;
+    const bulge = Math.exp(-((gap / 0.46) ** 2));
+    const w = width / 2 + 0.044 * bulge - 0.081 * THREE.MathUtils.smoothstep(Math.abs(z), 1.67, 2.22);
+    const side = [[w-.038,arch], [w-.014,arch+.025], [w,Math.max(arch+.034,crown-.168)],
+      [w-.012,crown-.061], [w-.068,crown-.008], [w-.172,crown+.016]];
+    const half = side.map(([x,y]) => [x,y,z]);
+    return [...half, [0,crown+.023,z], ...half.slice().reverse().map(([x,y]) => [-x,y,z])];
+  });
+  const pos=[], uv=[], index=[];
+  const vertex = ([x,y,z]) => { pos.push(x,y,z); uv.push(z*1.7,(y+x)*1.7); return pos.length/3 - 1; };
+  for (let edge=0; edge<rings[0].length-1; edge++) {
+    let last;
+    for (const ring of rings) {
+      // Leave an opening underneath the glasshouse between the cowl and the parcel shelf.
+      if ((edge === 5 || edge === 6) && ring[0][2] > -0.82 && ring[0][2] < 1.68) {
+        last = undefined;
+        continue;
+      }
+      const a=vertex(ring[edge]), b=vertex(ring[edge+1]);
+      if (last !== undefined) index.push(last,last+1,b,last,b,a);
+      last=a;
     }
-  };
-  arch(half);
-  arch(-half);
-  return points;
+  }
+  for (const [ring,front] of [[rings[0],true],[rings.at(-1),false]]) {
+    const centre=vertex([0,(ring[0][1]+ring[6][1])/2,ring[0][2]]);
+    const ends=ring.map(vertex);
+    for (let i=0;i<ends.length;i++) {
+      const a=ends[i], b=ends[(i+1)%ends.length];
+      index.push(centre,front?b:a,front?a:b);
+    }
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv,2));
+  g.setIndex(index);
+  g.computeVertexNormals();
+  return g;
 }
 
 /** A box spanning from `a` to `b` (both Vector3), for pillars and struts. */
@@ -117,12 +153,12 @@ export class ProceduralCar extends THREE.Group {
       length: 4.33,
       width: options.width ?? 1.8,
       wheelbase: layout ? Math.abs(layout[2].z - layout[0].z) : options.wheelbase ?? 2.55,
-      track: layout ? Math.abs(layout[1].x - layout[0].x) : options.track ?? 1.56,
-      wheelRadius: options.wheelRadius ?? 0.34,
-      wheelWidth: options.wheelWidth ?? 0.235,
+      track: layout ? Math.abs(layout[1].x - layout[0].x) : options.track ?? 1.686,
+      wheelRadius: options.wheelRadius ?? 0.366,
+      wheelWidth: options.wheelWidth ?? 0.254,
     };
     this.chassisOffsetY = options.chassisOffsetY ?? 0.13;
-    this.wheelCentreY = options.wheelCentreY ?? 0.34;
+    this.wheelCentreY = options.wheelCentreY ?? 0.366;
     this.wheels = new Map();
     this.wheelPivots = new Map();
     this.wheelSpin = new Map();
@@ -174,14 +210,20 @@ export class ProceduralCar extends THREE.Group {
     this.bodyMaterial = paint;
     const trim = this.material({ color: 0x15171a, metalness: 0.25, roughness: 0.6 });
     const satin = this.material({ color: 0x24282d, metalness: 0.5, roughness: 0.45 });
-    const glass = this.material({ color: 0x0b131c, metalness: 0.6, roughness: 0.06 });
+    const glass = this.material({ color: 0x25353e, metalness: 0.16, roughness: 0.09, transparent: true, opacity: 0.41, depthWrite: false });
     const lamp = this.material({ color: 0xfff6dc, emissive: 0xffe7b0, emissiveIntensity: 1.3, roughness: 0.15 });
     const tail = this.material({ color: 0x5c0808, emissive: 0xff1010, emissiveIntensity: 0.45, roughness: 0.3 });
     const reverse = this.material({ color: 0xdedede, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.2 });
     this.stripeMaterial = this.material({ color: 0x1b1f24, metalness: 0.3, roughness: 0.4 });
-    const accent = this.material({ color: 0xc7ff52, emissive: 0x3a5a00, emissiveIntensity: 0.25, roughness: 0.45 });
+    const accent = this.material({ color: 0xc63d21, emissive: 0x000000, emissiveIntensity: 0, roughness: 0.45 });
     const dash = this.material({ color: 0x1e2226, roughness: 0.8 });
     const gauge = this.material({ color: 0x78d6ff, emissive: 0x2a8fd0, emissiveIntensity: 1.1, roughness: 0.3 });
+    textureRallySurface(trim, 'Carbon');
+    textureRallySurface(satin, 'Steel');
+    textureRallySurface(dash, 'Flock');
+    textureRallySurface(accent, 'Vermilion');
+    rallyLivery(paint);
+    rallyLivery(trim, false);
     this.tailMaterial = tail;
     this.reverseLampMaterial = reverse;
 
@@ -191,7 +233,9 @@ export class ProceduralCar extends THREE.Group {
     this.add(this.chassis);
 
     // --- body shell and glasshouse
-    this.paintMeshes.push(this.part(taper(extrudeProfile(bodyOutline(wheelbase), width, { bevel: 0.07 }), 0.55, 0.9, 0.05), paint));
+    this.paintMeshes.push(this.part(stageShell(width, wheelbase), paint));
+    this.box(1.37, 0.05, 3.87, 0, 0.18, 0, trim);
+    this.box(1.47, 0.035, 0.47, 0, 0.90, 1.55, trim);
     this.part(taper(extrudeProfile(GLASSHOUSE, width - 0.22, { bevel: 0.03 }), 0.8, 1.29, 0.18), glass);
     this.part(taper(extrudeProfile(ROOF, width - 0.42, { bevel: 0.025 }), 1.25, 1.32, 0.04), paint);
 
@@ -199,16 +243,17 @@ export class ProceduralCar extends THREE.Group {
     const inset = (y) => (width / 2 - 0.13) * (1 - 0.18 * Math.min(1, Math.max(0, (y - 0.8) / 0.49)));
     for (const side of [-1, 1]) {
       const at = (z, y) => new THREE.Vector3(side * (inset(y) + 0.012), y, z);
-      this.part(strut(at(-0.78, 0.82), at(-0.13, 1.27), 0.05, 0.09), paint);
-      this.part(strut(at(0.32, 0.84), at(0.34, 1.28), 0.05, 0.12), paint);
-      this.part(strut(at(0.95, 1.28), at(1.6, 0.96), 0.05, 0.16), paint);
+      this.part(strut(at(-0.88, 0.82), at(-0.28, 1.34), 0.05, 0.09), paint);
+      this.part(strut(at(0.42, 0.865), at(0.41, 1.37), 0.05, 0.12), paint);
+      this.part(strut(at(1.45, 1.35), at(1.97, 0.975), 0.05, 0.16), paint);
       // Door shut lines and a sill stripe in the livery colour.
       this.box(0.012, 0.5, 0.012, side * (width / 2 + 0.005), 0.55, -0.73, trim);
       this.box(0.012, 0.5, 0.012, side * (width / 2 + 0.005), 0.55, 0.36, trim);
       this.box(0.02, 0.07, 1.62, side * (width / 2 + 0.006), 0.3, -0.02, accent);
+      this.box(0.031, 0.032, 0.134, side * 0.891, 0.782, 0.215, satin);
       // Mirrors.
       this.box(0.07, 0.07, 0.07, side * (width / 2 - 0.03), 0.86, -0.66, trim);
-      this.box(0.2, 0.12, 0.13, side * (width / 2 + 0.07), 0.9, -0.66, paint, { y: side * 0.12 });
+      this.box(0.18, 0.099, 0.16, side * (width / 2 + 0.07), 0.9, -0.66, paint, { y: side * 0.12 });
       // Arch flares: dark lips that make the arches read from a distance.
       for (const z of [wheelbase / 2, -wheelbase / 2]) {
         const flare = new THREE.TorusGeometry(ARCH_RADIUS + 0.02, 0.035, 6, 18, Math.PI * 1.04);
@@ -222,9 +267,12 @@ export class ProceduralCar extends THREE.Group {
 
     // Livery: twin stripes over the bonnet, roof and hatch.
     const hoodSlope = Math.atan2(0.79 - 0.66, 2.05 - 1.0);
-    for (const x of [-0.17, 0.17]) {
-      this.box(0.16, 0.012, 1.08, x, 0.735, -1.52, this.stripeMaterial, { x: -hoodSlope });
-      this.box(0.15, 0.012, 1.06, x, 1.317, 0.42, this.stripeMaterial);
+    for (const x of [-0.43, 0.43]) {
+      this.box(0.086, 0.012, 1.08, x, 0.784, -1.52, this.stripeMaterial, { x: -hoodSlope });
+
+    }
+    for (const x of [-0.36, 0.22]) {
+      this.box(0.51, 0.012, 0.018, x, 0.858, -0.857, trim, { y: 0.13 });
     }
     // Door number boards.
     const numberMaterial = this.material({ map: numberTexture(this.number), roughness: 0.5 });
@@ -232,7 +280,7 @@ export class ProceduralCar extends THREE.Group {
     for (const side of [-1, 1]) {
       const plate = new THREE.PlaneGeometry(0.62, 0.39);
       plate.rotateY(side * Math.PI / 2);
-      plate.translate(side * (width / 2 + 0.008), 0.56, -0.18);
+      plate.translate(side * (width / 2 + 0.015), 0.56, -0.18);
       this.part(plate, numberMaterial);
     }
 
@@ -261,17 +309,20 @@ export class ProceduralCar extends THREE.Group {
       exhaust.translate(side * 0.42, 0.2, 2.1);
       this.part(exhaust, satin);
     }
-    this.box(0.7, 0.05, 0.04, 0, 0.72, 2.13, tail); // light bar
+    for (const side of [-1, 1]) {
+      for (const y of [0.694, 0.77]) this.box(0.267, 0.014, 0.007, side * 0.682, y, 2.22, tail);
+      this.box(0.084, 0.027, 0.016, side * 0.465, 0.481, 2.171, reverse);
+    }
     this.box(1.6, 0.12, 0.12, 0, 0.17, 2.06, trim); // diffuser
     // Roof-mounted rally wing on two swan-neck stays.
-    this.box(1.58, 0.035, 0.32, 0, 1.25, 1.86, trim, { x: -0.1 });
+    this.box(1.58, 0.035, 0.32, 0, 1.31, 1.86, trim, { x: -0.1 });
     for (const side of [-1, 1]) {
-      this.box(0.03, 0.26, 0.36, side * 0.8, 1.21, 1.86, accent);
-      this.part(strut(new THREE.Vector3(side * 0.42, 0.88, 1.66), new THREE.Vector3(side * 0.42, 1.24, 1.84), 0.04, 0.12), trim);
+
+      this.part(strut(new THREE.Vector3(side * 0.42, 0.88, 1.66), new THREE.Vector3(side * 0.42, 1.31, 1.84), 0.04, 0.12), trim);
     }
     // Roof scoop and aerial.
-    this.box(0.36, 0.07, 0.3, 0, 1.33, -0.02, trim);
-    this.part(strut(new THREE.Vector3(0.3, 1.31, 0.8), new THREE.Vector3(0.34, 1.62, 0.92), 0.012), trim);
+    this.box(0.36, 0.07, 0.3, 0, 1.405, -0.02, trim);
+    this.part(strut(new THREE.Vector3(0.3, 1.406, 0.8), new THREE.Vector3(0.34, 1.62, 0.92), 0.012), trim);
 
     // --- cockpit (seen through the glass and from the interior camera)
     this.cockpit = new THREE.Group();
@@ -296,6 +347,14 @@ export class ProceduralCar extends THREE.Group {
     for (let i = 0; i < 3; i += 1) this.part(strut(hoop[i], hoop[i + 1], 0.04), satin, this.cockpit);
     this.part(strut(new THREE.Vector3(-0.6, 1.2, 0.66), new THREE.Vector3(0.66, 0.32, 0.66), 0.035), satin, this.cockpit);
 
+    for (const side of [-1, 1]) {
+      const pillar = new THREE.Vector3(side * 0.57, 1.27, -0.20);
+      const hoopTop = new THREE.Vector3(side * 0.60, 1.23, 0.66);
+      this.part(strut(pillar, hoopTop, 0.041), satin, this.cockpit);
+      this.part(strut(pillar, new THREE.Vector3(side * 0.70, 0.64, -0.73), 0.041), satin, this.cockpit);
+      this.part(strut(hoopTop, new THREE.Vector3(side * 0.64, 0.38, 1.61), 0.044), satin, this.cockpit);
+    }
+
     this.steeringWheel = new THREE.Group();
     this.steeringWheel.name = 'SteeringWheel';
     this.steeringWheel.position.set(-0.37, 0.86, -0.26);
@@ -308,12 +367,21 @@ export class ProceduralCar extends THREE.Group {
 
     this.buildWheels(layout);
     this.mergeStatic();
+    this.rallyParts = [];
+    for (const name of ['StageExterior', 'StageCabin']) {
+      const kit = rallyPart(name, this.materials);
+      if (kit) {
+        this.chassis.add(kit);
+        this.rallyParts.push(kit);
+      }
+    }
     return this;
   }
 
   buildWheels(layout) {
     const { wheelbase, track, wheelRadius, wheelWidth } = this.dimensions;
     const tire = this.material({ color: 0x141517, metalness: 0, roughness: 0.92 });
+    textureRallySurface(tire, 'Rubber');
     const rim = this.material({ color: 0xbfc4ca, metalness: 0.85, roughness: 0.3 });
     this.rimMaterial = rim;
     const caliper = this.material({ color: 0xd6242a, metalness: 0.3, roughness: 0.45 });
@@ -322,25 +390,45 @@ export class ProceduralCar extends THREE.Group {
     const r = wheelRadius;
     const h = wheelWidth / 2;
     const section = [
-      [0.68, -1], [0.89706, -1], [0.97647, -0.72], [1, 0],
-      [0.97647, 0.72], [0.89706, 1], [0.68, 1],
+      [0.59, -1], [0.89706, -1], [0.97647, -0.72], [1, 0],
+      [0.97647, 0.72], [0.89706, 1], [0.59, 1],
     ].map(([radius, width]) => new THREE.Vector2(radius * r, width * h));
-    const tireGeometry = new THREE.LatheGeometry(section, 24);
-    tireGeometry.rotateZ(Math.PI / 2);
+    const carcass = new THREE.LatheGeometry(section, 48);
+    carcass.rotateZ(Math.PI / 2);
+    // Interlocking shoulder blocks follow the tyre radius and rotate on the same pivot as the carcass.
+    const pieces = [carcass.toNonIndexed()];
+    for (let i = 0; i < 32; i++) {
+      for (const row of [-1, 0, 1]) {
+        const angle = (i + (row === 0 ? 0.45 : 0)) * Math.PI / 16;
+        const lug = new THREE.BoxGeometry(0.073, 0.020, 0.050).toNonIndexed();
+        lug.rotateY(row * 0.27);
+        lug.translate(row * h * 0.54, r * (row ? 0.978 : 0.988), 0);
+        lug.rotateX(angle);
+        const pos = lug.attributes.position;
+        for (let k = 0; k < pos.count; k++) {
+          const u = (Math.atan2(pos.getZ(k), pos.getY(k)) / (2 * Math.PI) + 1) % 1;
+          lug.attributes.uv.setXY(k, u, 0.5 - pos.getX(k) / (3 * h));
+        }
+        pieces.push(lug);
+      }
+    }
+    const tireGeometry = mergeGeometries(pieces, false);
+    carcass.dispose();
+    pieces.forEach(piece => piece.dispose());
 
     // Rim: barrel, five spokes and a hub, one geometry. The outer face is at +x; mirrored for left wheels.
     const rimParts = [];
-    const barrel = new THREE.CylinderGeometry(r * 0.69, r * 0.69, wheelWidth * 0.9, 24, 1, true);
+    const barrel = new THREE.CylinderGeometry(r * 0.605, r * 0.605, wheelWidth * 0.9, 24, 1, true);
     barrel.rotateZ(Math.PI / 2);
     rimParts.push(barrel);
-    const face = new THREE.RingGeometry(r * 0.6, r * 0.69, 24);
+    const face = new THREE.RingGeometry(r * 0.515, r * 0.605, 24);
     face.rotateY(Math.PI / 2);
     face.translate(h * 0.82, 0, 0);
     rimParts.push(face);
-    for (let k = 0; k < 5; k += 1) {
-      const spoke = new THREE.BoxGeometry(0.03, r * 0.56, 0.065);
-      spoke.translate(h * 0.72, r * 0.3, 0);
-      spoke.rotateX((k / 5) * Math.PI * 2);
+    for (let k = 0; k < 10; k += 1) {
+      const spoke = new THREE.BoxGeometry(0.03, r * 0.48, 0.046);
+      spoke.translate(h * 0.72, r * 0.295, 0);
+      spoke.rotateX((k / 10) * Math.PI * 2);
       rimParts.push(spoke);
     }
     const hub = new THREE.CylinderGeometry(r * 0.16, r * 0.16, 0.05, 12);
@@ -372,6 +460,7 @@ export class ProceduralCar extends THREE.Group {
       rearLeft: [-track / 2, wheelbase / 2],
       rearRight: [track / 2, wheelbase / 2],
     };
+    this.tyreCoats = new Map();
     WHEEL_KEYS.forEach((key, i) => {
       const [x, z] = positionsByKey[key];
       const outward = Math.sign(x);
@@ -382,7 +471,9 @@ export class ProceduralCar extends THREE.Group {
       pivot.userData.restY = pivot.position.y;
       const wheel = new THREE.Group();
       wheel.name = `${key}_wheel`;
-      this.part(tireGeometry, tire, wheel);
+      const rubber = i === 0 ? tire : textureRallySurface(this.material({ color: 0x141517, roughness: 0.92 }), 'Rubber');
+      this.tyreCoats.set(key, tyreCoat(rubber));
+      this.part(tireGeometry, rubber, wheel);
       this.part(outward > 0 ? rimGeometry : rimMirrored, rim, wheel);
       pivot.add(wheel);
       // Calipers do not spin: they hang off the pivot, just inside the spokes.
@@ -552,6 +643,7 @@ export class ProceduralCar extends THREE.Group {
 
   /** Paint finish: { color, metalness?, roughness?, clearcoat?, creviceColor?, flopColor?, flake?, blend? } (an entry of PAINT_OPTIONS). */
   setPaint(paint) {
+    if (paint.id === 'pearl') paint = { ...paint, color: 0xf0e5cc, creviceColor: 0xb8a98c, flopColor: 0xfff8e8, roughness: 0.31 };
     this.setColor(paint.color);
     this.bodyMaterial.metalness = paint.metalness ?? 0.35;
     this.bodyMaterial.roughness = paint.roughness ?? 0.2;
@@ -580,9 +672,7 @@ export class ProceduralCar extends THREE.Group {
     this.color.set(color);
     this.bodyMaterial.color.copy(this.color);
     setCarPaintUniforms(this.bodyMaterial, { color: this.color });
-    // Stripes stay readable on any paint: dark on light cars, light on dark ones.
-    const luminance = this.color.r * 0.2126 + this.color.g * 0.7152 + this.color.b * 0.0722;
-    this.stripeMaterial.color.setHex(luminance > 0.35 ? 0x1b1f24 : 0xeef1f4);
+    this.stripeMaterial.color.setHex(0xca391c);
     return this;
   }
 
@@ -630,11 +720,22 @@ export class ProceduralCar extends THREE.Group {
     this.reverseLampMaterial.emissiveIntensity = isReversing ? 2.4 : 0;
   }
 
+  setTyreSurface(key, wheel, speed, dt) {
+    const coat = this.tyreCoats?.get(key);
+    if (!coat || !wheel.contact) return;
+    const target = wheel.surface === SURFACE.MUD ? 1 :
+      wheel.surface === SURFACE.DIRT || wheel.surface === SURFACE.GRAVEL ? 0.32 : 0;
+    const distance = Math.abs(speed) * dt;
+    const pickup = target > coat.value ? 0.09 : 0.014;
+    coat.value += (target - coat.value) * (1 - Math.exp(-distance * pickup));
+  }
+
   getMountPoints() {
-    return WHEEL_KEYS.map((key) => ({ key, position: this.wheelPivots.get(key).position.clone(), steer: key.startsWith('front'), drive: key.startsWith('rear') }));
+    return WHEEL_KEYS.map((key) => ({ key, position: this.wheelPivots.get(key).position.clone(), steer: key.startsWith('front'), drive: !this.carDef || Boolean(this.carDef.tuning?.drivetrain?.awd) || key.startsWith('rear') }));
   }
 
   dispose() {
+    for (const part of this.rallyParts || []) part.removeFromParent();
     const geometries = new Set();
     this.traverse((node) => {
       if (node.geometry) geometries.add(node.geometry);

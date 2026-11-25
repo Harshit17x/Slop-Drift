@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { loadRallyKit } from './RallyKit.js';
 import { ProceduralCar } from './ProceduralCar.js';
 import { PAINT_MODES, patchCarPaint, setCarPaintUniforms } from './carPaintShader.js';
 import { patchUnderglow } from './underglowLight.js';
@@ -16,6 +17,7 @@ const templates = new Map();
 /** Load every car model once (call before building cars). Failures fall back to the procedural car. */
 export async function loadCarModels() {
   const loader = new GLTFLoader();
+  const kit = loadRallyKit(loader).catch(error => console.warn('[cars] rally kit failed to load', error));
   await Promise.all(CARS.filter((car) => car.model && !templates.has(car.id)).map(async (car) => {
     try {
       const gltf = await loader.loadAsync(car.model);
@@ -24,6 +26,7 @@ export async function loadCarModels() {
       console.warn(`[cars] ${car.id} model failed to load`, error);
     }
   }));
+  await kit;
 }
 
 /**

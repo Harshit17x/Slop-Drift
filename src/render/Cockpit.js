@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { rallyPart, textureRallySurface } from './RallyKit.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
@@ -21,11 +22,6 @@ const FOREARM = 0.31;
 const GRIP = Object.freeze({
   left: { home: -Math.PI / 2, min: -2.85, max: -0.3 },
   right: { home: Math.PI / 2, min: 0.3, max: 2.85 },
-});
-
-// Gear lever knob offsets (x across, z along) in the H-gate, relative to neutral.
-const GATE = Object.freeze({
-  N: [0, 0], 1: [-0.042, -0.05], 2: [-0.042, 0.05], 3: [0, -0.05], 4: [0, 0.05], 5: [0.042, -0.05], 6: [0.042, 0.05], R: [0.084, 0.05],
 });
 
 const _v1 = new THREE.Vector3();
@@ -78,11 +74,11 @@ const V = (x, y, z) => new THREE.Vector3(x, y, z);
  */
 export const STYLES = Object.freeze({
   drift: {
-    scale: 1, y: 0, z: 0,
+    scale: 1, y: 0, z: 0, eye: { x: DRIVER_X, y: 1.077, z: 0.24 }, headPitch: -0.096,
     dash: 0x1b1d20, trim: 0x26292d, headliner: 0x2b2d30, carpet: 0x121315, seat: 0x18191b, seatAccent: 0xc8321e,
-    cage: 0x2e8b5e, cageLayout: 'full', strip: true, extinguisher: true, seatType: 'bucket',
+    cage: 0xb8b9ae, cageLayout: 'full', strip: true, extinguisher: true, seatType: 'bucket',
     wheelType: 'dish', wheelStripe: 0xf2b01e, rim: 0x151515, spoke: 0xb7bcc2,
-    shifter: 'h', handbrake: 'hydraulic', cluster: 'drift', aux: 'pod',
+    shifter: 'sequential', handbrake: 'hydraulic', cluster: 'drift', aux: 'pod',
     sleeve: 0x1f3a2b, cuff: 0x14110d, glove: 0x141516, gloveAccent: 0xc8321e,
   },
   // Black Race-Tex everywhere, carbon trim and buckets, red stitching and harness, a carbon half cage
@@ -141,14 +137,20 @@ export class Cockpit extends THREE.Group {
     this.wheelTurn = 0;
     this.gripAngles = { left: GRIP.left.home, right: GRIP.right.home };
     this.shiftTimer = 0;
+    this.shiftDirection = 1;
     this.handbrakeBlend = 0;
     this.leverPull = 0;
-    this.knob = new THREE.Vector2();
     this.gaugeClock = 0;
     this.auxClock = 0;
     this.lastGear = 'N';
     this.shownRpm = 0;
     this.build();
+    if (this.styleName === 'drift') {
+      this.valveIndicator = this.mat({ color: 0x3580a8, emissive: 0x54cfff, emissiveIntensity: 0.15 });
+      this.mesh(new THREE.CircleGeometry(0.008, 12).translate(0.107, 0.644, -0.275), this.valveIndicator);
+      this.stageKit = rallyPart('StageCabin', this.materials);
+      if (this.stageKit) this.add(this.stageKit);
+    }
   }
 
   mat(parameters, basic = false) {
@@ -200,6 +202,12 @@ export class Cockpit extends THREE.Group {
     const sleeveCuff = this.mat({ color: st.cuff, roughness: 0.9 });
     const mirrorGlass = this.mat({ color: 0x2a3036, roughness: 0.1, metalness: 0.6 });
     const insert = this.mat({ color: st.dashInsert ?? st.dash, roughness: 0.75 });
+    if (this.styleName === 'drift') {
+      for (const material of [dash, suede, seat, sleeve, glove]) textureRallySurface(material, 'Flock');
+      for (const material of [trim, seatShell]) textureRallySurface(material, 'Carbon');
+      textureRallySurface(metal, 'Steel');
+      textureRallySurface(red, 'Webbing');
+    }
     this.cageMaterial = cage;
 
     // ---- bonnet seen through the windscreen (body paint), wipers at its base
@@ -270,7 +278,7 @@ export class Cockpit extends THREE.Group {
     const button = new THREE.CylinderGeometry(0.018, 0.018, 0.02, 14);
     button.rotateX(Math.PI / 2);
     button.translate(0.08, 0.47, -0.292);
-    this.add_(button, st.shifter === 'h' ? red : pad);
+    this.add_(button, st.shifter === 'sequential' ? red : pad);
     if (st.screen) this.buildScreen(st.screen, pad);
     // Rear-view mirror.
     const mirrorLift = st.uprightDash ? 0.074 : 0;
@@ -301,6 +309,17 @@ export class Cockpit extends THREE.Group {
     this.add_(this.boxGeo(1.28, 0.05, 0.06, 0, 1.235 + ceilingLift, -0.15), trim);
     this.add_(this.boxGeo(1.3, 0.02, 1.2, 0, 1.252 + ceilingLift, 0.45), headliner);
     this.add_(this.boxGeo(1.56, 0.03, 1.8, 0, 0.13, -0.05), carpet);
+    if (this.styleName === 'drift') {
+      // The stripped load bay continues underneath the nitrous cradle to the inner tailgate.
+      this.add_(this.boxGeo(1.56, 0.055, 1.27, 0, 0.255, 1.385), carpet);
+      this.add_(this.boxGeo(1.61, 0.64, 0.07, 0, 0.59, 1.996), dash);
+      this.add_(this.boxGeo(1.55, 0.045, 0.31, 0, 0.92, 1.865), trim);
+      this.add_(this.boxGeo(1.28, 0.036, 0.72, 0, 1.303, 1.095), headliner);
+      for (const side of [-1, 1]) {
+        this.add_(this.boxGeo(0.052, 0.65, 1.07, side * 0.775, 0.59, 1.45), dash);
+        this.add_(tube(V(side * 0.62, 1.30, 1.40), V(side * 0.73, 0.922, 1.96), 0.046), trim);
+      }
+    }
     // Transmission tunnel and console.
     this.add_(this.boxGeo(0.24, 0.3, 0.75, 0.0, 0.33, 0.02), dash);
     this.add_(this.boxGeo(0.22, 0.02, 0.4, 0.0, 0.49, -0.05), trim);
@@ -447,7 +466,7 @@ export class Cockpit extends THREE.Group {
     // Top-dead-centre stripe.
     if (st.wheelStripe) this.mesh(this.boxGeo(0.022, 0.044, 0.044, 0, WHEEL_RADIUS, 0), marigold, this.wheel);
 
-    // ---- gear lever (H-pattern) and hydraulic handbrake on the tunnel
+    // ---- gear selector and hydraulic handbrake on the tunnel
     this.shifter = new THREE.Group();
     this.shifter.position.set(-0.02, 0.5, -0.14);
     this.add(this.shifter);
@@ -456,7 +475,7 @@ export class Cockpit extends THREE.Group {
     this.add_(boot.clone().translate(-0.02, 0.5, -0.14), pad);
     this.shiftStick = new THREE.Group();
     this.shifter.add(this.shiftStick);
-    if (st.shifter === 'h') {
+    if (st.shifter === 'sequential') {
       this.mesh(new THREE.CylinderGeometry(0.009, 0.011, 0.25, 8).translate(0, 0.125, 0), metal, this.shiftStick);
       this.mesh(new THREE.SphereGeometry(0.03, 16, 12).translate(0, 0.265, 0), metal, this.shiftStick);
     } else if (st.shifter === 'pdk') {
@@ -649,20 +668,18 @@ export class Cockpit extends THREE.Group {
     }
 
     // ---- gear lever: the knob moves through the gate; the right hand goes to it on a shift
+    if (this.valveIndicator) this.valveIndicator.emissiveIntensity = state.boosting ? 3.5 : 0.15;
     const gear = state.gear ?? 'N';
     if (state.shifted || gear !== this.lastGear) {
-      if (gear !== this.lastGear) this.shiftTimer = 0.42;
+      if (gear !== this.lastGear) {
+        this.shiftDirection = Number(gear) < Number(this.lastGear) ? -1 : 1;
+        this.shiftTimer = 0.42;
+      }
       this.lastGear = gear;
     }
-    const [gx, gz] = GATE[gear] || GATE.N;
-    const shiftProgress = this.shiftTimer > 0 ? 1 - this.shiftTimer / 0.42 : 1;
-    const throwBlend = this.shiftTimer > 0 ? Math.min(1, Math.max(0, (shiftProgress - 0.18) / 0.2)) : 1;
-    const follow = 1 - Math.exp(-(this.shiftTimer > 0 ? 30 : 12) * dt);
-    this.knob.x += (gx * throwBlend + this.knob.x * (1 - throwBlend) - this.knob.x) * follow;
-    this.knob.y += (gz * throwBlend + this.knob.y * (1 - throwBlend) - this.knob.y) * follow;
-    if (this.style.shifter === 'h') {
-      this.shiftStick.rotation.z = -Math.atan2(this.knob.x, 0.265);
-      this.shiftStick.rotation.x = Math.atan2(this.knob.y, 0.265);
+    const shiftProgress = 1 - this.shiftTimer / 0.42;
+    if (this.style.shifter === 'sequential') {
+      this.shiftStick.rotation.x = -0.12 + this.shiftDirection * 0.29 * Math.sin(shiftProgress * Math.PI);
     } else {
       this.shiftStick.rotation.x = gear === 'R' ? -0.18 : gear === 'N' ? -0.08 : 0.06;
     }
@@ -676,7 +693,7 @@ export class Cockpit extends THREE.Group {
 
     // Right hand: 0 = on the wheel, 1 = on the gear knob or the handbrake.
     // Paddles and automatics are shifted from the wheel; only a gear stick or a lever needs the right hand.
-    const shiftReach = this.shiftTimer > 0 && this.style.shifter === 'h' ? Math.sin(Math.min(1, shiftProgress) * Math.PI) ** 0.5 : 0;
+    const shiftReach = this.shiftTimer > 0 && this.style.shifter === 'sequential' ? Math.sin(Math.min(1, shiftProgress) * Math.PI) ** 0.5 : 0;
     const onLever = Math.max(shiftReach, this.style.handbrake === 'hydraulic' ? this.handbrakeBlend : 0);
     if (this.paddles) {
       this.paddleFlick = this.shiftTimer > 0.3 ? 1 : Math.max(0, this.paddleFlick - dt * 8);
@@ -1102,6 +1119,7 @@ export class Cockpit extends THREE.Group {
   }
 
   dispose() {
+    this.stageKit?.removeFromParent();
     this.traverse((node) => node.geometry?.dispose());
     this.materials.forEach((material) => material !== this.paint && material !== this.stripe && material.dispose());
     this.textures.forEach((texture) => texture.dispose());

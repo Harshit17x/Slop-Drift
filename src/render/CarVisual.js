@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { NitroJets } from './NitroJets.js';
 import { Cockpit, cockpitEye } from './Cockpit.js';
 import { createCarModel } from './ModelCar.js';
 import { getCar } from '../vehicle/cars.js';
@@ -21,6 +22,11 @@ export class CarVisual {
     this.group = this.model;
     this.carId = this.model.carDef ? carId : 'hatch';
 
+    if (this.carId === 'hatch') {
+      this.nitroJets = new NitroJets();
+      this.model.add(this.nitroJets);
+      this.model.materials.push(this.nitroJets.material);
+    }
     this.headlights = [];
     for (const side of [-1, 1]) {
       const light = new THREE.SpotLight(0xfff1d6, 0, 90, THREE.MathUtils.degToRad(26), 0.55, 1.4);
@@ -113,7 +119,9 @@ export class CarVisual {
       const wheel = state.wheels[i];
       this.model.setSuspension(WHEEL_KEYS[i], wheel.compression);
       this.model.setWheelSpin(WHEEL_KEYS[i], wheel.spinAngle);
+      if (this.carId === 'hatch') this.model.setTyreSurface(WHEEL_KEYS[i], wheel, state.speed, dt);
     }
+    this.nitroJets?.update(dt, state.boosting);
     if (this.interior) this.cockpit.update(state, dt);
 
     let grounded = 0;

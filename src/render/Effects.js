@@ -19,6 +19,7 @@ const STYLES = Object.freeze({
   dust: [0.62, 0.52, 0.4, 0.42, 0.55, 1.9, 1.4, 0.4, 0, 1.8, 0.08],
   grass: [0.36, 0.42, 0.24, 0.42, 0.35, 1.2, 0.7, 1.4, 0, 1.6, 0.05],
   snow: [0.95, 0.97, 1.0, 0.5, 0.4, 1.5, 0.8, 1.0, 0, 1.6, 0.05],
+  nitroCore: [0.42, 0.73, 1, 0.98, 0.14, 0.12, 0.076, 0, 1, 0.5, 0],
   flame: [1.0, 0.5, 0.18, 0.9, 0.22, 0.7, 0.16, -1, 1, 1.6, 0],
   // Bright flash where metal meets metal or stone.
   flash: [1.0, 0.82, 0.5, 0.95, 0.9, 2.5, 0.09, 0, 1, 0, 0],
@@ -261,6 +262,7 @@ export class Effects {
     this.group.add(this.sparks);
     this.sparkCursor = 0;
     this.sparkClock = 0;
+    this.nitroClock = 0;
     this.sparksAlive = 0;
 
     // --- skid marks: a ring buffer of quads
@@ -552,11 +554,22 @@ export class Effects {
       this.burst(state.surface === SURFACE.ASPHALT ? 'wisp' : 'dust', state.position.x, state.position.y + 0.15, state.position.z, Math.min(18, Math.round(state.landing * 2 * this.intensity)), 2.2);
     }
     if (state.boosting) {
-      for (const sideX of [-0.68, 0.68]) {
-        scratch.set(sideX, 0.5, 2.5).applyQuaternion(state.quaternion).add(state.position);
-        scratchB.copy(state.forward).multiplyScalar(-7).add(velocity);
-        this.spawn('flame', scratch.x, scratch.y, scratch.z, scratchB.x, scratchB.y, scratchB.z, 1);
+      // Time-based emission anchored at the actual twin tips, including the hatch chassis lift.
+      this.nitroClock += Math.min(dt, 0.1) * 58 * this.intensity;
+      const pulses = Math.floor(this.nitroClock);
+      this.nitroClock -= pulses;
+      for (let i = 0; i < pulses; i++) {
+        for (let pipe = -1; pipe <= 1; pipe += 2) {
+          scratch.set(pipe * 0.42, 0.33, 2.185).applyQuaternion(state.quaternion).add(state.position);
+          scratchB.copy(state.forward).multiplyScalar(-12).add(velocity);
+          this.spawn('nitroCore', scratch.x, scratch.y, scratch.z, scratchB.x, scratchB.y, scratchB.z, 1);
+          scratch.addScaledVector(state.forward, -0.24);
+          scratchB.addScaledVector(state.forward, -3 - Math.random() * 3);
+          this.spawn('flame', scratch.x, scratch.y, scratch.z, scratchB.x, scratchB.y, scratchB.z, 0.82);
+        }
       }
+    } else {
+      this.nitroClock = 0;
     }
   }
 
@@ -670,6 +683,7 @@ export class Effects {
     this.skidBirth.fill(-1000);
     this.skidDirty = true;
     this.sparkClock = 0;
+    this.nitroClock = 0;
     for (const trail of this.trails) trail.active = false;
   }
 
