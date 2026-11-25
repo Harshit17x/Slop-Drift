@@ -81,14 +81,75 @@
   src: url("./fonts/teko-latin-600-normal.woff2") format("woff2");
 }
 
+/* Race HUD faces: Saira Condensed for speed/score numerals, Chakra Petch for labels (OFL 1.1). */
+@font-face {
+  font-family: "Saira Condensed";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("./fonts/saira-condensed-latin-600-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Saira Condensed";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("./fonts/saira-condensed-latin-700-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Chakra Petch";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./fonts/chakra-petch-latin-500-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Chakra Petch";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("./fonts/chakra-petch-latin-600-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Chakra Petch";
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url("./fonts/chakra-petch-latin-700-italic.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* "SD Display": Chakra Petch bold italic for every weight and style, so titles get the slanted racing
+   look wherever --font-display is used, without touching each rule. */
+@font-face {
+  font-family: "SD Display";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/chakra-petch-latin-700-italic.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Saira Condensed";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./fonts/saira-condensed-latin-500-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 .sdh {
   /* Calm base */
   --whitewash: #EDE6D3;
   --ink: #14110D;           /* milestone black */
-  --deodar: #1F3A2B;
-  --mist: #9FB0A8;
+  --deodar: #2B3036;
+  --mist: #A4AAB2;
   --chalk: #F4F1E8;
-  --board: #26352C;         /* chalkboard green */
+  --board: #17191C;         /* charcoal panel */
   --wood: #6B4A2B;          /* flat frame brown */
   --asphalt: #3B3833;
   /* Truck-art colour, for celebration moments only */
@@ -105,13 +166,16 @@
   --gold: #E3A92B;
   --author: #2E7D4F;
 
-  --font-display: "Yatra One", "Khand", "Arial Narrow", serif;
-  --font-ui: "Khand", "Arial Narrow", "Roboto Condensed", sans-serif;
-  --font-num: "Teko", "Khand", "Arial Narrow", sans-serif;
+  --font-display: "SD Display", "Yatra One", "Khand", "Arial Narrow", sans-serif;
+  --font-ui: "Saira Condensed", "Khand", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --font-num: "Saira Condensed", "Teko", "Khand", "Arial Narrow", sans-serif;
+  --font-hud: "Chakra Petch", "Khand", "Arial Narrow", sans-serif;
+  --font-hud-num: "Saira Condensed", "Teko", "Arial Narrow", sans-serif;
 
-  --line: 3px;              /* milestone-black outline */
-  --hard: 4px 4px 0 var(--ink);
-  --hard-sm: 3px 3px 0 var(--ink);
-  --r: 2px;
+  --line: 1.5px;            /* thin outline */
+  --rim: rgba(255, 255, 255, 0.14);   /* faint edge instead of a black outline */
+  --hard: 0 10px 28px rgba(0, 0, 0, 0.38);   /* soft lift, no offset stickers */
+  --hard-sm: 0 3px 10px rgba(0, 0, 0, 0.3);
+  --r: 6px;
   --snap: cubic-bezier(.3, 1.45, .5, 1);   /* slight overshoot: a sign slapped on */
 }

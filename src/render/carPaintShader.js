@@ -16,6 +16,43 @@ import * as THREE from 'three';
  */
 
 const _hsl = { h: 0, s: 0, l: 0 };
+const _skinCache = new Map();
+let _fallbackSkinTex = null;
+
+function fallbackSkinTexture() {
+  if (!_fallbackSkinTex) {
+    _fallbackSkinTex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+    _fallbackSkinTex.needsUpdate = true;
+  }
+  return _fallbackSkinTex;
+}
+
+/** Load and cache a car skin texture (`512x512` seamless wrap WebP), notifying active listeners on load. */
+export function loadSkinTexture(url, onReady) {
+  if (!url || typeof Image === 'undefined') return null;
+  let entry = _skinCache.get(url);
+  if (!entry) {
+    entry = { tex: null, ready: false, waiters: [] };
+    _skinCache.set(url, entry);
+    const tex = new THREE.TextureLoader().load(url, () => {
+      entry.ready = true;
+      for (const cb of entry.waiters.splice(0)) cb(tex);
+    });
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.anisotropy = 4;
+    entry.tex = tex;
+  }
+  if (entry.ready) {
+    onReady?.(entry.tex);
+  } else if (onReady) {
+    entry.waiters.push(onReady);
+  }
+  return entry.tex;
+}
 
 export const PAINT_MODES = Object.freeze({
   SOLID_PAINT: 0, // Solid paint slot (Thar_Paint, ProceduralCar body)
@@ -56,15 +93,20 @@ export function derivePaintColors(paintOrColor, outBase, outCrevice, outFlop) {
 
 const VERTEX_PARS = /* glsl */ `
 varying vec3 vCarLocalPos;
+varying vec3 vCarLocalNormal;
 `;
 
 const VERTEX_MAIN = /* glsl */ `
 vCarLocalPos = transformed;
+vCarLocalNormal = objectNormal;
 `;
 
 const FRAGMENT_PARS = /* glsl */ `
 varying vec3 vCarLocalPos;
+varying vec3 vCarLocalNormal;
 uniform float uPaintMode;
+uniform sampler2D uSkinMap;
+uniform float uSkinMix;
 uniform vec3 uPaintBase;
 uniform vec3 uPaintCrevice;
 uniform vec3 uPaintFlop;
@@ -91,6 +133,17 @@ float carHash31( vec3 p ) {
   p = fract( p * vec3( 443.8975, 397.2973, 491.1871 ) );
   p += dot( p, p.yxz + 19.19 );
   return fract( ( p.x + p.y ) * p.z );
+}
+
+vec3 sampleCarSkin( vec3 pos, vec3 nrm ) {
+  vec3 w = pow( max( abs( normalize( nrm ) ), vec3( 0.001 ) ), vec3( 5.0 ) );
+  w /= ( w.x + w.y + w.z );
+  vec2 uvSide = vec2( -pos.z * 0.27 + 0.5, pos.y * 0.62 + 0.06 );
+  vec2 uvTop  = vec2( pos.x * 0.44 + 0.5, -pos.z * 0.27 + 0.5 );
+  vec2 uvEnd  = vec2( pos.x * 0.48 + 0.5, pos.y * 0.62 + 0.06 );
+  return texture2D( uSkinMap, uvSide ).rgb * w.x
+       + texture2D( uSkinMap, uvTop  ).rgb * w.y
+       + texture2D( uSkinMap, uvEnd  ).rgb * w.z;
 }
 `;
 
@@ -137,34 +190,43 @@ const FRAGMENT_BEFORE_LIGHTING = /* glsl */ `
   float detailFade = 1.0 / ( 1.0 + carDist * 0.25 );
 
   if ( uPaintMode < 0.5 ) {
-    // Solid car paint (Thar_Paint / Hatch): 3-stop Crevice -> Base -> Fresnel Flop blend + metallic flakes
+    // Solid / skinned car bodywork (Hatch, Thar, Tokyo): 3-stop shading + image-gen triplanar vinyl wrap
     float flopT = pow( 1.0 - dotNV, 2.4 ) * uPaintBlend;
     float crownT = smoothstep( 0.32, 0.94, dotNV );
     vec3 coatColor = mix( uPaintCrevice, uPaintBase, mix( 0.42, 1.0, crownT ) );
-    coatColor = mix( coatColor, uPaintFlop, flopT );
+    if ( uSkinMix > 0.005 ) {
+      vec3 skinTex = sampleCarSkin( vCarLocalPos, vCarLocalNormal );
+      coatColor = mix( coatColor, skinTex * mix( 0.58, 1.06, crownT ), uSkinMix );
+    }
+    vec3 flopTarget = mix( uPaintFlop, coatColor * 1.18 + vec3( 0.04 ), uSkinMix * 0.62 );
+    coatColor = mix( coatColor, flopTarget, flopT );
     if ( uPaintFlake > 0.001 ) {
       float f1 = carHash31( floor( vCarLocalPos * 230.0 ) );
       float sparkle = smoothstep( 0.80, 0.99, f1 ) * uPaintFlake * detailFade * ( 0.35 + 0.65 * dotNV );
-      coatColor = mix( coatColor, uPaintFlop * 1.18 + vec3( 0.04 ), sparkle );
+      coatColor = mix( coatColor, flopTarget * 1.14 + vec3( 0.04 ), sparkle );
     }
-    // Preserve any baked Vertex AO already applied cleanly in color_fragment without mutating base tint
     vec3 aoOnly = vec3( 1.0 );
     #if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
       aoOnly = mix( vec3( 1.0 ), vColor.rgb, uVertexAoStrength );
     #endif
     diffuseColor.rgb = serviceStripes(coatColor) * aoOnly;
   } else if ( uPaintMode < 1.5 ) {
-    // Porsche GT_Body: halo-free inverse-preblend separation between trim/carbon/glass & painted body
+    // Porsche GT_Body: halo-free trim separation + triplanar custom skin wrap on masked body panels
     vec3 cleanTrim = max( diffuseColor.rgb - vec3( carZoneMask * 0.72 ), vec3( 0.0 ) );
     float panelAo = clamp( mix( 0.74, 1.0, diffuseColor.g / max( carZoneMask, 0.35 ) ), 0.68, 1.02 );
     float flopT = pow( 1.0 - dotNV, 2.4 ) * uPaintBlend;
     float crownT = smoothstep( 0.30, 0.94, dotNV );
     vec3 coatColor = mix( uPaintCrevice, uPaintBase, mix( 0.46, 1.0, crownT ) );
-    coatColor = mix( coatColor, uPaintFlop, flopT );
+    if ( uSkinMix > 0.005 ) {
+      vec3 skinTex = sampleCarSkin( vCarLocalPos, vCarLocalNormal );
+      coatColor = mix( coatColor, skinTex * mix( 0.62, 1.06, crownT ), uSkinMix );
+    }
+    vec3 flopTarget = mix( uPaintFlop, coatColor * 1.18 + vec3( 0.04 ), uSkinMix * 0.62 );
+    coatColor = mix( coatColor, flopTarget, flopT );
     if ( uPaintFlake > 0.001 ) {
       float f1 = carHash31( floor( vCarLocalPos * 230.0 ) );
       float sparkle = smoothstep( 0.80, 0.99, f1 ) * uPaintFlake * detailFade * ( 0.35 + 0.65 * dotNV );
-      coatColor = mix( coatColor, uPaintFlop * 1.18 + vec3( 0.04 ), sparkle );
+      coatColor = mix( coatColor, flopTarget * 1.14 + vec3( 0.04 ), sparkle );
     }
     diffuseColor.rgb = cleanTrim + serviceStripes(coatColor) * ( panelAo * carZoneMask );
   } else if ( uPaintMode < 2.5 ) {
@@ -207,6 +269,8 @@ export function patchCarPaint(material, options = {}) {
   const paintUniforms = {
     uPaintMode: { value: mode },
     uSaltline: {value:0},
+    uSkinMap: { value: fallbackSkinTexture() },
+    uSkinMix: { value: 0 },
     uPaintBase: { value: new THREE.Color(0xe9eef5) },
     uPaintCrevice: { value: new THREE.Color(0x8a95a6) },
     uPaintFlop: { value: new THREE.Color(0xffffff) },
@@ -242,7 +306,7 @@ export function patchCarPaint(material, options = {}) {
   };
   material.customProgramCacheKey = function customProgramCacheKey() {
     const prev = previousKey ? previousKey.call(this) : '';
-    return `${prev}|car-paint-v1`;
+    return `${prev}|car-paint-skin-v2`;
   };
   material.needsUpdate = true;
   return material;
@@ -263,6 +327,31 @@ export function setCarPaintUniforms(material, options = {}) {
       if (options.paint.metalness !== undefined) u.uPaintMetalness.value = options.paint.metalness;
       if (options.paint.roughness !== undefined) u.uPaintRoughness.value = options.paint.roughness;
       if (options.paint.clearcoat !== undefined) u.uPaintClearcoat.value = options.paint.clearcoat;
+      const skinUrl = options.paint.skinUrl || null;
+      u._wantedSkinUrl = skinUrl;
+      if (skinUrl) {
+        loadSkinTexture(skinUrl, (tex) => {
+          if (u._wantedSkinUrl !== skinUrl) return;
+          u.uSkinMap.value = tex;
+          u.uSkinMix.value = 1;
+        });
+      } else {
+        u.uSkinMap.value = fallbackSkinTexture();
+        u.uSkinMix.value = 0;
+      }
+    }
+  } else if (options.skinUrl !== undefined) {
+    const skinUrl = options.skinUrl || null;
+    u._wantedSkinUrl = skinUrl;
+    if (skinUrl) {
+      loadSkinTexture(skinUrl, (tex) => {
+        if (u._wantedSkinUrl !== skinUrl) return;
+        u.uSkinMap.value = tex;
+        u.uSkinMix.value = 1;
+      });
+    } else {
+      u.uSkinMap.value = fallbackSkinTexture();
+      u.uSkinMix.value = 0;
     }
   } else if (options.color !== undefined) {
     u.uSaltline.value=0;

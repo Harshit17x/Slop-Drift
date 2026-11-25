@@ -315,10 +315,15 @@ export class Career {
   garage() {
     const items = UNLOCKS.map((def) => {
       let color = null;
-      if (def.slot === 'paint') color = PAINT_OPTIONS.find((paint) => paint.id === def.value)?.color ?? null;
+      let skinUrl = null;
+      if (def.slot === 'paint') {
+        const entry = PAINT_OPTIONS.find((paint) => paint.id === def.value);
+        color = entry?.color ?? null;
+        skinUrl = entry?.skinUrl ?? null;
+      }
       if (def.slot === 'rim') color = RIM_OPTIONS.find((rim) => rim.id === def.value)?.color ?? null;
       if (def.slot === 'neon') color = getNeon(def.value).color;
-      return { id: def.id, slot: def.slot, value: def.value, label: def.label, color, unlocked: this.isUnlocked(def), requirement: this.requirementText(def) };
+      return { id: def.id, slot: def.slot, value: def.value, label: def.label, color, skinUrl, unlocked: this.isUnlocked(def), requirement: this.requirementText(def) };
     });
     // Silver rims are the default, not an unlock.
     items.splice(items.findIndex((item) => item.slot === 'rim'), 0, { id: 'rim:silver', slot: 'rim', value: 'silver', label: 'Silver rims', color: RIM_OPTIONS[0].color, unlocked: true, requirement: '' });

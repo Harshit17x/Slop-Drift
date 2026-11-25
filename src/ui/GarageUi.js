@@ -165,7 +165,7 @@ export function garageHubMarkup() {
           <span class="sdh-pill-count">${CARS.length} CARS AVAILABLE</span>
           <div class="sdh-garage-subtabs" role="group" aria-label="Garage mode">
             <button type="button" class="sdh-subpill is-on" data-act="garage-mode" data-gmode="view">VIEW CARS</button>
-            <button type="button" class="sdh-subpill" data-act="garage-mode" data-gmode="customize">${ICON.paint}<span>PAINT &amp; LOOK</span></button>
+            <button type="button" class="sdh-subpill" data-act="garage-mode" data-gmode="customize">${ICON.paint}<span>SKINS &amp; LOOK</span></button>
           </div>
         </div>
         <div class="sdh-garage-lighting" role="group" aria-label="Preview lighting">
@@ -202,7 +202,7 @@ export function garageHubMarkup() {
               <button type="button" class="sdh-subpill" data-act="garage-mode" data-gmode="view">DONE</button>
             </div>
             <div class="sdh-custom-scroll">
-              <div class="sdh-group-label">Paint finish</div>
+              <div class="sdh-group-label">Car skins <small class="sdh-group-hint">custom image wraps · any car</small></div>
               <div class="sdh-cos-grid" data-slot-grid="paint"></div>
               <div class="sdh-group-label">Rims</div>
               <div class="sdh-cos-grid" data-slot-grid="rim"></div>

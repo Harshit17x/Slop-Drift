@@ -8,7 +8,7 @@ const ACCENT = '#F2B01E'; // marigold: active road, car
 const WARM = '#C8321E'; // truck red: summit
 const CHALK = '#F4F1E8';
 const INK = '#14110D';
-const BOARD = '#26352C';
+const BOARD = '#17191C';
 const FLAG_BLUE = '#2A6FB0';
 const WHITEWASH = '#EDE6D3';
 

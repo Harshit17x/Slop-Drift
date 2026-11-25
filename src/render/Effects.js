@@ -263,6 +263,7 @@ export class Effects {
     this.sparkCursor = 0;
     this.sparkClock = 0;
     this.nitroClock = 0;
+    this.exhaustTips = [[-0.42, 0.33, 2.185], [0.42, 0.33, 2.185]];
     this.sparksAlive = 0;
 
     // --- skid marks: a ring buffer of quads
@@ -554,13 +555,14 @@ export class Effects {
       this.burst(state.surface === SURFACE.ASPHALT ? 'wisp' : 'dust', state.position.x, state.position.y + 0.15, state.position.z, Math.min(18, Math.round(state.landing * 2 * this.intensity)), 2.2);
     }
     if (state.boosting) {
-      // Time-based emission anchored at the actual twin tips, including the hatch chassis lift.
+      // Time-based emission anchored at the car's tailpipe / exhaust openings.
       this.nitroClock += Math.min(dt, 0.1) * 58 * this.intensity;
       const pulses = Math.floor(this.nitroClock);
       this.nitroClock -= pulses;
       for (let i = 0; i < pulses; i++) {
-        for (let pipe = -1; pipe <= 1; pipe += 2) {
-          scratch.set(pipe * 0.42, 0.33, 2.185).applyQuaternion(state.quaternion).add(state.position);
+        for (let p = 0; p < this.exhaustTips.length; p += 1) {
+          const tip = this.exhaustTips[p];
+          scratch.set(tip[0], tip[1], tip[2]).applyQuaternion(state.quaternion).add(state.position);
           scratchB.copy(state.forward).multiplyScalar(-12).add(velocity);
           this.spawn('nitroCore', scratch.x, scratch.y, scratch.z, scratchB.x, scratchB.y, scratchB.z, 1);
           scratch.addScaledVector(state.forward, -0.24);
@@ -571,6 +573,13 @@ export class Effects {
     } else {
       this.nitroClock = 0;
     }
+  }
+
+  /** Set car-specific local tailpipe/exhaust coordinates for nitro jets. */
+  setExhaustTips(tips) {
+    this.exhaustTips = Array.isArray(tips) && tips.length
+      ? tips
+      : [[-0.42, 0.33, 2.185], [0.42, 0.33, 2.185]];
   }
 
   /** Advance particles and fade skid marks. Call every frame, including while paused menus render. */
