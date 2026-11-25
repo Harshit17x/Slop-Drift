@@ -265,7 +265,9 @@ export class PartyRace {
     if (code) {
       this.joinParty(code);
       this.hud.openParty?.();
+      return true;
     }
+    return false;
   }
 
   get inParty() {

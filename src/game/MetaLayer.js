@@ -170,7 +170,14 @@ export class MetaLayer {
       const firstLaunch = career.needsName;
       if (!career.setName(name)) career.keepName();
       this.refreshProfile();
-      if (firstLaunch && this.game.state === 'menu') this.game.startFirstDrive();
+      if (firstLaunch && this.game.state === 'menu' && this.game.pendingRoamOnName) {
+        this.game.pendingRoamOnName = false;
+        this.game.startFirstDrive();
+      }
+    };
+    hud.onFavoriteCar = (carId) => {
+      career.toggleFavoriteCar(carId);
+      hud.setGarage(career.garage());
     };
     hud.onCosmetic = (slot, value) => {
       if (career.setCosmetic(slot, value)) {

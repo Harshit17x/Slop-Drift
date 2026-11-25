@@ -68,6 +68,9 @@ const lookMatrix = new THREE.Matrix4();
 const desiredQuaternion = new THREE.Quaternion();
 const lookQuaternion = new THREE.Quaternion();
 const euler = new THREE.Euler();
+const showcaseFwd = new THREE.Vector3();
+const showcaseRight = new THREE.Vector3();
+const showcaseUp = new THREE.Vector3();
 
 /**
  * Follows the car. Exterior views trail the direction of travel rather than the nose, so in a
@@ -317,6 +320,36 @@ export class CameraRig {
     desiredQuaternion.setFromRotationMatrix(lookMatrix);
     this.shake = 0;
     this.finish(dt, CONFIG.camera.fovBase - 8);
+  }
+
+  /** Hero 3/4 garage framing: keeps the car cleanly on the right-center stage clear of left stats & bottom cards. */
+  showcase(dt, focus, {
+    baseYaw = 0, yawOffset = 0, pitchOffset = 0.08, radius = 5.5,
+    shiftRight = 0.92, shiftUp = -0.18, fov = 44,
+  } = {}) {
+    this.clock += dt;
+    // Start 3/4 ahead and slightly to the right of the car's nose (-Z in chassis space).
+    const angle = baseYaw + 0.68 + yawOffset;
+    const elev = clamp(0.16 + pitchOffset, 0.04, 0.68);
+    const horiz = Math.cos(elev) * radius;
+    position.set(
+      focus.x + Math.sin(angle) * horiz,
+      focus.y + 0.72 + Math.sin(elev) * radius,
+      focus.z - Math.cos(angle) * horiz,
+    );
+    const floor = this.world.heightAt(position.x, position.z) + 0.55;
+    if (position.y < floor) position.y = floor;
+    target.set(focus.x, focus.y + 0.68, focus.z);
+    showcaseFwd.subVectors(target, position).normalize();
+    showcaseRight.crossVectors(showcaseFwd, UP).normalize();
+    showcaseUp.crossVectors(showcaseRight, showcaseFwd).normalize();
+    // Looking slightly screen-left and screen-down puts the car in the center-right showcase spotlight.
+    target.addScaledVector(showcaseRight, -shiftRight);
+    target.addScaledVector(showcaseUp, shiftUp);
+    lookMatrix.lookAt(position, target, UP);
+    desiredQuaternion.setFromRotationMatrix(lookMatrix);
+    this.shake = 0;
+    this.finish(dt, fov);
   }
 
   applyShake(dt, state) {

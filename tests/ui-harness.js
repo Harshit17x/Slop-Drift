@@ -453,7 +453,9 @@ harnessPanel.addEventListener('click', (event) => {
   switch (b.dataset.h) {
     case 'collapse': harnessPanel.classList.toggle('is-collapsed'); break;
     case 'loading': runLoading(); break;
-    case 'menu': hud.onMenu(); break;
+    case 'title-gate': hud.showLoading(1, 'Ready'); hud.showTitleReady(); break;
+    case 'menu': hud.hideLoading(); hud.onMenu(); hud.setHubTab('garage'); break;
+    case 'map-hub': hud.hideLoading(); hud.onMenu(); hud.setHubTab('map'); break;
     case 'race': startRace(); break;
     case 'pause': if (sim.state !== 'race') { startRace(); sim.state = 'race'; sim.countdown = 0; hud.setCountdown(''); } hud.onPause(); break;
     case 'finish': finish('time'); break;
@@ -481,7 +483,10 @@ if (params.get('touch') === '1') { input.touchSeen = true; input.refreshTouchVis
 const initial = params.get('screen') || 'loading';
 const go = {
   loading: () => runLoading(),
-  menu: () => hud.showMenu(),
+  title: () => { hud.showLoading(1, 'Ready'); hud.showTitleReady(); },
+  menu: () => { hud.showMenu(); hud.setHubTab('garage'); },
+  map: () => { hud.showMenu(); hud.setHubTab('map'); },
+  events: () => { hud.showMenu(); hud.setHubTab('events'); },
   race: () => { startRace(); sim.countdown = 0.01; },
   pause: () => { startRace(); sim.state = 'race'; sim.countdown = 0; hud.setCountdown(''); sim.t = 1; for (let i = 0; i < 3; i += 1) hud.update(frame); hud.onPause(); },
   finish: () => finish('time'),
@@ -570,7 +575,8 @@ const daily = { date: '2026-11-17', modeId: 'climb', modeLabel: 'Summit Climb', 
 hud.setDaily(daily);
 const unlockedAch = new Set(['first-finish', 'first-drift', 'summit', 'combo-1k', 'speed-200', 'distance-25', 'daily-1']);
 hud.setAchievements(ACHIEVEMENTS.map((a, i) => ({ id: a.id, title: a.title, description: a.description, xp: a.xp, unlocked: unlockedAch.has(a.id), at: unlockedAch.has(a.id) ? Date.UTC(2026, 10, 1 + i) : null })));
-const garageSel = { paint: 'ember', rim: 'graphite', number: '27' };
+const garageSel = { car: 'hatch', paint: 'ember', rim: 'graphite', number: '27', neon: 'cyan' };
+const garageFavs = new Set(['hatch']);
 const paintColor = (id) => PAINT_OPTIONS.find((p) => p.id === id)?.color ?? ({ 'racing-green': 0x0f5b3a, sunburst: 0xffb21f, summit: 0xd8dde3, obsidian: 0x0b0b10 }[id] ?? null);
 function pushGarage() {
   const items = [
@@ -583,7 +589,7 @@ function pushGarage() {
     const color = u.slot === 'paint' ? paintColor(u.value) : u.slot === 'rim' ? RIM_OPTIONS.find((r) => r.id === u.value)?.color ?? null : null;
     return { id: u.id, slot: u.slot, value: u.value, label: u.label, color, unlocked, requirement };
   });
-  hud.setGarage({ items, selected: { ...garageSel } });
+  hud.setGarage({ items, selected: { ...garageSel }, favorites: [...garageFavs] });
 }
 pushGarage();
 const PLAYERS = [
@@ -623,6 +629,11 @@ hud.onToggleGhost = () => { ghostVisible = !ghostVisible; if (hud.ghost) hud.set
 hud.onRename = (name) => { profile.name = name; PLAYERS[0].name = name; hud.setProfile({ name }); hud.setPlayers(PLAYERS); log(`onRename(${name})`); };
 hud.onStartDaily = () => startRace(daily.modeId);
 hud.onCosmetic = (slot, value) => { garageSel[slot] = value; pushGarage(); log(`onCosmetic(${slot}, ${value})`); };
+hud.onFavoriteCar = (carId) => { if (garageFavs.has(carId)) garageFavs.delete(carId); else garageFavs.add(carId); pushGarage(); log(`onFavoriteCar(${carId})`); };
+hud.onTitleStart = (tab = 'garage') => { hud.hideLoading(); hud.showMenu(); hud.setHubTab(tab); log(`onTitleStart(${tab})`); };
+hud.onTitleRoam = () => { hud.hideLoading(); startRace('roam'); };
+hud.onGaragePreviewTime = (tod) => { settings = normalizeSettings({ ...settings, timeOfDay: tod }); hud.setSettings(settings); log(`onGaragePreviewTime(${tod})`); };
+hud.onGaragePreviewLights = () => { hud.headlightsOn = !hud.headlightsOn; return hud.headlightsOn; };
 
 const CONNS = ['online', 'connecting', 'local', 'offline'];
 const PARTY_MODES = [{ id: 'sprint', label: 'Sprint' }, { id: 'circuit', label: 'Ridge Circuit' }, { id: 'climb', label: 'Hill Climb' }, { id: 'descent', label: 'Descent' }, { id: 'drift', label: 'Drift Session' }];

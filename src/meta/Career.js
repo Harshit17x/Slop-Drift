@@ -73,6 +73,7 @@ function newProfile(now) {
     medals: {},
     achievements: {},
     cosmetics: { paint: 'pearl', rim: 'silver', number: '27', neon: 'off', car: 'hatch' },
+    favorites: [],
     daily: { date: '', done: false, lastDoneDate: null, streak: 0 },
   };
 }
@@ -84,6 +85,9 @@ function normalizeProfile(raw, now) {
   const profile = { ...base, ...raw };
   profile.stats = { ...base.stats, ...(raw.stats || {}) };
   profile.cosmetics = { ...base.cosmetics, ...(raw.cosmetics || {}) };
+  profile.favorites = Array.isArray(raw.favorites)
+    ? [...new Set(raw.favorites.filter((id) => CARS.some((car) => car.id === id)))]
+    : [];
   profile.daily = { ...base.daily, ...(raw.daily || {}) };
   profile.medals = raw.medals && typeof raw.medals === 'object' ? { ...raw.medals } : {};
   profile.achievements = raw.achievements && typeof raw.achievements === 'object' ? { ...raw.achievements } : {};
@@ -321,7 +325,20 @@ export class Career {
     items.unshift(...CARS.map((car) => ({ id: `car:${car.id}`, slot: 'car', value: car.id, label: car.label, detail: car.blurb, color: null, unlocked: true, requirement: '' })));
     // No underglow is the default too.
     items.splice(items.findIndex((item) => item.slot === 'neon'), 0, { id: 'neon:off', slot: 'neon', value: 'off', label: 'No neon', color: null, unlocked: true, requirement: '' });
-    return { items, selected: { ...this.profile.cosmetics } };
+    return { items, selected: { ...this.profile.cosmetics }, favorites: [...(this.profile.favorites || [])] };
+  }
+
+  /** Toggle whether a vehicle is pinned as a garage favorite. Returns the new favorite state. */
+  toggleFavoriteCar(carId) {
+    if (!CARS.some((car) => car.id === carId)) return false;
+    const favs = Array.isArray(this.profile.favorites) ? this.profile.favorites : [];
+    const idx = favs.indexOf(carId);
+    const next = idx < 0;
+    if (next) favs.push(carId);
+    else favs.splice(idx, 1);
+    this.profile.favorites = favs;
+    this.save();
+    return next;
   }
 
   /** Select a cosmetic if it is unlocked. Returns true when applied. */

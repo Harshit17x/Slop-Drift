@@ -40,6 +40,19 @@ export const ICON = Object.freeze({
   link: svg('<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'),
   exit: svg('<path d="M10 4H4v16h6M9 12h11M16 8l4 4-4 4"/>'),
   wifi: svg('<path d="M2 9c5.5-5 14.5-5 20 0M5.5 12.5c3.6-3.2 9.4-3.2 13 0M9 16c1.8-1.5 4.2-1.5 6 0"/><path d="M11 19h2v2h-2z" fill="currentColor"/>'),
+  star: svg('<path d="m12 2.5 2.9 6 6.6.9-4.8 4.6 1.2 6.5-5.9-3.1-5.9 3.1 1.2-6.5-4.8-4.6 6.6-.9z"/>'),
+  starFill: svg('<path d="m12 2.5 2.9 6 6.6.9-4.8 4.6 1.2 6.5-5.9-3.1-5.9 3.1 1.2-6.5-4.8-4.6 6.6-.9z" fill="currentColor"/>'),
+  map: svg('<path d="M3 6.5 9 4l6 2.5L21 4v13.5L15 20l-6-2.5L3 20zM9 4v13.5M15 6.5V20"/>'),
+  sort: svg('<path d="M4 6h16M4 12h11M4 18h6"/><path d="m17 11 3-3 3 3M20 8v10"/>'),
+  info: svg('<circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/>'),
+  sun: svg('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'),
+  chevronLeft: svg('<path d="m15 5-7 7 7 7"/>'),
+  chevronRight: svg('<path d="m9 5 7 7-7 7"/>'),
+  gauge: svg('<path d="M4.5 17a9 9 0 1 1 15 0"/><path d="m12 13 4-4"/><circle cx="12" cy="14" r="1.5" fill="currentColor"/>'),
+  speed: svg('<path d="M3 13a9 9 0 1 1 18 0"/><path d="M12 13l5-3"/><path d="M7 18h10"/>'),
+  wheel: svg('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/><path d="M12 4v5.5M5.2 16l4.6-2.7M18.8 16l-4.6-2.7"/>'),
+  shield: svg('<path d="M12 3 4 6.5v5.5c0 5 3.4 8.4 8 10 4.6-1.6 8-5 8-10V6.5z"/>'),
+  paint: svg('<path d="M19 4H9a2 2 0 0 0-2 2v3h12V6a2 2 0 0 0-2-2z"/><path d="M13 9v4l-1.5 1.5V20a1.5 1.5 0 0 0 3 0v-5.5L13 13"/>'),
 });
 
 /** A small chai glass with a two-wisp steam animation (CSS drives .sdh-steam paths). */

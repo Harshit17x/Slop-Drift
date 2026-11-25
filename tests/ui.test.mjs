@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { formatTime, formatDelta, formatInt, recordKind, formatTarget, medalFor, validateName, normalizePartyCode, isPartyCode, paintColor } from '../src/ui/Hud.js';
 import { applyDeadzone, isFormField, KEY_BINDINGS, PAD_BUTTONS } from '../src/input/Input.js';
 import { normalizeTrack } from '../src/ui/Minimap.js';
-import { MODES } from '../src/config.js';
+import { MODES, DEFAULT_SETTINGS, normalizeSettings } from '../src/config.js';
+import { CARS } from '../src/vehicle/cars.js';
+import { CAR_SORT_MODES, HUB_TABS, carRatingRows, driveUnitSvg, eventCategoryBadge, sortCars } from '../src/ui/GarageUi.js';
 
 let passed = 0;
 const test = (name, fn) => { fn(); passed += 1; console.log(`ok - ${name}`); };
@@ -111,6 +113,32 @@ test('paintColor only passes safe colours', () => {
   assert.equal(paintColor('#2A6FB0'), '#2A6FB0');
   assert.equal(paintColor('red;background:url(x)'), null);
   assert.equal(paintColor(undefined), null);
+});
+
+test('startGate setting defaults true and normalizes booleans', () => {
+  assert.equal(DEFAULT_SETTINGS.startGate, true);
+  assert.equal(normalizeSettings({}).startGate, true);
+  assert.equal(normalizeSettings({ startGate: false }).startGate, false);
+});
+
+test('GarageUi car metadata, sorting, ratings and drivetrain SVG', () => {
+  assert.ok(HUB_TABS.some((t) => t.id === 'garage') && HUB_TABS.some((t) => t.id === 'map'));
+  assert.ok(CAR_SORT_MODES.some((m) => m.id === 'favorites'));
+  const byClass = sortCars(CARS, 'class', []);
+  assert.equal(byClass[0].id, 'gt');
+  const byFav = sortCars(CARS, 'favorites', ['thar']);
+  assert.equal(byFav[0].id, 'thar');
+  const byName = sortCars(CARS, 'name', []);
+  assert.equal(byName[0].id, 'thar'); // Hill 4x4 < Rally Hatch < Track RS
+  for (const car of CARS) {
+    const rows = carRatingRows(car);
+    assert.equal(rows.length, 4);
+    assert.ok(rows.every((r) => r.value > 0 && r.value <= 10));
+    const svg = driveUnitSvg(car.drivetrain);
+    assert.ok(svg.includes('<svg') && svg.includes('var(--marigold)'));
+  }
+  assert.equal(eventCategoryBadge(MODES.find((m) => m.id === 'drift')).tag, 'DRIFT ZONE');
+  assert.equal(eventCategoryBadge(MODES.find((m) => m.id === 'roam')).tag, 'FREE ROAM');
 });
 
 console.log(`\n${passed} passed`);

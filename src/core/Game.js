@@ -61,6 +61,8 @@ export class Game {
     this.stuckTimer = 0;
     this.headlightsWanted = false;
     this.debugVisible = false;
+    this.garageOrbit = { yaw: 0, pitch: 0.08, dragging: false };
+    this.pendingRoamOnName = false;
     this.lastTime = 0;
     this.fps = 60;
     this.pose = { position: { x: 0, y: 0, z: 0 }, quaternion: { x: 0, y: 0, z: 0, w: 1 } };
@@ -89,6 +91,7 @@ export class Game {
     this.createRenderer();
     this.career = new Career();
     this.hud = new Hud(this.root, { settings: this.settings, modes: MODES, records: this.records });
+    this.hud.setStageMode?.('3d');
     this.hud.showLoading(0, 'Starting up');
     this.input = new Input({ root: this.root, touchRoot: this.hud.touchRoot });
     this.audio = new AudioEngine({ volume: this.settings.volume });
@@ -174,10 +177,14 @@ export class Game {
     document.addEventListener('visibilitychange', this.onVisibility);
     this.hud.showLoading(1, 'Ready');
     await nextFrame();
-    this.hud.hideLoading();
     this.platform.loadingStop();
-    this.meta.welcome();
-    this.partyRace?.boot();
+    const partyBooted = this.partyRace?.boot();
+    if (this.settings.startGate && !partyBooted) {
+      this.hud.showTitleReady();
+    } else {
+      this.hud.hideLoading();
+      this.meta.welcome();
+    }
     this.prewarmShaders();
     this.lastTime = performance.now();
     this.frameHandle = requestAnimationFrame(this.onFrame);
@@ -239,6 +246,49 @@ export class Game {
     hud.onFullscreen = () => this.toggleFullscreen();
     // The homepage map picker: a different map means a different world, so it reloads.
     hud.onSelectMap = (mapId) => this.selectMap(mapId);
+    hud.onTitleStart = (tab = 'garage') => {
+      this.audio.unlock();
+      this.audio.ui();
+      this.pendingRoamOnName = false;
+      this.hud.hideLoading();
+      this.hud.setHubTab?.(tab);
+      this.cameraRig?.startBlend();
+      this.meta.welcome();
+    };
+    hud.onTitleRoam = () => {
+      this.audio.unlock();
+      this.audio.ui();
+      this.hud.hideLoading();
+      if (this.career.needsName) {
+        this.pendingRoamOnName = true;
+        this.meta.welcome();
+      } else {
+        this.beginRun('roam');
+      }
+    };
+    hud.onToggleStartGate = (enabled) => {
+      this.applySettings({ ...this.settings, startGate: Boolean(enabled) });
+    };
+    hud.onHubTabChange = () => {
+      this.cameraRig?.startBlend();
+    };
+    hud.onGarageOrbit = (dx, dy, dragging) => {
+      this.garageOrbit.dragging = Boolean(dragging);
+      if (dx || dy) {
+        this.garageOrbit.yaw -= dx * 0.008;
+        this.garageOrbit.pitch = clamp(this.garageOrbit.pitch + dy * 0.005, -0.08, 0.45);
+      }
+    };
+    hud.onGaragePreviewTime = (timeOfDay) => {
+      this.applyTimeOfDay(timeOfDay);
+      this.audio.ui();
+    };
+    hud.onGaragePreviewLights = () => {
+      this.headlightsWanted = !this.car.headlightsOn;
+      this.car.setHeadlights(this.headlightsWanted);
+      this.audio.ui();
+      return this.car.headlightsOn;
+    };
     hud.onOpenSettings = () => {};
     // The HUD closes its own settings panel; put the screen underneath back.
     hud.onCloseSettings = (source) => this.restoreAfterSettings(source);
@@ -294,6 +344,10 @@ export class Game {
     }
     this.meta?.applyLook(this.car);
     this.car.setHeadlights(this.atmosphere.isNight || this.headlightsWanted);
+    if (this.hud) {
+      this.hud.headlightsOn = this.car.headlightsOn;
+      this.hud.syncGarageLightsButton?.();
+    }
     this.car.setNeon({ level: neonLevel(this.settings.timeOfDay) });
     this.remotePlayers?.setNeonLevel(neonLevel(this.settings.timeOfDay));
     this.vehicle.setHandling(this.settings.handling, getCar(this.carId).tuning);
@@ -756,8 +810,19 @@ export class Game {
 
     this.car.setInteriorView(this.cameraRig.mode === 'cockpit' && (this.state === 'running' || this.state === 'countdown' || paused));
     this.car.sync(state, dt);
-    if (this.state === 'menu') this.cameraRig.orbit(dt, state.position, { radius: 11, height: 3.4, speed: 0.1 });
-    else if (this.state === 'finished') this.cameraRig.orbit(dt, state.position, { radius: 8, height: 2.6, speed: 0.22 });
+    if (this.state === 'menu') {
+      if (this.hud.isGarageShowcaseActive?.()) {
+        if (!this.garageOrbit.dragging) this.garageOrbit.yaw += dt * 0.09;
+        const baseYaw = Math.atan2(state.forward.x, -state.forward.z);
+        this.cameraRig.showcase(dt, state.position, {
+          baseYaw,
+          yawOffset: this.garageOrbit.yaw,
+          pitchOffset: this.garageOrbit.pitch,
+        });
+      } else {
+        this.cameraRig.orbit(dt, state.position, { radius: 11, height: 3.4, speed: 0.1 });
+      }
+    } else if (this.state === 'finished') this.cameraRig.orbit(dt, state.position, { radius: 8, height: 2.6, speed: 0.22 });
     else if (!paused) this.cameraRig.follow(dt, state, input);
 
     const camera = this.cameraRig.camera;

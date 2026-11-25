@@ -5,13 +5,33 @@
 
 import { BASE_TUNING } from './tuning.js';
 
+const HAS_URL = typeof import.meta.url === 'string';
 const scalePoints = (points, sx, sy, sz) => points.map(([x, y, z, ...rest]) => [x * sx, y * sy, z * sz, ...rest]);
 
 export const CARS = Object.freeze([
   Object.freeze({
     id: 'hatch',
     label: 'Rally Hatch',
+    titleLines: Object.freeze(['RALLY', 'HATCH']),
     blurb: 'Light, rear-drive, built to slide',
+    classCode: 'B185',
+    classRank: 185,
+    classBand: 'b',
+    origin: 'IND',
+    category: 'DRIFT SPEC',
+    drivetrain: 'RWD',
+    gearboxLabel: '6-SPD',
+    thumbnail: HAS_URL ? new URL('../assets/ui/car-hatch.webp', import.meta.url).href : null,
+    ratings: Object.freeze({ acceleration: 6.8, topSpeed: 7.1, handling: 7.4, control: 9.2 }),
+    specs: Object.freeze({
+      massKg: 1300,
+      peakTorqueNm: 285,
+      redlineRpm: 7200,
+      gears: 6,
+      layoutLabel: 'RWD · Front-Eng',
+      aeroLabel: 'Rally Roof Wing',
+      nitro: true,
+    }),
     model: null,
     cockpit: 'drift',
     // A built drift car with a nitrous bottle. The road cars have none, as in real life.
@@ -21,8 +41,27 @@ export const CARS = Object.freeze([
   Object.freeze({
     id: 'gt',
     label: 'Track RS',
+    titleLines: Object.freeze(['TRACK', 'RS']),
     blurb: 'Rear-engine, 9,000 rpm, big wing',
-    model: new URL('../assets/cars/gt.glb', import.meta.url).href,
+    classCode: 'S312',
+    classRank: 312,
+    classBand: 's',
+    origin: 'GER',
+    category: 'TRACK SPEC',
+    drivetrain: 'RWD',
+    gearboxLabel: '7-SPD PDK',
+    thumbnail: HAS_URL ? new URL('../assets/ui/car-gt.webp', import.meta.url).href : null,
+    ratings: Object.freeze({ acceleration: 9.4, topSpeed: 9.6, handling: 9.5, control: 7.2 }),
+    specs: Object.freeze({
+      massKg: 1450,
+      peakTorqueNm: 465,
+      redlineRpm: 9000,
+      gears: 7,
+      layoutLabel: 'RWD · Rear-Eng',
+      aeroLabel: '860 kg @ 285 km/h',
+      nitro: false,
+    }),
+    model: HAS_URL ? new URL('../assets/cars/gt.glb', import.meta.url).href : null,
     // Rebuilt PBR textures encode body paint / forged-rim masks in RGBA Alpha and AO/Roughness/Metalness
     // in ORM channels; multi-layer paint/rim colour-blend shader tints painted zones while keeping carbon,
     // glass, decals, gold crest and rubber tyres intact, plus glowing front headlamp ovals & rear light bar.
@@ -97,8 +136,27 @@ export const CARS = Object.freeze([
   Object.freeze({
     id: 'thar',
     label: 'Hill 4x4',
+    titleLines: Object.freeze(['HILL', '4X4']),
     blurb: 'Four-wheel drive, tall springs: made for mud',
-    model: new URL('../assets/cars/thar.glb', import.meta.url).href,
+    classCode: 'C164',
+    classRank: 164,
+    classBand: 'c',
+    origin: 'IND',
+    category: '4X4 TRAIL',
+    drivetrain: 'AWD',
+    gearboxLabel: '6-SPD AT',
+    thumbnail: HAS_URL ? new URL('../assets/ui/car-thar.webp', import.meta.url).href : null,
+    ratings: Object.freeze({ acceleration: 5.8, topSpeed: 5.4, handling: 6.5, control: 9.1 }),
+    specs: Object.freeze({
+      massKg: 1950,
+      peakTorqueNm: 400,
+      redlineRpm: 4500,
+      gears: 6,
+      layoutLabel: '4WD · Long Travel',
+      aeroLabel: '235 mm Clearance',
+      nitro: false,
+    }),
+    model: HAS_URL ? new URL('../assets/cars/thar.glb', import.meta.url).href : null,
     credit: '"Mahindra - Thar Roxx" by ansari_studios (sketchfab.com/ansari_studios), CC BY 4.0, reduced and re-rigged',
     srgbFactors: true,
     // Rebuilt canonical PBR slots + BVH raytraced vertex AO (COLOR_0) + procedural molded micro-grain.

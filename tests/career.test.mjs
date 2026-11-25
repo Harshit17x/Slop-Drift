@@ -140,6 +140,8 @@ check('unknown neon rejected', career.setCosmetic('neon', 'plaid') === false);
 check('rally hatch is the default car', garage.selected.car === 'hatch');
 check('every car can be picked', CARS.every((car) => career.setCosmetic('car', car.id)) && career.profile.cosmetics.car === CARS.at(-1).id);
 check('unknown car rejected', career.setCosmetic('car', 'tank') === false && career.profile.cosmetics.car === CARS.at(-1).id);
+check('favorite car toggles and persists', career.toggleFavoriteCar('gt') === true && career.garage().favorites.includes('gt') && career.toggleFavoriteCar('gt') === false && !career.garage().favorites.includes('gt'));
+check('unknown favorite car rejected', career.toggleFavoriteCar('tank') === false);
 check('garage locked items explain why', garage.items.filter((i) => !i.unlocked).every((i) => i.requirement.length > 0));
 
 // --- drifting and air

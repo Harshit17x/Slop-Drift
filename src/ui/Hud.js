@@ -4,12 +4,17 @@
 
 import { MAPS } from '../world/maps.js';
 import {
-  DEFAULT_SETTINGS, HANDLING_PRESETS, MODES, QUALITY_PRESETS, TIME_OF_DAY, normalizeSettings,
+  DEFAULT_SETTINGS, HANDLING_PRESETS, MODES, QUALITY_PRESETS, TIME_OF_DAY, getMode, normalizeSettings,
 } from '../config.js';
+import { CARS, getCar } from '../vehicle/cars.js';
 import { ElevationStrip, Minimap } from './Minimap.js';
 import { MEDAL_LABELS, MEDAL_TARGETS, MEDAL_TIERS, medalTargets } from '../meta/catalog.js';
 import { trackKey } from '../meta/trackKey.js';
 import { CHAI_GLASS, ICON } from './icons.js';
+import {
+  CAR_SORT_MODES, HUB_TABS, TITLE_BACKDROP_URL, carRatingRows, driveUnitSvg,
+  eventCategoryBadge, forzaMapHubMarkup, garageHubMarkup, hubHeaderMarkup, sortCars,
+} from './GarageUi.js';
 
 const KMH_TO_MPH = 0.621371;
 const M_TO_FT = 3.28084;
@@ -254,7 +259,18 @@ export class Hud {
     this.settings = normalizeSettings(settings);
     this.uid = `sdh${Math.random().toString(36).slice(2, 8)}`;
     this.screen = 'menu';
-    this.sub = null; // open sub-panel: 'settings' | 'leaderboard' | 'achievements' | 'garage'
+    this.sub = null; // open sub-panel: 'settings' | 'leaderboard' | 'achievements' | 'party'
+    this.hubTab = 'garage';
+    this.lastMainTab = 'garage';
+    this.garageMode = 'view';
+    this.carSort = 'default';
+    this.specsOpen = false;
+    this.forzaModeId = modes[0]?.id || 'sprint';
+    this.forzaView = 'map';
+    this.stageMode = 'image';
+    this.loadingActive = false;
+    this.titleReady = false;
+    this.headlightsOn = false;
     this.subSource = 'menu';
     this.settingsSource = 'menu';
     this.profile = null;
@@ -288,6 +304,7 @@ export class Hud {
 
     // Callbacks assigned by the game.
     const noop = () => {};
+    this.noopRef = noop;
     this.onStart = noop;
     this.onPause = noop;
     this.onResume = noop;
@@ -306,7 +323,15 @@ export class Hud {
     this.onLeaderboardRequest = noop;
     this.onRaceLeaderboardGhost = noop;
     this.onCosmetic = noop;
+    this.onFavoriteCar = noop;
     this.onToggleGhost = noop;
+    this.onTitleStart = noop;
+    this.onTitleRoam = noop;
+    this.onToggleStartGate = noop;
+    this.onHubTabChange = noop;
+    this.onGarageOrbit = noop;
+    this.onGaragePreviewTime = noop;
+    this.onGaragePreviewLights = noop;
     // Party callbacks are assigned by the game and always invoked with `?.`.
     this.onPartyCreate = null;
     this.onPartyJoin = null;
@@ -466,6 +491,7 @@ export class Hud {
       <div class="sdh-toasts" aria-live="polite"></div>
       <div class="sdh-touch" aria-hidden="true"></div>
       <div class="sdh-veil"></div>
+      ${hubHeaderMarkup(this.uid, CHAI_GLASS)}
       ${this.menuMarkup()}
       ${this.pauseMarkup()}
       <aside class="sdh-panel sdh-panel-finish" data-panel="finish" aria-label="Results">
@@ -490,15 +516,34 @@ export class Hud {
       ${this.settingsMarkup()}
       ${this.leaderboardMarkup()}
       ${this.achievementsMarkup()}
-      ${this.garageMarkup()}
       ${this.nameDialogMarkup()}
       <div class="sdh-loading" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-label="Loading">
+        ${TITLE_BACKDROP_URL ? `<img class="sdh-loading-bg" src="${esc(TITLE_BACKDROP_URL)}" alt="" aria-hidden="true">` : ''}
+        <div class="sdh-loading-scrim" aria-hidden="true"></div>
         <div class="sdh-loading-inner">
-          <div class="sdh-brand sdh-brand-xl"><span>SLOP DRIFT</span></div>
+          <div class="sdh-title-chips">
+            <span class="sdh-title-chip is-map" data-title="mapBadge">MUSSOORIE</span>
+            <span class="sdh-title-chip" data-title="carBadge">RALLY HATCH · B185</span>
+          </div>
+          <div class="sdh-brand sdh-brand-xl"><span>SLOP DRIFT</span>${CHAI_GLASS}</div>
           <div class="sdh-loading-sub"><span lang="hi">मसूरी</span> · Mussoorie · Landour</div>
           <div class="sdh-slogan-board sdh-loading-slogan"><span></span></div>
-          <div class="sdh-loading-bar"><i></i></div>
-          <div class="sdh-loading-meta"><span class="sdh-loading-label"></span><span class="sdh-loading-pct sdh-num"></span></div>
+          <div class="sdh-loading-progress">
+            <div class="sdh-loading-bar"><i></i></div>
+            <div class="sdh-loading-meta"><span class="sdh-loading-label"></span><span class="sdh-loading-pct sdh-num"></span></div>
+          </div>
+          <div class="sdh-title-actions" hidden>
+            <button type="button" class="sdh-btn sdh-btn-primary sdh-title-start" data-act="title-start">${ICON.play}<span>START · ENTER GARAGE</span><kbd>ENTER</kbd></button>
+            <button type="button" class="sdh-btn sdh-title-maps" data-act="title-maps">${ICON.map}<span>CHOOSE MAP</span></button>
+            <button type="button" class="sdh-btn sdh-title-roam" data-act="title-roam">${ICON.car}<span>FREE ROAM</span></button>
+          </div>
+          <div class="sdh-loading-options">
+            <button type="button" class="sdh-gate-toggle" data-act="toggle-start-gate" aria-pressed="true">
+              <span class="sdh-gate-dot" aria-hidden="true"></span>
+              <span>START GATE AFTER LOAD: <b data-title="gateState">ON</b></span>
+            </button>
+            <span class="sdh-title-keyhint" data-title="readyHint" hidden>ENTER START · M MAP · SPACE ROAM</span>
+          </div>
         </div>
       </div>`;
     this.root.appendChild(el);
@@ -569,6 +614,7 @@ export class Hud {
     clip?.addEventListener('emptied', () => clip.classList.remove('is-on'));
     clip?.addEventListener('error', () => clip.classList.remove('is-on'));
     this.renderMapStage();
+    this.renderGarageShowcase();
   }
 
   modeCardsMarkup() {
@@ -593,79 +639,48 @@ export class Hud {
     return MODES.filter((mode) => routes.includes(mode.route)).length;
   }
 
-  /** Homepage map picker: one large drone shot and a tab per map. */
-  mapPickerMarkup() {
-    const tabs = Object.values(MAPS).map((map) => `
-      <button type="button" class="sdh-map-tab" data-act="map-preview" data-map="${esc(map.id)}" aria-pressed="false" title="${esc(map.tagline)}">
-        ${map.preview ? `<img class="sdh-map-tab-shot" src="${esc(map.preview)}" alt="" loading="lazy" decoding="async">` : ''}
-        <span class="sdh-map-tab-text"><b>${esc(map.label)}</b><small>${this.eventCount(map)} events</small></span>
-      </button>`).join('');
-    return `
-      <section class="sdh-maps" aria-label="Choose a map">
-        <div class="sdh-maps-head">
-          <span class="sdh-eyebrow">Choose your mountain</span>
-          <span class="sdh-maps-hint">Drone preview</span>
-        </div>
-        <div class="sdh-map-stage">
-          <div class="sdh-map-frame">
-            <img class="sdh-map-shot" alt="" decoding="async">
-            <video class="sdh-map-clip" muted loop playsinline preload="none" tabindex="-1" aria-hidden="true"></video>
-            <span class="sdh-map-stage-status"></span>
-          </div>
-          <div class="sdh-map-stage-body">
-            <h3 class="sdh-map-stage-name" aria-live="polite"></h3>
-            <p class="sdh-map-stage-tag"></p>
-            <ul class="sdh-map-stage-chips"></ul>
-            <button type="button" class="sdh-btn sdh-btn-primary sdh-map-go" data-act="map-go" hidden></button>
-          </div>
-        </div>
-        <div class="sdh-map-tabs" role="group" aria-label="Maps">${tabs}</div>
-      </section>`;
-  }
-
   menuMarkup() {
     const cards = this.modeCardsMarkup();
     return `
-      <aside class="sdh-panel sdh-panel-menu" data-panel="menu" aria-label="Main menu">
-        <div class="sdh-playerbar">
-          <span class="sdh-lv-badge sdh-num" data-p="level" title="Driver level"></span>
-          <div class="sdh-pb-main">
-            <div class="sdh-pb-row">
-              <button type="button" class="sdh-pb-name" data-act="rename" title="Rename driver"><span data-p="name"></span>${ICON.pencil}</button>
-              <input class="sdh-pb-input" type="text" maxlength="16" autocomplete="off" spellcheck="false" aria-label="Driver name" hidden>
-              <span class="sdh-conn" data-p="conn"><i class="sdh-dot"></i><span data-p="connText"></span></span>
+      <aside class="sdh-panel sdh-panel-menu" data-panel="menu" aria-label="Starting Hub">
+        ${garageHubMarkup()}
+        ${forzaMapHubMarkup()}
+        <section class="sdh-hub-view sdh-events-view" data-hub-view="events" aria-label="Events and daily challenge" hidden>
+          <div class="sdh-events-grid">
+            <div class="sdh-events-left">
+              <section class="sdh-daily" aria-label="Daily challenge">
+                <div class="sdh-daily-info">
+                  <div class="sdh-daily-top"><span class="sdh-eyebrow">Aaj ka challenge</span><span class="sdh-streak" title="Daily streak">${ICON.flame}<b class="sdh-num" data-d="streak">0</b></span></div>
+                  <div class="sdh-daily-text" data-d="text">Loading today’s challenge…</div>
+                  <div class="sdh-daily-meta"><span data-d="mode"></span><span class="sdh-daily-xp" data-d="xp"></span></div>
+                </div>
+                <button type="button" class="sdh-btn sdh-daily-go" data-act="daily">${ICON.play}<span data-d="btn">Start</span></button>
+              </section>
+              <button type="button" class="sdh-party-entry" data-act="party">
+                <span class="sdh-party-entry-ico">${ICON.party}</span>
+                <span class="sdh-party-entry-main"><b>Race with friends</b><small data-p="partyLine">Share a 5-letter code. Up to 8 drivers.</small></span>
+                <span class="sdh-party-entry-code sdh-num" data-p="partyCode" hidden></span>
+              </button>
+              <div class="sdh-menu-actions">
+                <button type="button" class="sdh-btn sdh-btn-tile" data-act="garage">${ICON.car}<span>Garage</span></button>
+                <button type="button" class="sdh-btn sdh-btn-tile" data-act="leaderboard">${ICON.trophy}<span>Leaderboard</span></button>
+                <button type="button" class="sdh-btn sdh-btn-tile" data-act="achievements">${ICON.medal}<span>Awards</span></button>
+                <button type="button" class="sdh-btn sdh-btn-tile" data-act="settings">${ICON.sliders}<span>Settings</span></button>
+              </div>
+              <details class="sdh-players" open>
+                <summary><i class="sdh-dot"></i><span data-p="playersTitle">Online players</span><span class="sdh-players-count sdh-num" data-p="playersCount"></span></summary>
+                <ul class="sdh-players-list"></ul>
+              </details>
             </div>
-            <div class="sdh-xp" title="Progress to the next level"><i data-p="xp"></i></div>
-            <div class="sdh-pb-sub" data-p="xpText"></div>
+            <div class="sdh-events-right">
+              <div class="sdh-events-board-head">
+                <span class="sdh-eyebrow">Hill trials &amp; drift runs</span>
+                <button type="button" class="sdh-subpill" data-act="hub-tab" data-hub-tab="map">${ICON.map}<span>OPEN WORLD MAP</span></button>
+              </div>
+              <div class="sdh-mode-list" role="list" aria-label="Events">${cards}</div>
+            </div>
           </div>
-          <button type="button" class="sdh-icon sdh-icon-plain sdh-fs" data-act="fullscreen" aria-label="Fullscreen" title="Fullscreen (F)">${ICON.expand}${ICON.shrink}</button>
-        </div>
-        <div class="sdh-brand sdh-brand-menu"><span>SLOP DRIFT</span><small lang="hi">मसूरी</small>${CHAI_GLASS}</div>
-        ${this.mapPickerMarkup()}
-        <section class="sdh-daily" aria-label="Daily challenge">
-          <div class="sdh-daily-info">
-            <div class="sdh-daily-top"><span class="sdh-eyebrow">Aaj ka challenge</span><span class="sdh-streak" title="Daily streak">${ICON.flame}<b class="sdh-num" data-d="streak">0</b></span></div>
-            <div class="sdh-daily-text" data-d="text">Loading today’s challenge…</div>
-            <div class="sdh-daily-meta"><span data-d="mode"></span><span class="sdh-daily-xp" data-d="xp"></span></div>
-          </div>
-          <button type="button" class="sdh-btn sdh-daily-go" data-act="daily">${ICON.play}<span data-d="btn">Start</span></button>
         </section>
-        <div class="sdh-mode-list" role="list" aria-label="Events">${cards}</div>
-        <button type="button" class="sdh-party-entry" data-act="party">
-          <span class="sdh-party-entry-ico">${ICON.party}</span>
-          <span class="sdh-party-entry-main"><b>Race with friends</b><small data-p="partyLine">Share a 5-letter code. Up to 8 drivers.</small></span>
-          <span class="sdh-party-entry-code sdh-num" data-p="partyCode" hidden></span>
-        </button>
-        <div class="sdh-menu-actions">
-          <button type="button" class="sdh-btn sdh-btn-tile" data-act="garage">${ICON.car}<span>Garage</span></button>
-          <button type="button" class="sdh-btn sdh-btn-tile" data-act="leaderboard">${ICON.trophy}<span>Leaderboard</span></button>
-          <button type="button" class="sdh-btn sdh-btn-tile" data-act="achievements">${ICON.medal}<span>Awards</span></button>
-          <button type="button" class="sdh-btn sdh-btn-tile" data-act="settings">${ICON.sliders}<span>Settings</span></button>
-        </div>
-        <details class="sdh-players">
-          <summary><i class="sdh-dot"></i><span data-p="playersTitle">Online players</span><span class="sdh-players-count sdh-num" data-p="playersCount"></span></summary>
-          <ul class="sdh-players-list"></ul>
-        </details>
       </aside>`;
   }
 
@@ -727,6 +742,7 @@ export class Hud {
           ${seg('units', 'Units', [{ value: 'kmh', label: 'km/h · m' }, { value: 'mph', label: 'mph · ft' }])}
           ${slider('volume', 'Master volume')}
           ${toggle('cameraShake', 'Camera shake', 'Speed and impact shake')}
+          ${toggle('startGate', 'Forza start screen', 'Pause at the Start & Map screen after loading')}
           <div class="sdh-group-label">Controls</div>
         <div class="sdh-legend sdh-legend-settings">
           <div class="sdh-legend-keys">
@@ -768,6 +784,40 @@ export class Hud {
         case 'daily': this.onStartDaily(); break;
         case 'ghost': this.onToggleGhost(); break;
         case 'race-ghost': this.onRaceGhost(); break;
+        case 'title-start': this.onTitleStart('garage'); break;
+        case 'title-maps': this.onTitleStart('map'); break;
+        case 'title-roam': this.onTitleRoam(); break;
+        case 'toggle-start-gate': {
+          const next = !this.settings.startGate;
+          this.setSettings({ ...this.settings, startGate: next });
+          this.onToggleStartGate(next);
+          break;
+        }
+        case 'hub-tab': this.setHubTab(target.dataset.hubTab); break;
+        case 'hub-prev': this.stepHubTab(-1); break;
+        case 'hub-next': this.stepHubTab(1); break;
+        case 'garage-mode': this.setGarageMode(target.dataset.gmode); break;
+        case 'garage-toggle-custom': this.setGarageMode(this.garageMode === 'customize' ? 'view' : 'customize'); break;
+        case 'garage-time': this.onGaragePreviewTime(target.dataset.time); break;
+        case 'garage-lights': {
+          const on = Boolean(this.onGaragePreviewLights());
+          this.headlightsOn = on;
+          this.syncGarageLightsButton();
+          break;
+        }
+        case 'garage-quick-drive': this.onStart('roam'); break;
+        case 'goto-map': this.setHubTab('map'); break;
+        case 'car-prev': this.stepCar(-1); break;
+        case 'car-next': this.stepCar(1); break;
+        case 'car-select': this.onCosmetic('car', target.dataset.car); break;
+        case 'car-favorite': this.toggleFavorite(this.selectedCarId()); break;
+        case 'car-card-fav': this.toggleFavorite(target.dataset.car); break;
+        case 'car-sort': this.cycleCarSort(); break;
+        case 'car-specs': this.toggleCarSpecs(); break;
+        case 'forza-view': this.setForzaView(target.dataset.fview); break;
+        case 'forza-select-mode': this.selectForzaMode(target.dataset.fmode); break;
+        case 'forza-start': this.onStart(this.forzaModeId || 'sprint'); break;
+        case 'forza-roam': this.onStart('roam'); break;
         case 'finish-leaderboard': {
           const id = this.finishModeId;
           this.openLeaderboard(id, 'finish');
@@ -783,7 +833,7 @@ export class Hud {
         case 'lb-tab': this.openLeaderboard(target.dataset.tab, this.subSource); break;
         case 'lb-ghost': this.onRaceLeaderboardGhost(target.dataset.lbMode, target.dataset.player); break;
         case 'achievements': this.openSub('achievements', 'menu'); break;
-        case 'garage': this.openSub('garage', 'menu'); break;
+        case 'garage': this.setHubTab('garage'); break;
         case 'cosmetic':
           if (target.getAttribute('aria-disabled') !== 'true') this.onCosmetic(target.dataset.slot, target.dataset.value);
           break;
@@ -855,8 +905,62 @@ export class Hud {
       if (event.key === 'Enter') { event.preventDefault(); numberInput.blur(); }
     });
 
-    // Capture-phase so the game's Input never sees an Escape that the overlays consumed.
+    // Drag to rotate 3D car inside the garage showcase window.
+    const stage = this.q('[data-garage-stage]');
+    if (stage) {
+      let dragPointer = null;
+      let prevX = 0;
+      let prevY = 0;
+      stage.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0 || !this.isGarageShowcaseActive()) return;
+        dragPointer = e.pointerId;
+        prevX = e.clientX;
+        prevY = e.clientY;
+        stage.classList.add('is-dragging');
+        try { stage.setPointerCapture(e.pointerId); } catch {}
+        this.onGarageOrbit(0, 0, true);
+      });
+      stage.addEventListener('pointermove', (e) => {
+        if (e.pointerId !== dragPointer) return;
+        const dx = e.clientX - prevX;
+        const dy = e.clientY - prevY;
+        prevX = e.clientX;
+        prevY = e.clientY;
+        this.onGarageOrbit(dx, dy, true);
+      });
+      const stopDrag = (e) => {
+        if (e.pointerId !== dragPointer) return;
+        dragPointer = null;
+        stage.classList.remove('is-dragging');
+        this.onGarageOrbit(0, 0, false);
+      };
+      stage.addEventListener('pointerup', stopDrag);
+      stage.addEventListener('pointercancel', stopDrag);
+      stage.addEventListener('lostpointercapture', stopDrag);
+    }
+
+    // Capture-phase so the game's Input never sees an Escape or hub shortcut that the overlays consumed.
     this.onKeyDown = (event) => {
+      if (this.loadingActive && this.titleReady && !event.repeat && !this.dialogOpen) {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          this.onTitleStart('garage');
+          return;
+        }
+        if (event.code === 'KeyM') {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          this.onTitleStart('map');
+          return;
+        }
+        if (event.code === 'Space' && !event.target?.closest?.('button')) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          this.onTitleRoam();
+          return;
+        }
+      }
       if (event.key === 'Escape' && !event.repeat) {
         if (this.dialogOpen) {
           event.preventDefault();
@@ -889,6 +993,59 @@ export class Hud {
           return;
         }
       }
+      const inField = event.target?.tagName === 'INPUT' || event.target?.tagName === 'TEXTAREA' || event.target?.isContentEditable;
+      if (this.screen === 'menu' && !this.dialogOpen && !this.loadingActive && !this.renaming && !inField && !event.metaKey && !event.ctrlKey) {
+        if (!event.repeat && (event.code === 'KeyQ' || event.code === 'KeyE')) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          this.stepHubTab(event.code === 'KeyE' ? 1 : -1);
+          return;
+        }
+        if (this.isGarageShowcaseActive()) {
+          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            this.stepCar(event.key === 'ArrowRight' ? 1 : -1);
+            return;
+          }
+          if (!event.repeat && event.code === 'KeyC') {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            this.toggleFavorite(this.selectedCarId());
+            return;
+          }
+          if (!event.repeat && event.code === 'KeyX') {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            this.cycleCarSort();
+            return;
+          }
+          if (!event.repeat && event.code === 'KeyV') {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            this.setGarageMode(this.garageMode === 'customize' ? 'view' : 'customize');
+            return;
+          }
+          if (!event.repeat && event.key === 'Backspace') {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            this.toggleCarSpecs();
+            return;
+          }
+          if (!event.repeat && event.key === 'Enter' && !event.target?.closest?.('button')) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            this.setHubTab('map');
+            return;
+          }
+        } else if (!this.sub && this.hubTab === 'map' && !event.repeat && event.key === 'Enter' && !event.target?.closest?.('button')) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          if (this.previewMapId !== this.mapId) this.onSelectMap?.(this.previewMapId);
+          else this.onStart(this.forzaModeId || 'sprint');
+          return;
+        }
+      }
       const panel = this.dialogOpen ? this.q('.sdh-dialog') : this.openPanel();
       if (!panel) return;
       if (event.key === 'Tab') this.trapTab(event, panel);
@@ -900,8 +1057,8 @@ export class Hud {
         this.openLeaderboard(next.dataset.tab, this.subSource);
         this.q(`[role="tab"][data-tab="${CSS.escape(next.dataset.tab)}"]`)?.focus();
       }
-      else if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && event.target.matches?.('.sdh-map-tab')) {
-        const tabs = [...event.target.parentElement.querySelectorAll('.sdh-map-tab')];
+      else if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && event.target.matches?.('.sdh-forza-region')) {
+        const tabs = [...event.target.parentElement.querySelectorAll('.sdh-forza-region')];
         const next = tabs[(tabs.indexOf(event.target) + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -927,8 +1084,20 @@ export class Hud {
     this.touchRoot.addEventListener('touchmodechange', this.onTouchMode);
 
     this.overviewObserver = typeof ResizeObserver !== 'undefined'
-      ? new ResizeObserver(() => this.drawOverviews()) : null;
+      ? new ResizeObserver(() => {
+        this.syncHubOffset();
+        this.drawOverviews();
+      }) : null;
     this.el.querySelectorAll('.sdh-overview').forEach((c) => this.overviewObserver?.observe(c));
+    const hubTop = this.q('.sdh-hub-top');
+    if (hubTop) this.overviewObserver?.observe(hubTop);
+  }
+
+  syncHubOffset() {
+    const hubTop = this.q('.sdh-hub-top');
+    if (!hubTop || !this.el) return;
+    const h = hubTop.offsetHeight;
+    if (h > 0) this.el.style.setProperty('--hub-top-h', `${h}px`);
   }
 
   trapTab(event, panel) {
@@ -959,12 +1128,26 @@ export class Hud {
 
   applyScreen(focus = true) {
     const prev = this.currentPanel;
+    const activeTab = this.sub && this.screen === 'menu' ? this.sub : this.hubTab;
     this.el.dataset.screen = this.screen;
+    this.el.dataset.hubTab = activeTab;
     this.el.classList.toggle('is-settings', Boolean(this.sub));
+    this.el.classList.toggle('is-3d-stage', this.stageMode === '3d');
+    const hubTop = this.q('.sdh-hub-top');
+    const hubOpen = this.screen === 'menu';
+    if (hubTop) {
+      hubTop.toggleAttribute('inert', !hubOpen || this.dialogOpen || this.loadingActive);
+      hubTop.setAttribute('aria-hidden', String(!hubOpen));
+      if (hubOpen) this.syncHubOffset();
+    }
+    this.renderHubChrome(activeTab);
+    this.renderHubViews();
+
     const panel = this.openPanel();
     this.el.querySelectorAll('.sdh-panel').forEach((p) => {
       const open = p === panel;
       p.classList.toggle('is-open', open);
+      p.classList.toggle('is-hub-docked', open && this.screen === 'menu' && p !== this.q('[data-panel="menu"]'));
       p.toggleAttribute('inert', !open);
       p.setAttribute('aria-hidden', String(!open));
     });
@@ -972,9 +1155,12 @@ export class Hud {
     this.raceEl.toggleAttribute('inert', this.screen !== 'race');
     this.el.classList.toggle('is-racing', racing);
     this.currentPanel = panel;
-    // The flyover only runs while the homepage picker is on screen.
-    if (this.screen === 'menu' && !this.sub) this.playMapClip();
-    else this.pauseMapClip();
+    // The flyover only runs while the Forza map drone preview is visible.
+    if (this.screen === 'menu' && !this.sub && this.hubTab === 'map' && (this.forzaView === 'drone' || this.previewMapId !== this.mapId)) {
+      this.playMapClip();
+    } else {
+      this.pauseMapClip();
+    }
     if (this.dialogOpen) {
       // The first-run name dialog stays modal over whatever screen the game shows underneath.
       this.el.querySelectorAll('.sdh-panel').forEach((p) => p.setAttribute('inert', ''));
@@ -985,7 +1171,7 @@ export class Hud {
       if (this.el.contains(document.activeElement)) document.activeElement.blur();
     } else if (focus && panel !== prev) {
       // First match in priority order (querySelector with a list would return document order).
-      const target = ['[aria-selected="true"]', '.sdh-btn-primary:not([hidden])', '.sdh-mode-card', '.sdh-cos:not(.is-locked)', 'input:not([type="hidden"]):not(:disabled)', 'button:not([hidden])']
+      const target = ['[aria-selected="true"]', '.sdh-btn-primary:not([hidden])', '.sdh-car-card.is-selected', '.sdh-mode-card', '.sdh-cos:not(.is-locked)', 'input:not([type="hidden"]):not(:disabled)', 'button:not([hidden])']
         .reduce((found, sel) => found || panel.querySelector(sel), null);
       const active = document.activeElement;
       if (target && (!active || active === document.body || this.el.contains(active))) {
@@ -995,10 +1181,80 @@ export class Hud {
     if (panel && panel.querySelector('.sdh-overview')) this.drawOverviews();
   }
 
+  setStageMode(mode) {
+    this.stageMode = mode === '3d' ? '3d' : 'image';
+    this.el?.classList.toggle('is-3d-stage', this.stageMode === '3d');
+  }
+
+  isGarageShowcaseActive() {
+    return this.screen === 'menu' && !this.sub && this.hubTab === 'garage' && !this.loadingActive;
+  }
+
+  setHubTab(tab) {
+    const id = HUB_TABS.some((t) => t.id === tab) ? tab : 'garage';
+    if (['party', 'leaderboard', 'achievements', 'settings'].includes(id)) {
+      this.screen = 'menu';
+      if (id === 'party') { this.openParty(); return; }
+      if (id === 'leaderboard') {
+        const modeId = this.lbMode || this.rankedModes()[0]?.id;
+        this.openLeaderboard(modeId, 'menu');
+        this.onOpenLeaderboard(modeId);
+        return;
+      }
+      if (id === 'achievements') { this.openSub('achievements', 'menu'); return; }
+      this.openSettings('menu');
+      this.onOpenSettings('menu');
+      return;
+    }
+    this.screen = 'menu';
+    this.sub = null;
+    this.hubTab = id;
+    this.lastMainTab = id;
+    this.applyScreen(false);
+    if (id === 'map') {
+      this.renderForzaMap();
+      this.drawOverviews();
+    } else if (id === 'garage') {
+      this.renderGarageShowcase();
+    }
+    this.onHubTabChange(id);
+  }
+
+  stepHubTab(delta) {
+    const current = this.sub && this.screen === 'menu' ? this.sub : this.hubTab;
+    const idx = Math.max(0, HUB_TABS.findIndex((t) => t.id === current));
+    const next = HUB_TABS[(idx + delta + HUB_TABS.length) % HUB_TABS.length];
+    if (next) this.setHubTab(next.id);
+  }
+
+  renderHubChrome(activeTab) {
+    const tabMeta = HUB_TABS.find((t) => t.id === activeTab) || HUB_TABS[0];
+    const crumb = this.q('[data-hub="crumb"]');
+    const heading = this.q('[data-hub="heading"]');
+    if (crumb) crumb.textContent = tabMeta.crumb;
+    if (heading) {
+      heading.textContent = activeTab === 'garage' && this.garageMode === 'customize'
+        ? 'GARAGE - PAINT & CUSTOMIZE'
+        : tabMeta.heading;
+    }
+    for (const btn of this.el.querySelectorAll('.sdh-hub-tab')) {
+      const on = btn.dataset.hubTab === activeTab;
+      btn.classList.toggle('is-active', on);
+      btn.setAttribute('aria-selected', String(on));
+    }
+  }
+
+  renderHubViews() {
+    for (const view of this.el.querySelectorAll('[data-hub-view]')) {
+      view.hidden = view.dataset.hubView !== this.hubTab;
+    }
+  }
+
   showMenu() {
     this.finishFresh = false;
     this.screen = 'menu';
     this.sub = null;
+    if (!['garage', 'map', 'events'].includes(this.hubTab)) this.hubTab = this.lastMainTab || 'garage';
     // Coming back from a run, the picker shows the map you are actually driving.
     if (this.previewMapId !== this.mapId) {
       this.previewMapId = this.mapId;
@@ -1119,6 +1375,7 @@ export class Hud {
   }
 
   openParty() {
+    if (this.loadingActive) this.hideLoading();
     this.renderParty();
     this.openSub('party', this.screen === 'party-results' ? 'party-results' : 'menu');
     if (this.q('.sdh-party-start').hidden === false) {
@@ -1348,6 +1605,10 @@ export class Hud {
     n('volume').value = String(Math.round(s.volume * 100));
     n('abs').checked = s.abs;
     n('cameraShake').checked = s.cameraShake;
+    const gateEl = n('startGate');
+    if (gateEl) gateEl.checked = s.startGate;
+    this.syncStartGateUi();
+    this.syncLightingPills();
     this.renderSliderOutputs();
     // Units change the HUD readouts: force them to re-render on the next update.
     if (this.v) {
@@ -1370,6 +1631,8 @@ export class Hud {
     out.volume = Number(n('volume').value) / 100;
     out.abs = n('abs').checked;
     out.cameraShake = n('cameraShake').checked;
+    const gateEl = n('startGate');
+    if (gateEl) out.startGate = gateEl.checked;
     return normalizeSettings(out);
   }
 
@@ -1400,13 +1663,19 @@ export class Hud {
     const tabs = this.q('[data-panel="leaderboard"] .sdh-tabs');
     if (tabs) tabs.innerHTML = this.leaderboardTabsMarkup();
     if (this.lbMode && !this.rankedModes().some((m) => m.id === this.lbMode)) this.lbMode = null;
+    if (!this.modes.some((m) => m.id === this.forzaModeId)) this.forzaModeId = this.modes[0]?.id || 'sprint';
     this.renderCards();
+    this.renderForzaMap();
   }
 
   /** @param {Object<string, {medal:(string|null), next:({tier:string,target:number}|null)}>} medals */
   setMedals(medals) {
     this.medals = medals || {};
     this.renderCards();
+    this.renderForzaMap();
+    const total = Object.values(this.medals).filter((m) => m?.medal).length;
+    const badge = this.q('[data-hub="medalCount"]');
+    if (badge) badge.textContent = String(total);
   }
 
   renderCards() {
@@ -1467,14 +1736,22 @@ export class Hud {
       this.timers.delete(this.loadingHideTimer);
       this.loadingHideTimer = null;
     }
+    this.loadingActive = true;
+    this.titleReady = false;
     el.classList.add('is-on');
-    el.classList.remove('is-hiding');
+    el.classList.remove('is-hiding', 'is-title-ready');
+    const actions = this.q('.sdh-title-actions');
+    const hint = this.q('[data-title="readyHint"]');
+    if (actions) actions.hidden = true;
+    if (hint) hint.hidden = true;
     const p = Math.max(0, Math.min(1, Number(progress01) || 0));
     const key = Math.round(p * 1000);
     this.v.loadingBar.setKey(key, (k) => `scaleX(${k / 1000})`);
     this.v.loadingPct.setKey(Math.round(p * 100), (k) => `${k}%`);
     el.setAttribute('aria-valuenow', String(Math.round(p * 100)));
     if (label) this.v.loadingLabel.set(String(label));
+    this.syncStartGateUi();
+    this.syncTitleBadges();
     if (!this.loadingSloganTimer) {
       const span = this.q('.sdh-loading-slogan span');
       let i = Math.floor(Math.random() * SLOGANS.length);
@@ -1486,8 +1763,28 @@ export class Hud {
     }
   }
 
+  /** Forza-style Ready Gate: keeps the scenic title screen open with Start / Map / Free Roam actions. */
+  showTitleReady() {
+    this.showLoading(1, 'Ready to drive');
+    this.titleReady = true;
+    const el = this.q('.sdh-loading');
+    el.classList.add('is-title-ready');
+    const actions = this.q('.sdh-title-actions');
+    const hint = this.q('[data-title="readyHint"]');
+    if (actions) actions.hidden = false;
+    if (hint) hint.hidden = false;
+    this.q('.sdh-hub-top')?.setAttribute('inert', '');
+    this.q('.sdh-title-start')?.focus({ preventScroll: true });
+  }
+
   hideLoading() {
     const el = this.q('.sdh-loading');
+    this.loadingActive = false;
+    this.titleReady = false;
+    el.classList.remove('is-title-ready');
+    if (this.screen === 'menu' && !this.dialogOpen) {
+      this.q('.sdh-hub-top')?.removeAttribute('inert');
+    }
     if (!el.classList.contains('is-on') || this.loadingHideTimer) return;
     el.classList.add('is-hiding');
     clearInterval(this.loadingSloganTimer);
@@ -1496,6 +1793,23 @@ export class Hud {
       el.classList.remove('is-on', 'is-hiding');
       this.loadingHideTimer = null;
     }, this.reducedMotion?.matches ? 0 : 600);
+  }
+
+  syncStartGateUi() {
+    const btn = this.q('[data-act="toggle-start-gate"]');
+    const state = this.q('[data-title="gateState"]');
+    const on = Boolean(this.settings?.startGate);
+    if (btn) btn.setAttribute('aria-pressed', String(on));
+    if (state) state.textContent = on ? 'ON' : 'OFF';
+  }
+
+  syncTitleBadges() {
+    const map = MAPS[this.mapId];
+    const mapBadge = this.q('[data-title="mapBadge"]');
+    if (mapBadge && map) mapBadge.textContent = `${map.label.toUpperCase()} · ${this.eventCount(map)} EVENTS`;
+    const car = getCar(this.selectedCarId());
+    const carBadge = this.q('[data-title="carBadge"]');
+    if (carBadge && car) carBadge.textContent = `${car.label.toUpperCase()} · ${car.classCode || ''}`;
   }
 
   setCountdown(text) {
@@ -1570,30 +1884,6 @@ export class Hud {
         </header>
         <div class="sdh-xp sdh-ach-bar"><i></i></div>
         <ul class="sdh-ach-list"></ul>
-      </aside>`;
-  }
-
-  garageMarkup() {
-    return `
-      <aside class="sdh-panel sdh-panel-sub" data-panel="garage" aria-label="Garage">
-        <header class="sdh-panel-head sdh-panel-head-row">
-          <button type="button" class="sdh-icon sdh-icon-plain" data-act="sub-back" aria-label="Back">${ICON.back}</button>
-          <h2 class="sdh-title">Garage</h2>
-        </header>
-        <div class="sdh-group-label">Car</div>
-        <div class="sdh-cos-grid sdh-car-grid" data-slot-grid="car"></div>
-        <div class="sdh-group-label">Paint</div>
-        <div class="sdh-cos-grid" data-slot-grid="paint"></div>
-        <div class="sdh-group-label">Rims</div>
-        <div class="sdh-cos-grid" data-slot-grid="rim"></div>
-        <div class="sdh-group-label">Neon underglow <small class="sdh-group-hint">shines at night · G toggles</small></div>
-        <div class="sdh-cos-grid" data-slot-grid="neon"></div>
-        <div class="sdh-group-label">Door number</div>
-        <label class="sdh-number-field">
-          <input class="sdh-number-input sdh-num" type="text" inputmode="numeric" maxlength="2" pattern="[0-9]{1,2}" aria-label="Door number">
-          <span class="sdh-number-note"></span>
-        </label>
-        <p class="sdh-credit">Hill 4x4 model: "Mahindra - Thar Roxx" by ansari_studios, CC BY 4.0 (sketchfab.com/ansari_studios), reduced and re-rigged.</p>
       </aside>`;
   }
 
@@ -1691,6 +1981,10 @@ export class Hud {
   }
 
   openSub(name, source = 'menu') {
+    if (name === 'garage') {
+      this.setHubTab('garage');
+      return;
+    }
     if (name === 'settings') {
       this.openSettings(source === 'pause' ? 'pause' : 'menu');
       return;
@@ -1709,6 +2003,11 @@ export class Hud {
       return;
     }
     this.sub = null;
+    if (this.screen === 'menu') {
+      this.hubTab = this.lastMainTab || 'garage';
+      this.applyScreen(false);
+      return;
+    }
     this.applyScreen(false);
     const opener = this.openPanel()?.querySelector(was === 'leaderboard'
       ? '[data-act="leaderboard"], [data-act="finish-leaderboard"]' : `[data-act="${was}"]`);
@@ -1741,19 +2040,51 @@ export class Hud {
   setMap(mapId) {
     this.mapId = mapId;
     this.previewMapId = mapId;
+    const hubMap = this.q('[data-hub="mapName"]');
+    if (hubMap && MAPS[mapId]) hubMap.textContent = MAPS[mapId].label.toUpperCase();
+    this.syncTitleBadges();
     this.renderMapStage();
     if (this.lbMode) this.renderLeaderboard();
   }
 
-  /** Show a map in the homepage drone preview without leaving the current world. */
+  /** Show a map in the Forza map explorer without leaving the current world. */
   previewMap(mapId) {
     if (!MAPS[mapId] || this.previewMapId === mapId) return;
     this.previewMapId = mapId;
     this.renderMapStage();
+    this.renderGarageShowcase();
   }
 
-  /** Paint the homepage map picker: shot, copy, chips, CTA and tab state. */
+  setForzaView(view) {
+    this.forzaView = view === 'drone' ? 'drone' : 'map';
+    this.renderForzaMap();
+    if (this.screen === 'menu' && !this.sub && this.hubTab === 'map' && (this.forzaView === 'drone' || this.previewMapId !== this.mapId)) {
+      this.playMapClip();
+    } else {
+      this.pauseMapClip();
+    }
+    if (this.forzaView === 'map') this.drawOverviews();
+  }
+
+  selectForzaMode(modeId) {
+    if (!this.modes.some((m) => m.id === modeId)) return;
+    this.forzaModeId = modeId;
+    const mode = getMode(modeId);
+    const wantedIndex = (mode.route === 'climb' || mode.route === 'descent') ? 1
+      : (mode.route === 'peak' || mode.route === 'peakdown') ? 2 : 0;
+    const road = this.track?.roads?.[wantedIndex] || this.track?.roads?.[0];
+    if (road && this.previewMapId === this.mapId) {
+      this.setActiveRoad(road.id);
+    }
+    this.renderForzaMap();
+  }
+
+  /** Paint the Forza-style Mountain Map & Event Chooser stage. */
   renderMapStage() {
+    this.renderForzaMap();
+  }
+
+  renderForzaMap() {
     const map = MAPS[this.previewMapId] || MAPS[this.mapId];
     if (!map || !this.el) return;
     const here = map.id === this.mapId;
@@ -1779,28 +2110,109 @@ export class Hud {
           clip.classList.remove('is-on');
           clip.src = map.clip;
         }
-        if (this.screen === 'menu' && !this.sub) this.playMapClip();
+        if (this.screen === 'menu' && !this.sub && this.hubTab === 'map' && (this.forzaView === 'drone' || !here)) {
+          this.playMapClip();
+        }
       } else {
         clip.classList.remove('is-on');
         clip.pause();
       }
     }
     const status = this.q('.sdh-map-stage-status');
-    status.textContent = here ? 'Driving now' : 'Preview';
-    status.classList.toggle('is-here', here);
-    this.q('.sdh-map-stage-name').textContent = map.label;
-    this.q('.sdh-map-stage-tag').textContent = map.tagline || '';
-    this.q('.sdh-map-stage-chips').innerHTML = [
-      `<li class="sdh-map-chip is-count">${this.eventCount(map)} events</li>`,
-      ...(map.highlights || []).map((text) => `<li class="sdh-map-chip">${esc(text)}</li>`),
-    ].join('');
-    const go = this.q('.sdh-map-go');
-    go.hidden = here;
-    go.innerHTML = `${ICON.car}<span>Drive to ${esc(map.label)}</span>`;
-    for (const tab of this.el.querySelectorAll('.sdh-map-tab')) {
+    if (status) {
+      status.textContent = here ? 'ACTIVE REGION' : 'REMOTE PREVIEW';
+      status.classList.toggle('is-here', here);
+    }
+    const nameEl = this.q('.sdh-map-stage-name');
+    if (nameEl) nameEl.textContent = map.label;
+    const tagEl = this.q('.sdh-map-stage-tag');
+    if (tagEl) tagEl.textContent = map.tagline || '';
+    const chipsEl = this.q('.sdh-map-stage-chips');
+    if (chipsEl) {
+      chipsEl.innerHTML = [
+        `<li class="sdh-map-chip is-count">${this.eventCount(map)} events</li>`,
+        ...(map.highlights || []).map((text) => `<li class="sdh-map-chip">${esc(text)}</li>`),
+      ].join('');
+    }
+    for (const tab of this.el.querySelectorAll('.sdh-forza-region')) {
       const on = tab.dataset.map === map.id;
       tab.setAttribute('aria-pressed', String(on));
       tab.classList.toggle('is-current', on);
+      const badge = tab.querySelector('[data-fmap-badge]');
+      if (badge) {
+        const isLoaded = tab.dataset.map === this.mapId;
+        badge.textContent = isLoaded ? 'DRIVING' : `${this.eventCount(MAPS[tab.dataset.map])} EVENTS`;
+        badge.classList.toggle('is-loaded', isLoaded);
+      }
+    }
+
+    // View toggle: vector road map is available for the currently loaded mountain.
+    const showDrone = !here || this.forzaView === 'drone';
+    const canvasWrap = this.q('.sdh-overview-forza');
+    const pinsEl = this.q('[data-forza="pins"]');
+    const droneEl = this.q('.sdh-forza-drone');
+    if (canvasWrap) canvasWrap.hidden = showDrone;
+    if (pinsEl) pinsEl.hidden = showDrone;
+    if (droneEl) droneEl.hidden = !showDrone;
+    for (const btn of this.el.querySelectorAll('[data-act="forza-view"]')) {
+      const fview = btn.dataset.fview;
+      btn.disabled = !here && fview === 'map';
+      btn.classList.toggle('is-on', showDrone ? fview === 'drone' : fview === 'map');
+    }
+
+    // Active car reminder pill.
+    const car = getCar(this.selectedCarId());
+    const carPill = this.q('[data-forza="activeCar"]');
+    if (carPill && car) carPill.textContent = `${car.label.toUpperCase()} · ${car.classCode || ''}`;
+
+    // Selectable events on the previewed map.
+    const mapModes = here && this.modes.length
+      ? this.modes
+      : MODES.filter((m) => (map.routes || []).includes(m.route));
+    if (here && !mapModes.some((m) => m.id === this.forzaModeId)) {
+      this.forzaModeId = mapModes[0]?.id || 'sprint';
+    }
+    if (pinsEl && here) {
+      pinsEl.innerHTML = mapModes.map((m) => {
+        const cat = eventCategoryBadge(m);
+        const active = m.id === this.forzaModeId;
+        return `
+          <button type="button" class="sdh-forza-pin ${cat.cls}${active ? ' is-selected' : ''}" data-act="forza-select-mode" data-fmode="${esc(m.id)}" aria-pressed="${active}">
+            <span class="sdh-pin-dot"></span><span>${esc(m.tab || m.label)}</span>
+          </button>`;
+      }).join('');
+    }
+    const eventsEl = this.q('[data-forza="events"]');
+    const eventsTitle = this.q('[data-forza="eventsTitle"]');
+    if (eventsTitle) eventsTitle.textContent = here ? 'SELECT EVENT ROUTE' : `ROUTES IN ${map.label.toUpperCase()}`;
+    if (eventsEl) {
+      eventsEl.innerHTML = mapModes.map((m) => {
+        const cat = eventCategoryBadge(m);
+        const active = here && m.id === this.forzaModeId;
+        const kind = recordKind(m);
+        const rec = here ? this.records[m.id] : null;
+        const best = kind === 'time' && Number.isFinite(rec?.time) ? formatTime(rec.time)
+          : kind === 'score' && Number.isFinite(rec?.score) ? `${formatInt(rec.score)} pts` : '';
+        const med = here && kind !== 'none' ? this.medals[m.id]?.medal : null;
+        return `
+          <button type="button" class="sdh-forza-event${active ? ' is-selected' : ''}" ${here ? `data-act="forza-select-mode" data-fmode="${esc(m.id)}"` : 'disabled'}>
+            <span class="sdh-fe-cat ${cat.cls}">${esc(cat.tag)}</span>
+            <span class="sdh-fe-main"><b>${esc(m.label)}</b><small>${esc(m.tagline || '')}</small></span>
+            <span class="sdh-fe-right">${med ? medalBadge(med) : ''}${best ? `<span class="sdh-num sdh-fe-best">${esc(best)}</span>` : ''}</span>
+          </button>`;
+      }).join('');
+    }
+    const startBtn = this.q('.sdh-forza-start');
+    const startLbl = this.q('[data-forza="startLabel"]');
+    const roamBtn = this.q('.sdh-forza-roam');
+    const go = this.q('.sdh-map-go');
+    const picked = mapModes.find((m) => m.id === this.forzaModeId) || mapModes[0];
+    if (startBtn) startBtn.hidden = !here;
+    if (roamBtn) roamBtn.hidden = !here;
+    if (startLbl && picked) startLbl.textContent = `START · ${picked.label.toUpperCase()}`;
+    if (go) {
+      go.hidden = here;
+      go.innerHTML = `${ICON.car}<span>TRAVEL &amp; LOAD ${esc(map.label.toUpperCase())}</span>`;
     }
   }
 
@@ -1881,26 +2293,19 @@ export class Hud {
     }).join('');
   }
 
-  /** @param {{items:Array, selected:{paint:string, rim:string, number:string, neon?:string}}} garage */
+  /** @param {{items:Array, selected:{paint:string, rim:string, number:string, neon?:string, car?:string}, favorites?:string[]}} garage */
   setGarage(garage) {
-    this.garage = garage || { items: [], selected: {} };
+    this.garage = garage || { items: [], selected: {}, favorites: [] };
     const items = this.garage.items || [];
     const sel = this.garage.selected || {};
-    for (const slot of ['car', 'paint', 'rim', 'neon']) {
+    for (const slot of ['paint', 'rim', 'neon']) {
       const grid = this.q(`[data-slot-grid="${slot}"]`);
+      if (!grid) continue;
       grid.innerHTML = items.filter((it) => it.slot === slot).map((it) => {
         const on = sel[slot] === it.value;
         const locked = !it.unlocked;
         const color = Number.isFinite(it.color) ? hex(it.color) : 'transparent';
         const swatchKind = slot === 'rim' ? ' is-rim' : slot === 'neon' ? (it.value === 'rainbow' ? ' is-neon is-rainbow' : it.value === 'off' ? ' is-neon is-off' : ' is-neon') : '';
-        if (slot === 'car') {
-          return `
-          <button type="button" class="sdh-cos sdh-car${on ? ' is-selected' : ''}" data-act="cosmetic" data-slot="car" data-value="${esc(it.value)}" aria-pressed="${on}" aria-disabled="false">
-            <span class="sdh-cos-label">${esc(it.label)}</span>
-            <span class="sdh-car-detail">${esc(it.detail || '')}</span>
-            <span class="sdh-cos-req">${on ? 'Driving' : ''}</span>
-          </button>`;
-        }
         return `
           <button type="button" class="sdh-cos${on ? ' is-selected' : ''}${locked ? ' is-locked' : ''}" data-act="cosmetic" data-slot="${esc(slot)}" data-value="${esc(it.value)}"
             aria-pressed="${on}" aria-disabled="${locked}" title="${esc(it.label)}${locked ? ` · ${esc(it.requirement || 'Locked')}` : ''}">
@@ -1913,10 +2318,191 @@ export class Hud {
     const custom = items.find((it) => it.slot === 'number' && it.value === 'custom');
     const input = this.q('.sdh-number-input');
     const enabled = Boolean(custom?.unlocked);
-    input.disabled = !enabled;
-    if (document.activeElement !== input) input.value = sel.number ?? '';
-    this.q('.sdh-number-note').textContent = enabled ? 'Two digits, shown on the doors' : `Locked · ${custom?.requirement || 'not available'}`;
-    this.q('.sdh-number-field').classList.toggle('is-locked', !enabled);
+    if (input) {
+      input.disabled = !enabled;
+      if (document.activeElement !== input) input.value = sel.number ?? '';
+    }
+    const note = this.q('.sdh-number-note');
+    if (note) note.textContent = enabled ? 'Two digits, shown on the doors' : `Locked · ${custom?.requirement || 'not available'}`;
+    this.q('.sdh-number-field')?.classList.toggle('is-locked', !enabled);
+    this.renderGarageShowcase();
+    this.renderForzaMap();
+    this.syncTitleBadges();
+  }
+
+  selectedCarId() {
+    return this.garage?.selected?.car || 'hatch';
+  }
+
+  setGarageMode(mode) {
+    this.garageMode = mode === 'customize' ? 'customize' : 'view';
+    const viewPanel = this.q('[data-gpanel="view"]');
+    const customPanel = this.q('[data-gpanel="customize"]');
+    if (viewPanel) viewPanel.hidden = this.garageMode === 'customize';
+    if (customPanel) customPanel.hidden = this.garageMode !== 'customize';
+    for (const btn of this.el.querySelectorAll('[data-act="garage-mode"]')) {
+      btn.classList.toggle('is-on', btn.dataset.gmode === this.garageMode);
+    }
+    this.renderHubChrome(this.sub && this.screen === 'menu' ? this.sub : this.hubTab);
+  }
+
+  toggleFavorite(carId) {
+    if (!carId) return;
+    if (this.onFavoriteCar && this.onFavoriteCar !== this.noopRef) {
+      this.onFavoriteCar(carId);
+    } else if (this.garage) {
+      const favs = new Set(this.garage.favorites || []);
+      if (favs.has(carId)) favs.delete(carId);
+      else favs.add(carId);
+      this.garage.favorites = [...favs];
+      this.renderGarageShowcase();
+    }
+  }
+
+  cycleCarSort() {
+    const idx = CAR_SORT_MODES.findIndex((m) => m.id === this.carSort);
+    this.carSort = CAR_SORT_MODES[(idx + 1) % CAR_SORT_MODES.length].id;
+    this.renderGarageShowcase();
+  }
+
+  toggleCarSpecs() {
+    this.specsOpen = !this.specsOpen;
+    this.renderGarageShowcase();
+  }
+
+  stepCar(delta) {
+    const favs = this.garage?.favorites || [];
+    const list = sortCars(CARS, this.carSort, favs);
+    if (!list.length) return;
+    const idx = Math.max(0, list.findIndex((c) => c.id === this.selectedCarId()));
+    const next = list[(idx + delta + list.length) % list.length];
+    if (next) this.onCosmetic('car', next.id);
+  }
+
+  syncLightingPills() {
+    const tod = this.settings?.timeOfDay || 'day';
+    for (const btn of this.el.querySelectorAll('[data-act="garage-time"]')) {
+      btn.classList.toggle('is-on', btn.dataset.time === tod);
+      btn.setAttribute('aria-pressed', String(btn.dataset.time === tod));
+    }
+    this.syncGarageLightsButton();
+  }
+
+  syncGarageLightsButton() {
+    const btn = this.q('[data-act="garage-lights"]');
+    const on = Boolean(this.headlightsOn || this.settings?.timeOfDay === 'night');
+    if (btn) {
+      btn.classList.toggle('is-on', on);
+      btn.setAttribute('aria-pressed', String(on));
+    }
+  }
+
+  renderGarageShowcase() {
+    if (!this.el) return;
+    const car = getCar(this.selectedCarId());
+    const favs = new Set(this.garage?.favorites || []);
+    const isFav = favs.has(car.id);
+
+    const favBtn = this.q('[data-act="car-favorite"]');
+    const favLabel = this.q('[data-g="favLabel"]');
+    if (favBtn) {
+      favBtn.classList.toggle('is-fav', isFav);
+      favBtn.setAttribute('aria-pressed', String(isFav));
+      const ico = favBtn.querySelector('.sdh-fav-ico');
+      if (ico) ico.innerHTML = isFav ? ICON.starFill : ICON.star;
+    }
+    if (favLabel) favLabel.textContent = isFav ? 'FAVORITE' : 'ADD TO FAVORITES';
+
+    const titleEl = this.q('[data-g="title"]');
+    if (titleEl) {
+      const lines = car.titleLines || [car.label.toUpperCase()];
+      titleEl.innerHTML = lines.map((line) => esc(line)).join('<br>');
+    }
+    const customTitle = this.q('[data-g="customTitle"]');
+    if (customTitle) customTitle.textContent = `CUSTOMIZING · ${car.label.toUpperCase()}`;
+
+    const classEl = this.q('[data-g="classBadge"]');
+    if (classEl) {
+      classEl.textContent = car.classCode || 'B185';
+      classEl.className = `sdh-class-badge sdh-num is-${esc(car.classBand || 'b')}`;
+    }
+    const originEl = this.q('[data-g="origin"]');
+    if (originEl) originEl.textContent = car.origin || 'IND';
+    const catEl = this.q('[data-g="category"]');
+    if (catEl) catEl.textContent = car.category || 'DRIFT SPEC';
+    const blurbEl = this.q('[data-g="blurb"]');
+    if (blurbEl) blurbEl.textContent = car.blurb || '';
+
+    const statsEl = this.q('[data-g="stats"]');
+    if (statsEl) {
+      statsEl.innerHTML = carRatingRows(car).map((row) => `
+        <div class="sdh-stat-row">
+          <div class="sdh-stat-head">
+            <span class="sdh-stat-label">${row.icon}<span>${esc(row.label)}</span></span>
+            <span class="sdh-stat-val sdh-num">${row.value.toFixed(1)}</span>
+          </div>
+          <div class="sdh-stat-bar"><i style="transform:scaleX(${Math.max(0.05, Math.min(1, row.value / 10))})"></i></div>
+        </div>`).join('');
+    }
+
+    const specsEl = this.q('[data-g="specs"]');
+    if (specsEl) {
+      specsEl.hidden = !this.specsOpen;
+      if (this.specsOpen && car.specs) {
+        const s = car.specs;
+        specsEl.innerHTML = `
+          <div><dt>MASS</dt><dd class="sdh-num">${formatInt(s.massKg)} kg</dd></div>
+          <div><dt>TORQUE</dt><dd class="sdh-num">${formatInt(s.peakTorqueNm)} Nm</dd></div>
+          <div><dt>REDLINE</dt><dd class="sdh-num">${formatInt(s.redlineRpm)} RPM</dd></div>
+          <div><dt>LAYOUT</dt><dd>${esc(s.layoutLabel)}</dd></div>
+          <div><dt>SETUP</dt><dd>${esc(s.aeroLabel)}</dd></div>
+          <div><dt>NITROUS</dt><dd>${s.nitro ? 'Equipped' : 'None'}</dd></div>`;
+      }
+    }
+
+    const duEl = this.q('[data-g="driveUnit"]');
+    if (duEl) duEl.innerHTML = driveUnitSvg(car.drivetrain);
+    const dtEl = this.q('[data-g="drivetrain"]');
+    if (dtEl) dtEl.textContent = car.drivetrain || 'RWD';
+    const gbEl = this.q('[data-g="gearbox"]');
+    if (gbEl) gbEl.textContent = car.gearboxLabel || '6-SPD';
+
+    const fallbackImg = this.q('.sdh-garage-fallback-img');
+    if (fallbackImg && car.thumbnail) {
+      fallbackImg.src = car.thumbnail;
+      fallbackImg.alt = car.label;
+    }
+
+    const sortMeta = CAR_SORT_MODES.find((m) => m.id === this.carSort) || CAR_SORT_MODES[0];
+    const sortLabel = this.q('[data-g="sortLabel"]');
+    if (sortLabel) sortLabel.textContent = sortMeta.label;
+
+    const cardsEl = this.q('[data-g="cards"]');
+    if (cardsEl) {
+      const sorted = sortCars(CARS, this.carSort, favs);
+      cardsEl.innerHTML = sorted.map((c) => {
+        const selected = c.id === car.id;
+        const f = favs.has(c.id);
+        return `
+          <div class="sdh-car-card${selected ? ' is-selected' : ''}" role="option" aria-selected="${selected}">
+            <button type="button" class="sdh-car-card-main" data-act="car-select" data-car="${esc(c.id)}">
+              ${c.thumbnail ? `<img class="sdh-car-card-img" src="${esc(c.thumbnail)}" alt="" decoding="async">` : ''}
+              <span class="sdh-car-card-top">
+                <span class="sdh-car-card-name">${esc(c.label.toUpperCase())}</span>
+                <span class="sdh-class-badge sdh-num is-${esc(c.classBand || 'b')}">${esc(c.classCode || '')}</span>
+              </span>
+              <span class="sdh-car-card-foot">
+                <span class="sdh-car-card-dt">${esc(c.drivetrain)} · ${esc(c.gearboxLabel)}</span>
+                ${selected ? '<span class="sdh-car-card-eq">SELECTED</span>' : ''}
+              </span>
+            </button>
+            <button type="button" class="sdh-car-card-fav${f ? ' is-fav' : ''}" data-act="car-card-fav" data-car="${esc(c.id)}" aria-label="Favorite ${esc(c.label)}" aria-pressed="${f}">
+              ${f ? ICON.starFill : ICON.star}
+            </button>
+          </div>`;
+      }).join('');
+    }
+    this.syncLightingPills();
   }
 
   commitNumber() {
@@ -1946,6 +2532,8 @@ export class Hud {
     set('level', (n) => { n.textContent = String(lv.level ?? 1); });
     set('xp', (n) => { n.style.transform = `scaleX(${Math.max(0, Math.min(1, lv.fraction || 0))})`; });
     set('xpText', (n) => { n.textContent = lv.span ? `Level ${lv.level} · ${formatInt(lv.into)} / ${formatInt(lv.span)} XP` : `Level ${lv.level}`; });
+    const hubXp = this.q('[data-hub="xpFraction"]');
+    if (hubXp) hubXp.textContent = lv.span ? `${formatInt(lv.into)} / ${formatInt(lv.span)} XP` : `${formatInt(lv.xp)} XP`;
     const conn = ['online', 'connecting', 'local', 'offline'].includes(p.connection) ? p.connection : 'offline';
     const count = Number.isFinite(p.online) ? p.online : null;
     const text = {
@@ -2087,6 +2675,13 @@ export class Hud {
     list.innerHTML = n ? this.players.map((p) => `
       <li class="${p.isMe ? 'is-me' : ''}"><span class="sdh-lv-badge sdh-lv-sm sdh-num">${esc(p.level)}</span><b>${esc(p.name)}</b>${p.isMe ? '<em>you</em>' : ''}<small>${esc(p.modeLabel || '')}</small></li>`).join('')
       : '<li class="sdh-players-none">No other drivers on the mountain right now.</li>';
+    const dots = this.q('[data-hub="convoyDots"]');
+    if (dots) {
+      const shown = this.players.slice(0, 4);
+      dots.innerHTML = shown.length
+        ? shown.map((p) => `<span class="sdh-convoy-avatar${p.isMe ? ' is-me' : ''}" title="${esc(p.name)}">${esc((p.name || 'D').charAt(0).toUpperCase())}</span>`).join('')
+        : '<span class="sdh-convoy-avatar is-me">D</span>';
+    }
   }
 
   /** @param {{name:string, kind:'pb'|'leaderboard', visible?:boolean}|null} ghost */

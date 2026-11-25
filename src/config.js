@@ -98,6 +98,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   transmission: 'auto',
   volume: 0.8,
   cameraShake: true,
+  startGate: true,
 });
 
 export const CONFIG = Object.freeze({
@@ -160,6 +161,7 @@ export function normalizeSettings(input = {}) {
     transmission: merged.transmission === 'manual' ? 'manual' : 'auto',
     volume: clamp01(merged.volume, DEFAULT_SETTINGS.volume),
     cameraShake: Boolean(merged.cameraShake),
+    startGate: Boolean(merged.startGate),
   };
 }
 
