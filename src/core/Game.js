@@ -25,6 +25,7 @@ import { Atmosphere } from '../render/Atmosphere.js';
 import { CarVisual } from '../render/CarVisual.js';
 import { CameraRig } from '../render/CameraRig.js';
 import { Effects } from '../render/Effects.js';
+import { CarDamage } from '../render/CarDamage.js';
 import { Career } from '../meta/Career.js';
 import { MetaLayer } from '../game/MetaLayer.js';
 import { NetClient } from '../net/NetClient.js';
@@ -212,11 +213,14 @@ export class Game {
     this.vehicle = new Vehicle({ world: this.world, handling: this.settings.handling });
     this.drift = new DriftScorer();
     this.carId = 'hatch';
+    this.audio.setProfile(getCar(this.carId).sound || null); // setCar() skips the car it starts with
     this.car = new CarVisual({ wheelLayout: this.vehicle.wheelLayout, carId: this.carId });
     this.scene.add(this.car.group);
     this.cameraRig = new CameraRig({ world: this.world });
     this.cameraRig.cockpitEye = this.car.cockpitEye;
     this.effects = new Effects(this.scene);
+    this.damage = new CarDamage({ scene: this.scene, world: this.world, effects: this.effects });
+    this.damage.attach(this.car);
   }
 
   /**
@@ -401,6 +405,7 @@ export class Game {
     this.vehicle.teleport(this.world.getSpawn('loop', route.startS - 8, this.pose));
     this.drift.reset();
     this.effects.clear();
+    this.damage.reset();
     this.cameraRig.startBlend();
   }
 
@@ -430,6 +435,7 @@ export class Game {
     this.meta.joinRoom(this.mode.id);
     this.drift.reset();
     this.effects.clear();
+    this.damage.reset();
     this.nitro = CONFIG.nitro.capacity;
     this.stuckTimer = 0;
     this.world.bridge?.reset();
@@ -495,6 +501,7 @@ export class Game {
     this.car.setHeadlights(old.headlightsOn);
     this.car.setNeon({ level: old.neonLevel, on: old.neonWanted });
     old.dispose();
+    this.damage?.attach(this.car);
     this.cameraRig.cockpitEye = this.car.cockpitEye;
     this.effects?.setExhaustTips?.(getCar(this.carId).exhaustTips || null);
     this.prewarmShaders();
@@ -596,6 +603,7 @@ export class Game {
     this.session.addRespawn();
     this.meta.respawn(this.session.hud.elapsed, this.vehicle.getState());
     this.drift.reset({ preserveBank: true });
+    this.damage.repair();
     this.cameraRig.snap();
     this.audio.respawn();
     this.stuckTimer = 0;
@@ -687,9 +695,10 @@ export class Game {
   updateRunning(dt, input) {
     const controls = this.controls;
     const boosting = Boolean(getCar(this.carId).nitro) && input.boost && input.throttle > 0.1 && this.nitro > 0.5;
-    controls.throttle = input.throttle;
+    // Crash damage: a crushed nose loses power, bent front suspension pulls to one side.
+    controls.throttle = input.throttle * this.damage.powerFactor;
     controls.brake = input.brake;
-    controls.steer = input.steer;
+    controls.steer = clamp(input.steer + this.damage.steerPull, -1, 1);
     controls.handbrake = input.handbrake;
     controls.boost = boosting;
     controls.shift = input.shift;
@@ -725,6 +734,7 @@ export class Game {
     if (this.state === 'running') this.meta.frame(dt, state, drift, this.session.hud.elapsed, this.cameraRig.camera);
 
     this.effects.emit(dt, state);
+    this.damage.update(dt, state);
     if (state.impact > 9) this.slogan();
     this.sendNetState(state, boosting, drift.active);
     this.audioFlags.drifting = drift.active;
@@ -955,6 +965,7 @@ export class Game {
     this.remotePlayers?.dispose();
     this.net?.dispose();
     this.audio?.dispose();
+    this.damage?.dispose();
     this.effects?.dispose();
     this.car?.dispose();
     this.scenery?.dispose();

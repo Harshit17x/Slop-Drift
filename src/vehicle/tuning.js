@@ -31,6 +31,14 @@ export const BASE_TUNING = Object.freeze({
     reboundFront: 6000,
     bumpRear: 2700,
     reboundRear: 5400,
+    /**
+     * Digressive valving: above damperKnee (m/s of wheel speed) the damping slope falls to these
+     * fractions, so body motion (slow) is well damped while kerbs and landings (fast) are not
+     * transmitted harshly. Rebound digresses less than bump, as on real dampers.
+     */
+    damperKnee: 0.13,
+    bumpHighSpeedRatio: 0.5,
+    reboundHighSpeedRatio: 0.85,
     maxForce: 60000,
     /** Bump stop engages in the last bumpStopLength of compression, progressive, plus beyond the limit. */
     bumpStopLength: 0.03,
@@ -38,6 +46,15 @@ export const BASE_TUNING = Object.freeze({
     bumpStopDamping: 9000,
     antiRollFront: 26000,
     antiRollRear: 16000,
+    /**
+     * Roll-centre heights (m above the ground at ride height). Lateral tyre forces act on the body
+     * there: only the arm from the roll centre up to the centre of mass rolls the car; the rest goes
+     * through the links as load transfer without roll. null = use tire.rollInfluence instead.
+     */
+    rollCentreFront: null,
+    rollCentreRear: null,
+    /** Scales the roll arm above explicit roll centres (handling presets: <1 rolls less). */
+    rollMomentScale: 1,
     /** 1/cos(angle between ground normal and ray) is capped at this. */
     maxInvCos: 10,
   },
@@ -63,6 +80,12 @@ export const BASE_TUNING = Object.freeze({
     rollInfluence: 0.4,
     /** 0..1: how much of the remaining grip the drive force may use beyond the lateral demand (0 = raw). */
     tractionControl: 0,
+    /**
+     * Load sensitivity: mu falls by this fraction per 100 % of load above the tyre's static corner
+     * load (Pacejka's -pDy2; real tyres ~0.1-0.2), clamped to loadSensitivityRange.
+     */
+    loadSensitivity: 0.12,
+    loadSensitivityRange: [0.7, 1.2],
   },
 
   drivetrain: {
@@ -196,7 +219,7 @@ export const HANDLING = Object.freeze({
     tire: { mu: 1.28, peakSlipDeg: 9, slideRatio: 0.9, falloff: 0.9, lockedFriction: 0.78, rollInfluence: 0.3, tractionControl: 0.6 },
     steering: { rate: 4.5, returnRate: 8, lockSpeedRef: 20 },
     assist: { assistFloor: 0.45, yawDamping: 2.8, steerBlend: 0.85 },
-    suspension: { antiRollFront: 30000, antiRollRear: 18000 },
+    suspension: { antiRollFront: 30000, antiRollRear: 18000, rollMomentScale: 0.8 },
   },
   Balanced: {},
   Sim: {

@@ -109,14 +109,14 @@ export class Vehicle {
       this.wheels.push({
         index: i, front, left, driven: !front,
         mount: new THREE.Vector3(),
-        k: 0, bump: 0, rebound: 0, freeLength: 0,
+        k: 0, bump: 0, rebound: 0, freeLength: 0, nominalLoad: 1, rollCentre: null,
         sample: makeSample(),
         contact: false, length: 0, rawLength: 0, compression: 0, travel: 0,
         point: new THREE.Vector3(), normal: new THREE.Vector3(0, 1, 0),
         pushNormal: new THREE.Vector3(0, 1, 0), wall: 0, bumpStop: 0,
         r: new THREE.Vector3(), rLat: new THREE.Vector3(),
         fwd: new THREE.Vector3(), axle: new THREE.Vector3(),
-        load: 0, mu: 1, muN: 0, vLong: 0, vLat: 0, blend: 0,
+        load: 0, tyreLoad: 0, latForce: 0, hrc: 0, mu: 1, muN: 0, vLong: 0, vLat: 0, blend: 0,
         fx: 0, fy: 0, locked: false,
         boundX: 0, boundY: 0, bound: 0, meffX: 0, meffY: 0, accX: 0, accY: 0,
         steer: 0, spinAngle: 0, spinSpeed: 0, slip: 0,
@@ -189,6 +189,8 @@ export class Vehicle {
       w.rebound = w.front ? s.reboundFront : s.reboundRear;
       const staticLoad = (m * GRAVITY * (w.front ? frontFraction : 1 - frontFraction)) / 2;
       w.freeLength = s.staticLength + staticLoad / w.k;
+      w.nominalLoad = staticLoad;
+      w.rollCentre = w.front ? s.rollCentreFront ?? null : s.rollCentreRear ?? null;
       const layout = this.wheelLayout[w.index];
       layout.x = x;
       layout.y = centreY;
@@ -402,7 +404,7 @@ export class Vehicle {
     this.accumulator = 0;
     for (let wi = 0; wi < 4; wi++) {
       const w = this.wheels[wi];
-      w.accX = 0; w.accY = 0; w.spinAngle = 0; w.spinSpeed = 0; w.slip = 0;
+      w.accX = 0; w.accY = 0; w.spinAngle = 0; w.spinSpeed = 0; w.slip = 0; w.latForce = 0;
     }
     // Settle on the springs (hill hold keeps it in place), then drop all motion again.
     const neutral = { throttle: 0, brake: 0, steer: 0, handbrake: false, boost: false, shift: 0 };
@@ -598,7 +600,12 @@ export class Vehicle {
       const invCos = cosA > 1 / s.maxInvCos ? 1 / cosA : s.maxInvCos;
       const spring = w.k * (w.freeLength - w.length) * invCos;
       const vn = this._pointVelocity(w.r, _b).dot(n);
-      const damper = -vn * (vn < 0 ? w.bump : w.rebound);
+      // Digressive damper: the full (low-speed) rate controls body roll, pitch and heave; past the knee
+      // the slope drops, so kerbs, potholes and landings are not passed straight into the body.
+      const av = Math.abs(vn);
+      const knee = s.damperKnee;
+      const stroke = av <= knee ? av : knee + (av - knee) * (vn < 0 ? s.bumpHighSpeedRatio : s.reboundHighSpeedRatio);
+      const damper = -Math.sign(vn) * stroke * (vn < 0 ? w.bump : w.rebound);
       let bumpStop = 0;
       const bumpStart = minLen + s.bumpStopLength;
       if (w.rawLength < bumpStart) {
@@ -631,6 +638,31 @@ export class Vehicle {
       if (bumpImpulse > 0) penetrations = this._addPenetration(penetrations, w.r, n, bumpImpulse);
     }
 
+    // Roll centres. Each axle's lateral tyre force acts on the body at its roll-centre height, so only
+    // the arm from there up to the centre of mass rolls the body against the springs and bars. The rest
+    // of the moment goes through the links: it rolls nothing, but still moves load from the inside tyre
+    // to the outside one. Add that geometric share (from the previous step's lateral force) to the tyre
+    // loads, so the total lateral load transfer is the rigid-body m*ay*h/track.
+    const rollScale = s.rollMomentScale ?? 1;
+    for (let wi = 0; wi < 4; wi++) {
+      const w = this.wheels[wi];
+      w.tyreLoad = w.load;
+      if (!w.contact) { w.hrc = 0; continue; }
+      const H = Math.max(0, -w.r.dot(this.up)); // centre of mass above the contact, along chassis-up
+      const arm = w.rollCentre === null ? H * t.tire.rollInfluence : (H - w.rollCentre) * rollScale;
+      w.hrc = clamp(H - arm, 0, H);
+    }
+    for (let axle = 0; axle < 2; axle++) {
+      const l = this.wheels[axle * 2];
+      const r = this.wheels[axle * 2 + 1];
+      if (!l.contact || !r.contact) continue;
+      const track = Math.abs(r.mount.x - l.mount.x);
+      // + moves load onto the right wheel (lateral force pointing left: a left-hand corner).
+      const d = clamp(-(l.latForce + r.latForce) * 0.5 * (l.hrc + r.hrc) / track, -r.load, l.load);
+      l.tyreLoad = l.load - d;
+      r.tyreLoad = r.load + d;
+    }
+
     // ---- drivetrain
     let wheelOmega = 0;
     {
@@ -652,7 +684,6 @@ export class Vehicle {
     // ---- tyres, force level
     const tire = t.tire;
     const peakSlip = tire.peakSlipDeg * DEG2RAD;
-    const roll = tire.rollInfluence;
     const abs = this.assists.abs;
     for (let wi = 0; wi < 4; wi++) {
       const w = this.wheels[wi];
@@ -669,9 +700,8 @@ export class Vehicle {
       if (w.axle.lengthSq() < 1e-6) w.axle.copy(this.right);
       w.axle.normalize();
       w.fwd.crossVectors(n, w.axle).normalize();
-      // Lateral force acts between contact height and CoM height.
-      const h = w.r.dot(this.up);
-      w.rLat.copy(w.r).addScaledVector(this.up, -h * (1 - roll));
+      // Lateral force acts on the body at the roll centre (see above).
+      w.rLat.copy(w.r).addScaledVector(this.up, w.hrc);
 
       const vc = this._pointVelocity(w.r, _b);
       w.vLong = vc.dot(w.fwd);
@@ -680,7 +710,13 @@ export class Vehicle {
       w.mu *= tire.surfaceGrip?.[w.sample.surface] ?? 1;
       // No traction on a face too steep to drive: throttle must not drive the car up a cliff.
       w.mu *= 1 - w.wall;
-      w.muN = w.mu * w.load;
+      // Load sensitivity: the friction coefficient falls as the load on the tyre rises above its static
+      // corner weight (and rises a little on an unloaded tyre), so weight transfer costs grip and the
+      // anti-roll bar split sets the balance (more roll stiffness at one end = less grip there).
+      if (tire.loadSensitivity > 0) {
+        w.mu *= clamp(1 - tire.loadSensitivity * (w.tyreLoad / w.nominalLoad - 1), tire.loadSensitivityRange[0], tire.loadSensitivityRange[1]);
+      }
+      w.muN = w.mu * w.tyreLoad;
       w.meffX = this._effectiveMass(w.r, w.fwd);
       w.meffY = this._effectiveMass(w.rLat, w.axle);
       const contactSpeed = Math.hypot(w.vLong, w.vLat);
@@ -705,8 +741,8 @@ export class Vehicle {
         if (diff.axleTorqueBias) {
           // Fixed axle split; a limited-slip approximation biases torque toward the loaded wheel.
           const mate = this.wheels[wi ^ 1];
-          const available = w.load * w.sample.grip;
-          const opposite = mate.contact ? mate.load * mate.sample.grip : 0;
+          const available = w.tyreLoad * w.sample.grip;
+          const opposite = mate.contact ? mate.tyreLoad * mate.sample.grip : 0;
           const limit = 1 / (1 + diff.axleTorqueBias);
           const share = clamp(available / Math.max(1, available + opposite), limit, 1 - limit);
           fx += driveForce * (w.front ? diff.frontDriveShare : 1 - diff.frontDriveShare) * share;
@@ -903,6 +939,9 @@ export class Vehicle {
     for (let wi = 0; wi < 4; wi++) {
       const w = this.wheels[wi];
       if (w.contact) onGround++;
+      // Lateral tyre force this step (force model + friction impulses), along chassis-right: next step's
+      // geometric load transfer.
+      w.latForce = w.contact ? (w.fy + w.accY / dt) * w.axle.dot(this.right) : 0;
       if (w.locked) w.spinSpeed = 0;
       else if (w.contact) {
         let spin = w.vLong / w.radius;

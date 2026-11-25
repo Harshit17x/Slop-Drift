@@ -3,6 +3,11 @@
 
 import { RaceSession } from '../src/game/RaceSession.js';
 import { AudioEngine } from '../src/audio/AudioEngine.js';
+import {
+  SAMPLE_RMS, centroid, cycleHz, firingHz, harmonicShare, pulseSeries, resolveSynth, spoolTarget, synthWaves, unevenness,
+  waveStats, whineHz,
+} from '../src/audio/engineSynth.js';
+import { CARS } from '../src/vehicle/cars.js';
 import { MODES, loadRecords, saveRecords } from '../src/config.js';
 
 let failures = 0;
@@ -666,6 +671,150 @@ test('AudioEngine: minimal stub context, nothing throws, no nodes per frame for 
     // A constructor that throws.
     globalThis.AudioContext = class { constructor() { throw new Error('no audio'); } };
     await exerciseAudio(new AudioEngine());
+  } finally {
+    delete globalThis.AudioContext;
+  }
+});
+
+// ------------------------------------------------------------------ per-car engine sound (engineSynth.js)
+
+const carSound = (id) => CARS.find((c) => c.id === id).sound;
+
+test('engineSynth: cycle and firing frequencies', () => {
+  near(cycleHz(6000), 50, 1e-9, 'one 720 deg cycle every 2 revs');
+  near(firingHz(6000, 4), 200, 1e-9, 'inline-four fires twice a rev');
+  near(firingHz(9000, 6), 450, 1e-9, 'flat-six fires three times a rev');
+  near(firingHz(4500, 4), 150, 1e-9, 'diesel four at redline');
+  assert(cycleHz(-5) === 0 && cycleHz(NaN) === 0, 'garbage rpm is silent');
+});
+
+test('engineSynth: an even engine has only firing orders, staggered headers add half orders', () => {
+  const even = pulseSeries({ firing: [0, 180, 360, 540] });
+  assert(unevenness(even, 4) < 1e-6, `even four is pure 2nd order (${unevenness(even, 4)})`);
+  const six = pulseSeries({ firing: [0, 120, 240, 360, 480, 600] });
+  assert(unevenness(six, 6) < 1e-6, 'even six is pure 3rd order');
+  const rumble = pulseSeries({ firing: [0, 180, 360, 540], stagger: [0, 34, -8, 26] });
+  assert(unevenness(rumble, 4) > 0.1, 'unequal-length headers make a rumble');
+  assert(unevenness(pulseSeries({ firing: [0, 180, 360, 540], stagger: [0, 34, -8, 26] }, { stagger: 0 }), 4) < 1e-6, 'stagger scale 0 is even');
+  // Rounder pulses are darker.
+  assert(centroid(pulseSeries({}, { pulse: 0.05 })) < centroid(pulseSeries({}, { pulse: 0.015 })), 'pulse width sets brightness');
+  // Garbage specs fall back to defaults instead of throwing.
+  const r = resolveSynth({ firing: [0, 240, 480], stagger: [1, 2], amps: 'x', pulse: [NaN, 1] });
+  assert(r.firing.length === 3 && r.stagger.length === 3 && r.amps.length === 3 && r.pulse.length === 2, 'resolved lengths');
+  assert(resolveSynth(null) === null && synthWaves(undefined) === null, 'no synth block -> no synth');
+});
+
+test('engineSynth: every car has its own engine character', () => {
+  const ids = ['hatch', 'gt', 'thar', 'tokyo'];
+  const w = {};
+  for (const id of ids) {
+    const sound = carSound(id);
+    assert(sound && sound.synth, `${id} has a sound.synth block`);
+    w[id] = synthWaves(sound.synth);
+    assert(w[id] && w[id].spec.firing.length >= 4, `${id} synth resolves`);
+    for (const key of ['low', 'high']) {
+      const stats = waveStats(w[id][key]);
+      const trim = w[id][`${key}Trim`];
+      // Played back normalised to peak 1, then trimmed to the recorded loops' RMS: no clipping headroom issue.
+      near(stats.normRms * trim, SAMPLE_RMS, 1e-6, `${id} ${key} trimmed to the loops' RMS`);
+      assert(trim > 0 && trim < 0.5, `${id} ${key} trimmed peak stays well under full scale (${trim})`);
+    }
+  }
+  // Cylinder counts: the GT is a six, the rest are fours.
+  assert(w.gt.spec.firing.length === 6 && w.hatch.spec.firing.length === 4, 'cylinder counts');
+  // Waves differ pairwise.
+  for (let i = 0; i < ids.length; i += 1) {
+    for (let j = i + 1; j < ids.length; j += 1) {
+      const a = w[ids[i]].low;
+      const b = w[ids[j]].low;
+      let d = 0;
+      for (let h = 1; h < a.real.length; h += 1) d += Math.abs(a.real[h] - b.real[h]) + Math.abs(a.imag[h] - b.imag[h]);
+      assert(d > 0.05, `${ids[i]} and ${ids[j]} sound different (${d})`);
+    }
+  }
+  // Boxer rumble: the Tokyo sedan's 1st order (cycle harmonic 2) is far stronger than the Rally Hatch's.
+  assert(unevenness(w.tokyo.low, 4) > 4 * unevenness(w.hatch.low, 4), 'tokyo rumbles, hatch is even');
+  assert(harmonicShare(w.tokyo.low, 2) > 10 * harmonicShare(w.hatch.low, 2), 'tokyo half-firing-rate burble');
+  // Flat-six bank rasp: 1.5 order (cycle harmonic 3) on the GT.
+  assert(harmonicShare(w.gt.low, 3) > 0.005, 'gt bank rasp');
+  // Diesel is the darkest pulse train and filter; the GT the brightest.
+  assert(centroid(w.thar.low) < centroid(w.hatch.low) && centroid(w.gt.high) > centroid(w.hatch.high), 'brightness order');
+  assert(w.thar.spec.lowpass[1] < w.hatch.spec.lowpass[1] && w.gt.spec.lowpass[1] > w.tokyo.spec.lowpass[1], 'filter order');
+  // Pulse frequency at redline per car.
+  near(firingHz(9250, w.gt.spec.firing.length), 462.5, 1e-9, 'gt firing rate at redline');
+  near(firingHz(4500, w.thar.spec.firing.length), 150, 1e-9, 'thar firing rate at redline');
+});
+
+test('cars: per-car extras match the hardware', () => {
+  const hatch = carSound('hatch');
+  const gt = carSound('gt');
+  const thar = carSound('thar');
+  const tokyo = carSound('tokyo');
+  assert(thar.crackle === 0 && !thar.antiLag && thar.clatter > 0 && thar.bov === 'chuff', 'diesel: no pops, clatter, chuff');
+  assert(!gt.turbo && !gt.bov && !gt.antiLag, 'gt is naturally aspirated');
+  assert(hatch.antiLag > 0 && hatch.bov === 'flutter' && tokyo.bov === 'valve' && !tokyo.antiLag, 'turbo characters differ');
+  assert(hatch.whine && gt.whine && tokyo.whine && !thar.whine, 'straight-cut whine only on the sequential boxes');
+  assert(thar.clunk < 0.5, 'torque-converter auto has no dog clunk');
+  for (const car of CARS) {
+    if (car.nitro) assert(car.sound.n2o && car.sound.n2o.hiss > 0 && car.sound.n2o.roar > 1, `${car.id} has a nitrous kit sound`);
+  }
+  assert(tokyo.n2o.wet && !hatch.n2o.wet, 'wet vs dry kit');
+});
+
+test('engineSynth: turbo spool and gear whine', () => {
+  assert(spoolTarget(1000, 1, [1300, 2700]) === 0, 'no boost below threshold');
+  near(spoolTarget(2700, 1, [1300, 2700]), 1, 1e-9, 'full boost');
+  near(spoolTarget(2000, 0.5, [1300, 2700]), 0.25, 1e-9, 'half load half flow');
+  assert(spoolTarget(5000, 0, [2400, 4200]) === 0, 'lift: spool collapses');
+  assert(spoolTarget(5000, 0, [2400, 4200], 1) >= 0.79, 'anti-lag keeps it lit');
+  const [a, b] = whineHz(6000, 30, { teeth: 24, perMps: 21 });
+  near(a, 2400, 1e-9, 'head-set mesh');
+  near(b, 630, 1e-9, 'final-drive mesh');
+});
+
+test('AudioEngine: per-car profiles drive the synth layer without per-frame nodes', async () => {
+  const { StubContext, counts } = makeAudioStub();
+  class WaveContext extends StubContext {
+    createPeriodicWave(real, imag) { return { real, imag }; }
+    createOscillator() {
+      const osc = super.createOscillator();
+      osc.setPeriodicWave = (wave) => { osc.wave = wave; };
+      return osc;
+    }
+  }
+  globalThis.AudioContext = WaveContext;
+  try {
+    const audio = new AudioEngine();
+    audio.setProfile(carSound('gt')); // before unlock: applied once the graph exists
+    assert((await audio.unlock()) === true, 'unlocked');
+    const g = audio._g;
+    assert(audio._synthOn && g.oscLow.wave && g.oscHigh.wave, 'gt waves loaded on unlock');
+    for (const id of ['hatch', 'gt', 'thar', 'tokyo']) {
+      const sound = carSound(id);
+      audio.setProfile(sound);
+      assert(audio._synthOn, `${id} synth on`);
+      const rpmMax = id === 'gt' ? 9250 : id === 'thar' ? 4500 : 7000;
+      const calm = audioState({ shifted: false, impact: 0, landing: 0, boosting: false, rpm: rpmMax * 0.6, rpmMax, throttle: 0.5 });
+      audio.update(1 / 60, calm, { boosting: false });
+      const built = counts.nodes;
+      for (let i = 0; i < 120; i += 1) audio.update(1 / 60, calm, { boosting: false });
+      assert(counts.nodes === built, `${id}: ${counts.nodes - built} nodes per frame`);
+      near(g.oscLow.frequency.value, cycleHz(rpmMax * 0.6), cycleHz(rpmMax * 0.6) * 0.02, `${id} pulse train at rpm / 120`);
+      near(g.synthPeak.frequency.value, sound.synth.exhaust[0], 1e-9, `${id} pipe resonance`);
+      assert(g.onBus.gain.value <= sound.synth.sample + 1e-9, `${id} recorded loops scaled to their share`);
+      assert(g.synthLevel.gain.value > 0, `${id} synth audible`);
+      // Lift at boost, anti-lag, shifts and nitro on / off: must not throw.
+      audio.update(1 / 60, audioState({ rpmMax, rpm: rpmMax * 0.9, throttle: 1, shifted: true, gear: 4 }), { boosting: true });
+      audio.update(1 / 60, audioState({ rpmMax, rpm: rpmMax * 0.85, throttle: 0, shifted: false }), { boosting: false });
+      for (let i = 0; i < 30; i += 1) audio.update(1 / 30, audioState({ rpmMax, rpm: rpmMax * 0.7, throttle: 0, shifted: false, impact: 0, landing: 0 }), {});
+    }
+    // No profile: the recording alone, as before.
+    audio.setProfile(null);
+    assert(!audio._synthOn, 'default profile has no synth');
+    audio.update(1 / 60, audioState({ shifted: false, throttle: 1, boosting: false }), { boosting: false });
+    near(g.onBus.gain.value, 1, 1e-9, 'full recording without a synth');
+    assert(g.synthLevel.gain.value === 0, 'synth muted');
+    audio.dispose();
   } finally {
     delete globalThis.AudioContext;
   }

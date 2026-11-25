@@ -37,6 +37,16 @@ export const CARS = Object.freeze([
     cockpit: 'drift',
     // A built drift car with a nitrous bottle. The road cars have none, as in real life.
     nitro: true,
+    // Rally2-style 1.6 turbo inline-four (even 180 deg firing, 2nd-order note) through a tubular manifold:
+    // hard, gravelly rasp; anti-lag keeps the turbo lit off throttle (bangs, compressor-surge flutter);
+    // straight-cut sequential whine; a small dry nitrous shot.
+    sound: {
+      fires: 2, tone: 1.1, intake: 1.3, intakeFreq: [700, 2400], drive: 1.25, body: 0.9, crackle: 1.2, cracklePitch: 0.85,
+      turbo: 1, turboFreq: [2600, 7800], spoolRpm: [2400, 4200], spoolLag: 0.3, antiLag: 1, bov: 'flutter', whoosh: 0.8,
+      whine: { level: 1, teeth: 24, perMps: 21 }, n2o: { hiss: 0.8, roar: 1.35, wet: false },
+      synth: { firing: [0, 180, 360, 540], stagger: [0, 5, -4, 7], amps: [1, 0.93, 0.98, 0.9], highStagger: 0.6, pulse: [0.035, 0.024],
+        level: 0.8, sample: 0.65, exhaust: [180, 1.1, 4], lowpass: [900, 9000], drive: 0.9, rough: 0.45, jitter: 9 },
+    },
     // Fictional gravel stage setup, informed by Rally2 five-speed AWD cars.
     tuning: {
       geometry: { halfTrack: 0.843, wheelCenterY: 0.366, wheelRadius: 0.366 },
@@ -50,7 +60,10 @@ export const CARS = Object.freeze([
       },
       suspension: { staticLength: 0.29, travel: 0.145, springFront: 45800, springRear: 40800,
         bumpFront: 2870, reboundFront: 4900, bumpRear: 2660, reboundRear: 4540,
-        antiRollFront: 17900, antiRollRear: 13800 },
+        // Gravel set-up: MacPherson struts both ends (roll centres ~90/120 mm), soft bars for traction,
+        // ~1.8 deg/g of roll and 57 % front lateral load transfer (stable but rotates on the brakes).
+        rollCentreFront: 0.09, rollCentreRear: 0.12, antiRollFront: 9700, antiRollRear: 1600,
+        damperKnee: 0.16 },
       tire: { gravelPeakDeg: 12.5, gravelSlideRatio: 0.91 },
       brakes: { frontBias: 0.61 }, steering: { mechanicalLockDeg: 43 },
     },
@@ -99,7 +112,15 @@ export const CARS = Object.freeze([
     lamps: { tail: [[0, 0.64, 2.28, 1.24, 0.022]] },
     cockpit: 'gt',
     // Flat-six: 3 firing pulses per revolution (rpm / 20 Hz), dry and metallic, intake howl above 6,000 rpm.
-    sound: { fires: 3, tone: 1.15, intake: 2.4, intakeFreq: [1100, 3200], drive: 0.8, body: 0.5, crackle: 0.6 },
+    // Firing 1-6-2-4-3-5 alternates banks every 120 deg; the small bank-to-bank difference adds the 1.5-order
+    // rasp under the 3rd-order wail. Naturally aspirated open race exhaust: sharp pulses, crisp high-pitched
+    // overrun crackle, no turbo, no nitrous; straight-cut sequential transaxle whine, quick ignition-cut shifts.
+    sound: {
+      fires: 3, tone: 1.15, intake: 2.4, intakeFreq: [1100, 3200], drive: 0.8, body: 0.5, crackle: 0.6, cracklePitch: 1.25,
+      shiftCut: 0.06, whine: { level: 0.8, teeth: 27, perMps: 24 },
+      synth: { firing: [0, 120, 240, 360, 480, 600], stagger: [0, 9, 0, 9, 0, 9], amps: [1, 0.84, 1, 0.84, 1, 0.84], highStagger: 0.5,
+        pulse: [0.018, 0.011], level: 1.3, sample: 0.5, exhaust: [1700, 1.3, 5], lowpass: [1400, 13000], drive: 0.25, rough: 0.2, jitter: 5 },
+    },
     // 2023 Porsche 911 GT3 R technical data: 2507 mm wheelbase, staggered slicks,
     // 4.2 L, up to 416 kW, six-speed sequential and mechanical rear differential.
     // https://newsroom.porsche.com/en/2022/motorsports/porsche-911-gt3-r-generation-992-customer-racing-car-premiere-29201.html
@@ -113,11 +134,17 @@ export const CARS = Object.freeze([
       suspension: {
         staticLength: 0.21, travel: 0.071, springFront: 95000, springRear: 138000,
         bumpFront: 5400, reboundFront: 8100, bumpRear: 7700, reboundRear: 11300,
-        antiRollFront: 35000, antiRollRear: 28500, maxForce: 90000,
+        maxForce: 90000,
+        // Double wishbones both ends with low roll centres (~30/60 mm). Bars sized for ~0.5 deg/g of
+        // roll and 47 % front lateral load transfer (a touch ahead of the 41 % weight: stable on power).
+        // Race dampers digress early (knee ~80 mm/s) to ride the kerbs.
+        rollCentreFront: 0.03, rollCentreRear: 0.06, antiRollFront: 36100, antiRollRear: 14300,
+        damperKnee: 0.08,
       },
       steering: { maxLockDeg: 29, mechanicalLockDeg: 34, rate: 3.8, returnRate: 6.2 },
-      tire: { mu: 1.53, frontGrip: 1, rearGrip: 1.025, peakSlipDeg: 6.6, slideRatio: 0.83,
-        falloff: 1.45, tractionControl: 0.45, gravelPeakDeg: 10, gravelSlideRatio: 0.76,
+      // Slick mu at the static corner load; load sensitivity takes ~6 % off it at the limit.
+      tire: { mu: 1.6, frontGrip: 1, rearGrip: 1.025, peakSlipDeg: 6.6, slideRatio: 0.83,
+        falloff: 1.45, tractionControl: 0.45, gravelPeakDeg: 10, gravelSlideRatio: 0.76, loadSensitivity: 0.1,
         surfaceGrip: { [SURFACE.GRAVEL]: 0.76, [SURFACE.GRASS]: 0.64, [SURFACE.DIRT]: 0.78,
           [SURFACE.MUD]: 0.63, [SURFACE.SNOW]: 0.52, [SURFACE.HARDPACK]: 0.86, [SURFACE.WATER]: 0.57 } },
       drivetrain: {
@@ -189,7 +216,14 @@ export const CARS = Object.freeze([
     },
     cockpit: 'suv',
     // Diesel four: 2 pulses per revolution (rpm / 30 Hz), dark, injector clatter, turbo whistle, no pops.
-    sound: { fires: 2, tone: 0.5, intake: 0.4, intakeFreq: [400, 900], drive: 0.6, body: 1.4, crackle: 0, clatter: 1, turbo: 1 },
+    // Turbine + particulate filter round the pulses into a low, booming grumble with irregular combustion;
+    // turbo lag to ~1,750 rpm, a soft wastegate chuff on lift; smooth torque-converter shifts (no dog clunk).
+    sound: {
+      fires: 2, tone: 0.5, intake: 0.4, intakeFreq: [400, 900], drive: 0.6, body: 1.4, crackle: 0, clatter: 1,
+      turbo: 1, turboFreq: [2200, 7000], spoolRpm: [1300, 2600], spoolLag: 0.7, bov: 'chuff', whoosh: 0.5, clunk: 0.12, shiftCut: 0.05,
+      synth: { firing: [0, 180, 360, 540], stagger: [0, 3, 0, 4], amps: [1, 0.95, 1, 0.92], pulse: [0.05, 0.04],
+        level: 0.9, sample: 0.45, exhaust: [85, 1, 4], lowpass: [400, 2400], drive: 0.3, rough: 0.7, jitter: 12 },
+    },
     // Sources: Autocar India / CarWale / Mahindra (2,850 mm wheelbase, 226-235 mm ground clearance,
     // 2.2 mHawk diesel 400 Nm @ 1,750-2,750 and 130 kW @ 3,500, 6-speed torque-converter automatic,
     // 255/60 R19, double wishbone front, Penta-link live axle with Watts linkage rear, frequency-dependent
@@ -203,10 +237,16 @@ export const CARS = Object.freeze([
       suspension: {
         staticLength: 0.34, travel: 0.11, springFront: 40700, springRear: 45300,
         bumpFront: 3240, reboundFront: 5100, bumpRear: 3150, reboundRear: 4950,
-        antiRollFront: 14000, antiRollRear: 6000,
+        // Wishbone front roll centre ~120 mm; the live axle's Watts linkage puts the rear one near hub
+        // height (~420 mm). The rear coils sit ~1.1 m apart on the axle, inside the 1.59 m track, so
+        // they resist roll like (1.1/1.59)^2 of wheel-mounted springs: a negative "bar" expresses that.
+        // Result ~4.8 deg/g of body roll and 60 % front load transfer (safe, understeering SUV).
+        rollCentreFront: 0.12, rollCentreRear: 0.42, antiRollFront: 19100, antiRollRear: -11000,
+        damperKnee: 0.2,
       },
       // Highway-terrain tyres: about 0.8 g on dry tarmac, forgiving past the limit.
-      tire: { mu: 0.98, peakSlipDeg: 10, slideRatio: 0.88, falloff: 1.0 },
+      // Tall sidewalls: more load-sensitive than a sports tyre.
+      tire: { mu: 0.98, peakSlipDeg: 10, slideRatio: 0.88, falloff: 1.0, loadSensitivity: 0.16 },
       drivetrain: {
         awd: true, peakTorque: 400, idleRpm: 800, launchRpm: 1300, redlineRpm: 4500, limiterRpm: 4800, upshiftRpm: 4100,
         downshiftRpmCoast: 1100, downshiftRpmPower: 2200,
@@ -289,7 +329,18 @@ export const CARS = Object.freeze([
     exhaustTips: Object.freeze([[-0.57, 0.27, 2.33], [0.57, 0.27, 2.33]]),
     cockpit: 'drift',
     nitro: true,
-    sound: { fires: 2, tone: 1.05, intake: 2.2, intakeFreq: [950, 2900], drive: 1.0, body: 1.1, crackle: 1.0, turbo: 1 },
+    // Turbo 2.5 flat-four (EJ257-style boxer) on unequal-length headers: even 180 deg firing, but the
+    // pulses reach the collector unevenly, so half orders fill in under the 2nd-order note -> the boxer
+    // "rumble" a Rally Hatch's equal inline-four doesn't have. Bigger, later-spooling turbo with an
+    // atmospheric blow-off valve ("pssh"), deeper burbly overrun, sequential whine, wet nitrous kit
+    // (nitrous + fuel solenoids clack together).
+    sound: {
+      fires: 2, tone: 1.05, intake: 2.2, intakeFreq: [950, 2900], drive: 1.0, body: 1.1, crackle: 1.0, cracklePitch: 0.8,
+      turbo: 1, turboFreq: [2000, 6400], spoolRpm: [2800, 4600], spoolLag: 0.45, bov: 'valve', whoosh: 1,
+      whine: { level: 0.6, teeth: 23, perMps: 19 }, n2o: { hiss: 1, roar: 1.5, wet: true },
+      synth: { firing: [0, 180, 360, 540], stagger: [0, 34, -8, 26], amps: [1, 0.86, 0.96, 0.82], highStagger: 0.45, pulse: [0.03, 0.02],
+        level: 0.95, sample: 0.55, exhaust: [120, 0.9, 5], lowpass: [800, 9000], drive: 0.6, rough: 0.4, jitter: 9 },
+    },
     tuning: {
       mass: 1320,
       com: { y: 0.44, z: -0.08 },
@@ -310,8 +361,13 @@ export const CARS = Object.freeze([
         reboundFront: 5450,
         bumpRear: 3180,
         reboundRear: 5200,
-        antiRollFront: 21500,
-        antiRollRear: 18500,
+        // Lowered MacPherson front / multi-link rear (roll centres ~60/100 mm); bars sized for
+        // ~1.5 deg/g of roll and a neutral 53 % front load transfer, so the tail stays lively.
+        rollCentreFront: 0.06,
+        rollCentreRear: 0.10,
+        antiRollFront: 8000,
+        antiRollRear: 2200,
+        damperKnee: 0.14,
       },
       steering: { maxLockDeg: 40, mechanicalLockDeg: 46, rate: 4.1, returnRate: 6.4 },
       tire: {

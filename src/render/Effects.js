@@ -304,6 +304,8 @@ export class Effects {
     // Per wheel: the previous pair of edge points, so consecutive quads join into a ribbon.
     this.trails = [0, 1, 2, 3].map(() => ({ active: false, lx: 0, ly: 0, lz: 0, rx: 0, ry: 0, rz: 0 }));
     this.emitClock = new Float32Array(4);
+    // Tread temperature, 0..1: rubber has to heat up before it smokes, and keeps smoking briefly after.
+    this.tyreHeat = new Float32Array(4);
   }
 
   /** @param {{effects:number}} quality */
@@ -470,12 +472,15 @@ export class Effects {
       const rear = i >= 2;
       // Burnouts smoke at walking pace; marks and dust need the car to be moving.
       const spinning = wheel.contact && wheel.slip > 1.25 && wheel.surface === SURFACE.ASPHALT;
+      const overRaw = wheel.contact ? Math.max(wheel.slip - 1, wheel.surface === SURFACE.ASPHALT ? slide * (rear ? 1 : 0.35) : 0) : 0;
+      // Sliding heats the tread fast; it cools over about a second.
+      const heat = this.tyreHeat[i] = clamp(this.tyreHeat[i] + (overRaw > 0.05 ? overRaw * 2.6 : -1.1) * dt, 0, 1);
       if (!wheel.contact || (speed < 2.5 && !(spinning && speed > 0.3))) {
         trail.active = false;
         continue;
       }
       const point = wheel.contactPoint;
-      const over = Math.max(wheel.slip - 1, wheel.surface === SURFACE.ASPHALT ? slide * (rear ? 1 : 0.35) : 0);
+      const over = overRaw;
       let kind = null;
       let rate = 0; // particles per second
       let mark = 0;
@@ -487,7 +492,10 @@ export class Effects {
           const heavy = over > 0.25 && (rear || over > 0.6);
           kind = heavy ? 'smoke' : 'wisp';
           const strength = clamp(over * 1.4, 0.15, 1.4);
-          rate = (heavy ? 44 : 14) * strength * (rear ? 1 : 0.55);
+          // Smoke is vaporised rubber: it scales with how hard the tyre is pressed down (load) and
+          // only pours once the tread is hot.
+          const loadK = clamp((wheel.load || 3200) / 3200, 0.45, 1.6);
+          rate = (heavy ? 44 : 14) * strength * (rear ? 1 : 0.55) * loadK * (0.25 + 0.75 * heat);
           scale = 0.85 + clamp(speed / 30, 0, 0.7) + (heavy ? clamp(over - 0.5, 0, 0.6) : 0);
           mark = speed > 2.5 ? clamp(0.25 + over * 0.7, 0, 0.75) : 0;
         }
@@ -512,9 +520,26 @@ export class Effects {
       this.emitClock[i] += rate * this.intensity * dt;
       // Thrown out of the side of the tyre away from the car, carried a little by its motion.
       const side = i % 2 === 0 ? -1 : 1;
+      // Tread speed: a spinning tyre peels the hot rubber off the back of the contact patch and
+      // carries part of it up round the back of the wheel before throwing it off.
+      const roll = Math.sign(wheel.spinSpeed || 1);
+      const tread = Math.min(60, Math.abs(wheel.spinSpeed || 0) * 0.34);
+      const fwd = state.forward;
       while (this.emitClock[i] >= 1) {
         this.emitClock[i] -= 1;
         const smoky = kind === 'smoke' || kind === 'wisp';
+        if (smoky) {
+          const wrap = Math.random() < 0.4; // round the back of the tyre rather than straight off the road
+          const back = (wrap ? 0.32 : 0.18) * roll;
+          const fling = tread * (wrap ? 0.05 : 0.1);
+          this.spawn(kind,
+            point.x - fwd.x * back + right.x * side * 0.1, point.y + (wrap ? 0.34 : 0.1), point.z - fwd.z * back + right.z * side * 0.1,
+            velocity.x * 0.12 - fwd.x * roll * fling + right.x * side * 0.6,
+            0.3 + tread * (wrap ? 0.06 : 0.025),
+            velocity.z * 0.12 - fwd.z * roll * fling + right.z * side * 0.6,
+            scale * (wrap ? 0.8 : 1));
+          continue;
+        }
         const carry = smoky ? 0.12 : 0.25;
         const kick = kind === 'mud' ? 1.6 + Math.random() * 1.5 : smoky ? 0.9 : 0;
         this.spawn(kind,

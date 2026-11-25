@@ -3,12 +3,15 @@ import { NitroJets } from './NitroJets.js';
 import { Cockpit, cockpitEye } from './Cockpit.js';
 import { createCarModel } from './ModelCar.js';
 import { getCar } from '../vehicle/cars.js';
+import { bodyPoseTarget, smoothBodyPose } from './bodyPose.js';
 
 const WHEEL_KEYS = ['frontLeft', 'frontRight', 'rearLeft', 'rearRight'];
 
 /**
  * The visible car: the procedural model plus headlights, driven straight from a VehicleState.
- * The physics owns all motion (body roll and pitch are in the chassis quaternion); this only mirrors it.
+ * The physics owns all motion (body roll and pitch are in the chassis quaternion, wheel travel in each
+ * wheel's compression); on top of that the body shell leans a little further the same way (bodyPose.js)
+ * so the suspension reads from the chase camera.
  */
 export class CarVisual {
   /**
@@ -53,6 +56,16 @@ export class CarVisual {
 
     this.neonWanted = true;
     this.neonLevel = 0.2;
+
+    // Visible suspension: geometry for turning wheel compressions into body attitude.
+    const layout = wheelLayout?.length === 4 ? wheelLayout : null;
+    this.poseGeometry = {
+      trackFront: layout ? Math.abs(layout[1].x - layout[0].x) : 1.6,
+      trackRear: layout ? Math.abs(layout[3].x - layout[2].x) : 1.6,
+      wheelbase: layout ? Math.abs(layout[2].z - layout[0].z) : 2.6,
+    };
+    this.bodyPose = { roll: 0, pitch: 0, squat: 0 };
+    this.bodyPoseTarget = { roll: 0, pitch: 0, squat: 0 };
   }
 
   /** Switch between the exterior car and the interior seen from the driver's seat. */
@@ -121,6 +134,11 @@ export class CarVisual {
       this.model.setWheelSpin(WHEEL_KEYS[i], wheel.spinAngle);
       if (this.carId === 'hatch') this.model.setTyreSurface(WHEEL_KEYS[i], wheel, state.speed, dt);
     }
+    // Extra body lean from the suspension; none from the driver's seat (the eye is fixed to the car).
+    if (this.interior) this.bodyPoseTarget.roll = this.bodyPoseTarget.pitch = this.bodyPoseTarget.squat = 0;
+    else bodyPoseTarget(state.wheels, this.poseGeometry, this.bodyPoseTarget);
+    smoothBodyPose(this.bodyPose, this.bodyPoseTarget, dt);
+    this.model.setBodyDynamics?.(this.bodyPose);
     this.nitroJets?.update(dt, state.boosting);
     if (this.interior) this.cockpit.update(state, dt);
 

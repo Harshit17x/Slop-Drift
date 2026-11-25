@@ -26,12 +26,21 @@
 // low-pass and an intake band. Shifts cut the throttle, clunk, and blat (up) or blip (down); the rev
 // limiter cuts the ignition in a ~14 Hz bounce with backfires; lift-off at high rpm crackles.
 //
+// Per-car engines: the recorded loops are one engine, so each car's `sound.synth` block (cars.js) adds a
+// procedural exhaust pulse train built from its own firing pattern (engineSynth.js: even inline-four,
+// flat-six banks, unequal-length boxer headers, rounded diesel pulses), played by two PeriodicWave
+// oscillators at rpm / 120 Hz, crossfaded by rpm, with per-car pipe resonance, brightness, rasp and
+// combustion roughness; `synth.sample` sets how much of the shared recording stays in the mix. Turbo
+// spool / whistle / compressor whoosh, blow-off (valve "pssh", compressor-surge flutter, diesel chuff),
+// anti-lag bangs, straight-cut gear whine, shift character and the nitrous kit are per-car too.
+//
 // Continuous beds are built once in unlock(); update() only moves AudioParams (no nodes per frame).
 // Every bed gain also gets a scheduled fade-out a short time in the future that the next update() cancels.
 // With no AudioContext, a context that failed to build, or after dispose(), every method is a silent no-op.
 
 import { SURFACE, SURFACE_PROPS } from '../config.js';
 import { SPRITES } from './audioSprites.js';
+import { cycleHz, spoolTarget, synthWaves, whineHz } from './engineSynth.js';
 
 const HAS_URL = typeof URL !== 'undefined' && typeof import.meta !== 'undefined' && Boolean(import.meta.url);
 const ENGINE_URL = HAS_URL ? new URL('../assets/audio/engine.m4a', import.meta.url).href : '';
@@ -45,10 +54,20 @@ const EMPTY = Object.freeze([]);
  * Per-car engine character (setProfile). The loops were built at 4 firing pulses per revolution
  * (rpm / 15 Hz); `fires` sets the car's own (flat-six 3, inline-four 2), so the pitch follows its firing
  * frequency. tone / intake / drive / body scale the filter ceiling, intake band, distortion and exhaust
- * body; crackle scales overrun pops (0 for a diesel); clatter and turbo add diesel injector tick and
- * turbo whistle.
+ * body; crackle scales overrun pops (0 for a diesel) and cracklePitch their playback rate; clatter adds
+ * diesel injector tick. turbo scales the whistle (turboFreq: [Hz off boost, Hz at full boost]); spoolRpm
+ * ([boost threshold, full boost]) and spoolLag (s) shape the spool; whoosh is the compressor air rush;
+ * antiLag keeps the turbine lit off throttle with exhaust bangs; bov is what a lift at boost sounds like
+ * ('valve' atmospheric blow-off, 'flutter' compressor surge, 'chuff' diesel wastegate). whine
+ * ({ level, teeth, perMps }) is a straight-cut gearbox; clunk / shiftCut set the shift character; n2o
+ * ({ hiss, roar, wet }) the nitrous kit; synth is the procedural engine layer (engineSynth.js).
  */
-const DEFAULT_PROFILE = Object.freeze({ fires: 4, tone: 1, intake: 1, intakeFreq: [500, 2100], drive: 1, body: 1, crackle: 1, clatter: 0, turbo: 0 });
+const DEFAULT_N2O = Object.freeze({ hiss: 1, roar: 1.4, wet: false });
+const DEFAULT_PROFILE = Object.freeze({
+  fires: 4, tone: 1, intake: 1, intakeFreq: [500, 2100], drive: 1, body: 1, crackle: 1, cracklePitch: 1, clatter: 0,
+  turbo: 0, turboFreq: [2200, 7000], spoolRpm: [1300, 2700], spoolLag: 0.6, whoosh: 0, antiLag: 0, bov: null,
+  whine: null, clunk: 1, shiftCut: 0.11, n2o: DEFAULT_N2O, synth: null,
+});
 
 const CRACKLES = ['crackle0', 'crackle1', 'crackle2', 'crackle3', 'crackle4', 'crackle5', 'crackle6', 'crackle7'];
 const BRAPS = ['brap0', 'brap1', 'brap2'];
@@ -152,6 +171,8 @@ export class AudioEngine {
     this._cool = Object.create(null);
     this._onVisibility = null;
     this._profile = DEFAULT_PROFILE;
+    this._synth = null; // synthWaves() of the profile's synth block
+    this._synthOn = false; // its PeriodicWaves are loaded into the oscillators
     this._spool = 0;
     this._resetDrive();
   }
@@ -180,6 +201,7 @@ export class AudioEngine {
         this.ctx = ctx;
         try {
           this._build();
+          this._applyProfile();
           this._loadSamples();
         } catch {
           this._teardown();
@@ -202,7 +224,37 @@ export class AudioEngine {
 
   /** The car's engine character (see DEFAULT_PROFILE); null restores the default. */
   setProfile(profile) {
-    this._profile = { ...DEFAULT_PROFILE, ...(profile || {}) };
+    const p = { ...DEFAULT_PROFILE, ...(profile || {}) };
+    p.n2o = { ...DEFAULT_N2O, ...(p.n2o || {}) };
+    if (!Array.isArray(p.turboFreq) || p.turboFreq.length !== 2) p.turboFreq = DEFAULT_PROFILE.turboFreq;
+    this._profile = p;
+    try {
+      this._synth = synthWaves(p.synth);
+    } catch {
+      this._synth = null;
+    }
+    this._applyProfile();
+  }
+
+  /** The profile's synth character: oscillator waves, pipe resonance. Silently off where unsupported. */
+  _applyProfile() {
+    this._synthOn = false;
+    if (!this._live()) return;
+    const g = this._g;
+    const w = this._synth;
+    try {
+      if (!w || typeof this.ctx.createPeriodicWave !== 'function' || typeof g.oscLow.setPeriodicWave !== 'function') return;
+      g.oscLow.setPeriodicWave(this.ctx.createPeriodicWave(w.low.real, w.low.imag));
+      g.oscHigh.setPeriodicWave(this.ctx.createPeriodicWave(w.high.real, w.high.imag));
+      const now = this.ctx.currentTime;
+      const [hz, q, db] = w.spec.exhaust;
+      g.synthPeak.frequency.setValueAtTime(hz, now);
+      g.synthPeak.Q.setValueAtTime(q, now);
+      g.synthPeak.gain.setValueAtTime(db, now);
+      this._synthOn = true;
+    } catch {
+      this._synthOn = false;
+    }
   }
 
   setVolume(value) {
@@ -288,9 +340,9 @@ export class AudioEngine {
    */
   shift() {
     if (this._shiftFrame) return;
-    if (!this._canPlay() || !this._cooldown('shift', 0.08)) return;
+    if (!this._canPlay() || !this._cooldown('shift', 0.08) || !(this._profile.clunk > 0)) return;
     this._safe(() => {
-      if (!this._shot('clunkUp', 0.34, 0.96 + Math.random() * 0.08)) {
+      if (!this._shot('clunkUp', 0.34 * this._profile.clunk, 0.96 + Math.random() * 0.08)) {
         this._noise({ dur: 0.05, vol: 0.08, filter: 'lowpass', freq: 900, attack: 0.002 });
       }
     });
@@ -558,6 +610,62 @@ export class AudioEngine {
     fallbackOsc.start();
     sources.push(fallbackOsc);
 
+    // ---- procedural exhaust pulse train (engineSynth.js): two PeriodicWave voices (low / high rpm
+    // character) -> roughness VCA -> clean + soft-clipped rasp -> pipe resonance -> brightness -> level
+    const synthLevel = gain(0, limiterGate);
+    const synthLp = filter('lowpass', 4000, 0.7, synthLevel);
+    const synthPeak = filter('peaking', 160, 1.2, synthLp);
+    synthPeak.gain.value = 0;
+    const synthClean = gain(1, synthPeak);
+    const synthDriveMix = gain(0, synthPeak);
+    const synthShaper = ctx.createWaveShaper();
+    synthShaper.curve = makeDriveCurve(3);
+    synthShaper.oversample = '2x';
+    synthShaper.connect(synthDriveMix);
+    const synthDrivePre = gain(2, synthShaper);
+    const synthVca = gain(1, synthClean);
+    synthVca.connect(synthDrivePre);
+    const synthToIntake = gain(0, intakeFilter);
+    synthVca.connect(synthToIntake);
+    const synthLow = gain(0, synthVca);
+    const synthHigh = gain(0, synthVca);
+    const voice = (to) => {
+      const osc = ctx.createOscillator();
+      osc.frequency.value = 8;
+      osc.connect(to);
+      osc.start();
+      sources.push(osc);
+      return osc;
+    };
+    const oscLow = voice(synthLow);
+    const oscHigh = voice(synthHigh);
+    // Slow random wander (smoothed random points ~40 Hz, +-1): cycle-to-cycle combustion variation
+    // (amplitude) and rpm wander (detune, cents).
+    const wlen = Math.max(1, Math.floor(ctx.sampleRate * NOISE_SECONDS));
+    const wanderBuffer = ctx.createBuffer(1, wlen, ctx.sampleRate);
+    const wd = wanderBuffer.getChannelData(0);
+    const step = Math.max(2, Math.floor(ctx.sampleRate / 40));
+    let prev = 0;
+    for (let i = 0; i < wd.length; i += step) {
+      const next = i + step >= wd.length ? 0 : Math.random() * 2 - 1; // loop seam lands on 0
+      for (let j = 0; j < step && i + j < wd.length; j += 1) {
+        const t = (1 - Math.cos((j / step) * Math.PI)) / 2;
+        wd[i + j] = prev + (next - prev) * t;
+      }
+      prev = next;
+    }
+    const synthRough = gain(0, synthVca.gain);
+    const synthJitter = gain(0);
+    synthJitter.connect(oscLow.detune);
+    synthJitter.connect(oscHigh.detune);
+    const wanderSrc = ctx.createBufferSource();
+    wanderSrc.buffer = wanderBuffer;
+    wanderSrc.loop = true;
+    wanderSrc.connect(synthRough);
+    wanderSrc.connect(synthJitter);
+    wanderSrc.start(0, Math.random() * NOISE_SECONDS * 0.9);
+    sources.push(wanderSrc);
+
     // ---- diesel: injector clatter (band-passed noise gated by a pulse at the firing rate) and turbo whistle
     const clatterLevel = gain(0, engineBus);
     const clatterVca = gain(0, clatterLevel);
@@ -578,6 +686,25 @@ export class AudioEngine {
     turboOsc.connect(turboGain);
     turboOsc.start();
     sources.push(turboOsc);
+    // Compressor air rush ("whoosh") under boost.
+    const whooshGain = gain(0, engineBus);
+    const whooshFilter = filter('bandpass', 1500, 0.9, whooshGain);
+    noiseSource(whooshFilter);
+    // Straight-cut gear whine: input head-set mesh (follows rpm) and final-drive mesh (follows road speed).
+    const whineGain = gain(0, engineBus);
+    const whineA = gain(0, whineGain);
+    const whineB = gain(0, whineGain);
+    const whineOscA = ctx.createOscillator();
+    whineOscA.type = 'triangle';
+    whineOscA.frequency.value = 400;
+    whineOscA.connect(whineA);
+    whineOscA.start();
+    const whineOscB = ctx.createOscillator();
+    whineOscB.type = 'triangle';
+    whineOscB.frequency.value = 400;
+    whineOscB.connect(whineB);
+    whineOscB.start();
+    sources.push(whineOscA, whineOscB);
 
     // ---- tyres and surfaces
     const skidFilter = filter('lowpass', 6000, 0.5, tireBus);
@@ -607,12 +734,15 @@ export class AudioEngine {
     beds.push(
       engineAmp.gain, intakeGain.gain, fallbackGain.gain, clatterLevel.gain, turboGain.gain, skidGain.gain, skidHeavyGain.gain, gravelGain.gain,
       roadGain.gain, grassGain.gain, scrapeGain.gain, windGain.gain, buffetGain.gain, nitroGain.gain,
+      whooshGain.gain, whineGain.gain,
     );
 
     this._g = {
       output, sfxBus, noiseBuffer, sources, beds,
       engineAmp, limiterGate, body, tone, driveMix, onBus, offBus, intakeGain, intakeFilter,
       fallbackGain, fallbackTone, fallbackOsc, clatterLevel, clatterOsc, turboGain, turboOsc,
+      synthLevel, synthLp, synthPeak, synthClean, synthDriveMix, synthToIntake, synthLow, synthHigh, oscLow, oscHigh,
+      synthRough, synthJitter, whooshGain, whooshFilter, whineGain, whineA, whineB, whineOscA, whineOscB,
       layers: null, // { rpm, on: [{src, gain}], off: [...] }
       skidFilter, skidGain, skidHeavyGain, skidSrc: null, skidHeavySrc: null,
       gravelGain, gravelFilter, gravelSrc: null,
@@ -753,8 +883,8 @@ export class AudioEngine {
     rpmA *= 1 + 0.05 * this._blip;
 
     // The loops fire 4 times a revolution; scale so the pitch matches this car's firing frequency.
-    this._engine(rpmA * this._profile.fires / 4, rpmN, load, boosting, now);
-    this._diesel(rpm, rpmN, load, dt, now);
+    this._engine(rpmA * this._profile.fires / 4, rpmA, rpmN, load, boosting, idleness, now);
+    this._forced(rpm, rpmN, load, throttle, speed, dt, now);
 
     // ---- overrun: crackle and burble when the throttle is shut at high rpm
     if (this._prevThrottle > 0.6 && throttle < 0.15 && rpmN > 0.45) {
@@ -767,14 +897,23 @@ export class AudioEngine {
       if (Math.random() < rate * dt) this._crackle((0.15 + 0.3 * Math.random()) * (0.6 + this._overrun));
     }
 
-    // ---- nitro: solenoid click, pressurised hiss bed, purge release
-    if (!this._prevBoost && boosting) this._shot('solenoid', 0.32, 0.95 + Math.random() * 0.1);
+    // ---- nitro: solenoid click (a wet kit opens a nitrous and a fuel solenoid), the charge hitting the
+    // intake, pressurised hiss bed, purge release
+    const n2o = this._profile.n2o;
+    if (!this._prevBoost && boosting && this._canPlay()) {
+      this._shot('solenoid', 0.32, 0.95 + Math.random() * 0.1);
+      if (n2o.wet) this._shot('solenoid', 0.24, 1.12 + Math.random() * 0.08, 0.022);
+      this._safe(() => {
+        this._noise({ dur: 0.28, vol: 0.5 * n2o.roar, filter: 'lowpass', freq: 420, freqEnd: 110, q: 0.8, attack: 0.012 });
+        this._noise({ dur: 0.22, vol: 0.2 * n2o.hiss, filter: 'highpass', freq: 3500, q: 0.7, attack: 0.004 });
+      });
+    }
     if (this._prevBoost && !boosting) {
-      this._shot('purge', 0.42, 0.95 + Math.random() * 0.12);
+      this._shot('purge', 0.42 * n2o.hiss, 0.95 + Math.random() * 0.12);
       this._shot('solenoid', 0.22, 0.9 + Math.random() * 0.1);
     }
     if (boosting) {
-      this._bed(g.nitroGain.gain, 0.5, 0.04, now);
+      this._bed(g.nitroGain.gain, 0.5 * n2o.hiss, 0.04, now);
       if (g.nitroSrc) g.nitroSrc.playbackRate.setTargetAtTime(0.96 + 0.12 * rpmN, now, 0.1);
     } else {
       this._bed(g.nitroGain.gain, 0, 0.07, now);
@@ -853,33 +992,96 @@ export class AudioEngine {
     if (landing > 2) this.landing(landing);
   }
 
-  /** Diesel extras: clatter ticking at the firing rate (loudest at idle) and the turbo spooling with load. */
-  _diesel(rpm, rpmN, load, dt, now) {
+  /**
+   * Engine-driven extras: diesel clatter ticking at the firing rate (loudest at idle), the turbo (spool,
+   * whistle, compressor whoosh, what a lift at boost sounds like, anti-lag bangs) and straight-cut gear whine.
+   */
+  _forced(rpm, rpmN, load, throttle, speed, dt, now) {
     const g = this._g;
     const p = this._profile;
-    if (!p.clatter && !p.turbo) {
-      this._bed(g.clatterLevel.gain, 0, 0.1, now);
+    if (p.clatter) {
+      g.clatterOsc.frequency.setTargetAtTime((rpm * p.fires) / 60, now, 0.02);
+      this._bed(g.clatterLevel.gain, p.clatter * 0.09 * (1 - 0.65 * rpmN) * (0.55 + 0.45 * load), 0.05, now);
+    } else this._bed(g.clatterLevel.gain, 0, 0.1, now);
+
+    if (p.turbo) {
+      const target = spoolTarget(rpm, load, p.spoolRpm, p.antiLag);
+      const tc = target > this._spool ? Math.max(0.05, p.spoolLag) : p.antiLag ? 0.6 : 0.22;
+      // A lift at boost: blow-off valve, compressor surge or wastegate chuff (sampled before the spool drops).
+      if (this._prevThrottle > 0.55 && throttle < 0.2 && this._spool > 0.35) this._blowOff(this._spool, false);
+      this._spool += (target - this._spool) * (1 - Math.exp(-dt / tc));
+      const s = this._spool;
+      g.turboOsc.frequency.setTargetAtTime(p.turboFreq[0] + (p.turboFreq[1] - p.turboFreq[0]) * s, now, 0.05);
+      this._bed(g.turboGain.gain, p.turbo * 0.03 * s * s, 0.05, now);
+      this._bed(g.whooshGain.gain, p.whoosh * 0.09 * s * (0.25 + 0.75 * load), 0.06, now);
+      g.whooshFilter.frequency.setTargetAtTime(900 + 2600 * s, now, 0.08);
+      // Anti-lag: fuel and air lit in the exhaust manifold off throttle -> irregular bangs.
+      if (p.antiLag && throttle < 0.2 && rpmN > 0.25 && speed > 3 && s > 0.4) {
+        const rate = p.antiLag * (2.5 + 7 * rpmN);
+        if (Math.random() < rate * dt) this._bang(0.45 + 0.45 * rpmN * Math.random() + 0.1);
+      }
+    } else {
+      this._spool = 0;
       this._bed(g.turboGain.gain, 0, 0.1, now);
-      return;
+      this._bed(g.whooshGain.gain, 0, 0.1, now);
     }
-    g.clatterOsc.frequency.setTargetAtTime((rpm * p.fires) / 60, now, 0.02);
-    this._bed(g.clatterLevel.gain, p.clatter * 0.09 * (1 - 0.65 * rpmN) * (0.55 + 0.45 * load), 0.05, now);
-    const boostTarget = load * saturate((rpm - 1300) / 1400);
-    this._spool += (boostTarget - this._spool) * (1 - Math.exp(-dt / (boostTarget > this._spool ? 0.6 : 0.25)));
-    g.turboOsc.frequency.setTargetAtTime(2200 + 4800 * this._spool, now, 0.05);
-    this._bed(g.turboGain.gain, p.turbo * 0.03 * this._spool * this._spool, 0.05, now);
+
+    const w = p.whine;
+    if (w && w.level > 0) {
+      const [a, b] = whineHz(rpm, speed, w);
+      g.whineOscA.frequency.setTargetAtTime(Math.max(20, Math.min(12000, a)), now, 0.03);
+      g.whineOscB.frequency.setTargetAtTime(Math.max(20, Math.min(12000, b)), now, 0.03);
+      const moving = saturate(speed / 35);
+      g.whineA.gain.setTargetAtTime(0.012 * (0.3 + 0.7 * load), now, 0.05);
+      // Final-drive whine is loudest on the overrun (gears loaded on the coast flank).
+      g.whineB.gain.setTargetAtTime(0.02 * moving * (0.6 + 0.4 * (1 - load)), now, 0.05);
+      this._bed(g.whineGain.gain, w.level * saturate(speed / 4), 0.06, now);
+    } else this._bed(g.whineGain.gain, 0, 0.1, now);
   }
 
-  /** Crossfade the rpm layers and shape the tone. */
-  _engine(rpmA, rpmN, load, boosting, now) {
+  /** Crossfade the rpm layers, run the procedural layer and shape the tone. */
+  _engine(rpmA, rpmCar, rpmN, load, boosting, idleness, now) {
     const g = this._g;
     const L = g.layers;
+    const p = this._profile;
+    const n2o = p.n2o;
     const level = (0.3 + 0.7 * Math.pow(rpmN, 0.9)) * (0.5 + 0.5 * load) * (boosting ? 1.15 : 1);
     this._bed(g.engineAmp.gain, 0.9 * level, 0.03, now);
     const onW = Math.sin(load * Math.PI / 2);
     const offW = Math.cos(load * Math.PI / 2);
-    g.onBus.gain.setTargetAtTime(onW, now, 0.02);
-    g.offBus.gain.setTargetAtTime(offW * 0.85, now, 0.02);
+    const w = this._synthOn ? this._synth : null;
+    const sampleMix = w ? w.spec.sample : 1;
+    g.onBus.gain.setTargetAtTime(onW * sampleMix, now, 0.02);
+    g.offBus.gain.setTargetAtTime(offW * 0.85 * sampleMix, now, 0.02);
+
+    if (w) {
+      // The car's own pulse train at its real cycle rate (rpm / 120 Hz, firing order in the wave).
+      const s = w.spec;
+      const f = Math.max(1, cycleHz(rpmCar));
+      g.oscLow.frequency.setTargetAtTime(f, now, 0.012);
+      g.oscHigh.frequency.setTargetAtTime(f, now, 0.012);
+      // Linear crossfade: the two waves are in phase (same pulses), so they add coherently.
+      const x = saturate((rpmN - 0.1) / 0.65);
+      g.synthLow.gain.setTargetAtTime((1 - x) * w.lowTrim, now, 0.05);
+      g.synthHigh.gain.setTargetAtTime(x * w.highTrim, now, 0.05);
+      // Brightness: exponential sweep from the idle / coast cutoff to the full-load redline cutoff.
+      const bright = (0.2 + 0.8 * load) * (0.2 + 0.8 * rpmN);
+      const lp = s.lowpass[0] * Math.pow(s.lowpass[1] / s.lowpass[0], saturate(bright)) * (boosting ? 1.25 : 1);
+      g.synthLp.frequency.setTargetAtTime(Math.min(16000, Math.max(80, lp)), now, 0.04);
+      const rasp = s.drive * (0.1 + 0.9 * load * (0.4 + 0.6 * rpmN)) + (boosting ? 0.25 : 0);
+      // The shaper output sits near full scale; 0.35 brings it back to the clean path's level.
+      g.synthDriveMix.gain.setTargetAtTime(0.35 * Math.min(1.2, rasp), now, 0.05);
+      g.synthClean.gain.setTargetAtTime(1 - 0.4 * Math.min(1, rasp), now, 0.05);
+      // Off load the pulses are weaker; the slight rpm tilt follows the recording's own growth with revs.
+      // (Levels were balanced offline so recording + synth matches the old recording-only loudness.)
+      const synthAmt = s.level * (0.7 + 0.3 * load) * (0.9 + 0.2 * rpmN) * (boosting ? Math.sqrt(n2o.roar) : 1);
+      g.synthLevel.gain.setTargetAtTime(synthAmt, now, 0.03);
+      g.synthToIntake.gain.setTargetAtTime(0.8 * s.level, now, 0.05);
+      g.synthRough.gain.setTargetAtTime(s.rough * 0.3 * (1 - 0.5 * rpmN) * (0.6 + 0.4 * idleness), now, 0.1);
+      g.synthJitter.gain.setTargetAtTime(s.jitter * (1 - 0.5 * rpmN), now, 0.1);
+    } else {
+      g.synthLevel.gain.setTargetAtTime(0, now, 0.05);
+    }
 
     if (L) {
       const rpms = L.rpm;
@@ -909,14 +1111,14 @@ export class AudioEngine {
     }
 
     // Load and nitro: brighter, more driven, more intake; coasting is darker and cleaner.
-    const p = this._profile;
     const cutoff = (1500 + 9500 * (0.25 + 0.75 * load) * (0.3 + 0.7 * rpmN) + (boosting ? 3500 : 0)) * p.tone;
     g.tone.frequency.setTargetAtTime(Math.min(16000, cutoff), now, 0.04);
     g.driveMix.gain.setTargetAtTime((0.05 + 0.35 * load * rpmN + (boosting ? 0.3 : 0)) * p.drive, now, 0.05);
-    g.body.gain.setTargetAtTime(4 * load * (1 - 0.6 * rpmN) * p.body, now, 0.06);
+    // Nitrous: the denser charge burns harder -> a deeper, louder exhaust body and intake roar.
+    g.body.gain.setTargetAtTime(4 * load * (1 - 0.6 * rpmN) * p.body + (boosting ? 2.5 * (n2o.roar - 1) : 0), now, 0.06);
     // A high-revving engine's intake howl grows over the last third of the rev range.
     const howl = p.intake > 1 ? 1 + (p.intake - 1) * saturate((rpmN - 0.55) / 0.35) : p.intake;
-    this._bed(g.intakeGain.gain, (0.12 * load * (0.2 + 0.8 * rpmN)) * (boosting ? 1.4 : 1) * howl, 0.04, now);
+    this._bed(g.intakeGain.gain, (0.12 * load * (0.2 + 0.8 * rpmN)) * (boosting ? n2o.roar : 1) * howl, 0.04, now);
     g.intakeFilter.frequency.setTargetAtTime(p.intakeFreq[0] + (p.intakeFreq[1] - p.intakeFreq[0]) * rpmN, now, 0.05);
   }
 
@@ -924,22 +1126,69 @@ export class AudioEngine {
     if (!this._live()) return;
     const prev = this._prevGear;
     const up = prev === null ? true : gear > prev;
+    const p = this._profile;
+    const clunk = Math.max(0, finite(p.clunk, 1));
     if (up && gear > 1) {
-      this._cut = 0.11; // ignition / throttle cut while the dog rings engage
-      this._shot('clunkUp', 0.3 + 0.1 * Math.random(), 0.95 + Math.random() * 0.1);
+      this._cut = Math.max(0, finite(p.shiftCut, 0.11)); // ignition / throttle cut while the dog rings engage
+      if (clunk > 0) this._shot('clunkUp', (0.3 + 0.1 * Math.random()) * clunk, 0.95 + Math.random() * 0.1);
       if (rpmN > 0.55 && throttle > 0.6 && Math.random() < 0.75) {
         this._crackle(0.45 + 0.25 * rpmN, Math.random() < 0.6, 0.015);
       }
+      if (p.antiLag && rpmN > 0.4 && throttle > 0.6) this._bang(0.6 + 0.3 * rpmN, 0.02);
+      if (p.turbo && this._spool > 0.5 && throttle > 0.6) this._blowOff(this._spool, true);
     } else if (!up) {
-      this._shot('clunkDown', 0.3 + 0.1 * Math.random(), 0.95 + Math.random() * 0.1);
+      if (clunk > 0) this._shot('clunkDown', (0.3 + 0.1 * Math.random()) * clunk, 0.95 + Math.random() * 0.1);
       if (throttle < 0.6 && gear >= 1) {
         this._blip = 1; // rev-matching blip
         if (Math.random() < 0.4) this._crackle(0.3 + 0.2 * Math.random(), false, 0.16);
       }
-    } else {
-      this._shot('clunkDown', 0.2, 1.05);
+    } else if (clunk > 0) {
+      this._shot('clunkDown', 0.2 * clunk, 1.05);
     }
     this._cool.shift = this.ctx.currentTime;
+  }
+
+  /**
+   * What a lift at boost sounds like on this car. 'valve': an atmospheric blow-off valve venting the
+   * boosted charge ("pssh", falling as the pressure bleeds off). 'flutter': no vent, the air surges back
+   * through the compressor in a decaying "stu-tu-tu". 'chuff': a diesel's soft wastegate / bypass puff.
+   * shift: the shorter, softer version heard on an upshift.
+   */
+  _blowOff(spool, shift) {
+    const kind = this._profile.bov;
+    if (!kind || !this._canPlay() || !this._cooldown('bov', shift ? 0.25 : 0.4)) return;
+    const s = saturate(spool);
+    const k = shift ? 0.55 : 1;
+    this._safe(() => {
+      if (kind === 'valve') {
+        this._noise({ dur: (0.3 + 0.35 * s) * k, vol: 0.3 * s * k, filter: 'bandpass', freq: 3600, freqEnd: 1300, q: 0.8, attack: 0.006 });
+        this._noise({ dur: 0.08 + 0.12 * k, vol: 0.1 * s * k, filter: 'highpass', freq: 5500, q: 0.7, attack: 0.003 });
+      } else if (kind === 'flutter') {
+        let t = 0;
+        let gap = 0.048;
+        let vol = 0.5 * s * k;
+        const n = shift ? 3 : 6;
+        for (let i = 0; i < n; i += 1) {
+          this._noise({ dur: 0.034, vol, filter: 'bandpass', freq: 1150 - 70 * i, q: 1.6, when: t, attack: 0.004 });
+          t += gap;
+          gap *= 1.16;
+          vol *= 0.76;
+        }
+      } else if (kind === 'chuff') {
+        this._noise({ dur: 0.34 * k + 0.06, vol: 0.25 * s * k, filter: 'lowpass', freq: 900, freqEnd: 220, q: 0.7, attack: 0.02 });
+      }
+    });
+  }
+
+  /** Anti-lag bang: a deep, loud exhaust detonation plus its low-frequency shock. */
+  _bang(intensity, delay = 0) {
+    if (!this._canPlay() || !bank.sfx || !this._cooldown('als', 0.07)) return;
+    const i = saturate(intensity);
+    const pitch = finite(this._profile.cracklePitch, 1);
+    const brap = Math.random() < 0.35;
+    const name = brap ? BRAPS[Math.floor(Math.random() * BRAPS.length)] : CRACKLES[Math.floor(Math.random() * CRACKLES.length)];
+    this._shot(name, Math.min(0.85, 0.55 * i + 0.15), (0.68 + 0.2 * Math.random()) * pitch, delay);
+    this._safe(() => this._noise({ dur: 0.09, vol: 0.6 * i, filter: 'lowpass', freq: 240, freqEnd: 90, q: 0.9, when: delay, attack: 0.002 }));
   }
 
   /** A real overrun crackle (or a multi-crackle "brap") with random pitch and level. */
@@ -955,7 +1204,8 @@ export class AudioEngine {
       this._lastCrackle = k;
       name = CRACKLES[k];
     }
-    this._shot(name, Math.min(0.8, (brap ? 0.5 : 0.42) * saturate(intensity) + 0.08), 0.85 + Math.random() * 0.35, delay);
+    const pitch = finite(this._profile.cracklePitch, 1);
+    this._shot(name, Math.min(0.8, (brap ? 0.5 : 0.42) * saturate(intensity) + 0.08), (0.85 + Math.random() * 0.35) * pitch, delay);
   }
 
   /** Play a decoded one-shot. Returns false if it is not available. */
