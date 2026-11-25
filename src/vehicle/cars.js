@@ -3,6 +3,7 @@
 // tools/blender/cars/), and an interior style for the cockpit camera (see Cockpit.js STYLES).
 // Wheel positions and radii come from tools/blender/cars/split_export.py's printout.
 
+import { SURFACE } from '../config.js';
 import { BASE_TUNING } from './tuning.js';
 
 const HAS_URL = typeof import.meta.url === 'string';
@@ -56,31 +57,23 @@ export const CARS = Object.freeze([
   }),
   Object.freeze({
     id: 'gt',
-    label: 'Track RS',
-    titleLines: Object.freeze(['TRACK', 'RS']),
-    blurb: 'Rear-engine, 9,000 rpm, big wing',
+    label: 'Porsche 911 GT3 R',
+    titleLines: Object.freeze(['911', 'GT3 R']),
+    blurb: '992 endurance racer · 4.2 L flat-six',
     classCode: 'S312',
     classRank: 312,
     classBand: 's',
     origin: 'GER',
-    category: 'TRACK SPEC',
+    category: 'GT3 ENDURANCE',
     drivetrain: 'RWD',
-    gearboxLabel: '7-SPD PDK',
+    gearboxLabel: '6-SPD SEQ',
     thumbnail: HAS_URL ? new URL('../assets/ui/car-gt.webp', import.meta.url).href : null,
     ratings: Object.freeze({ acceleration: 9.4, topSpeed: 9.6, handling: 9.5, control: 7.2 }),
     specs: Object.freeze({
-      massKg: 1450,
-      peakTorqueNm: 465,
-      redlineRpm: 9000,
-      gears: 7,
-      layoutLabel: 'RWD · Rear-Eng',
-      aeroLabel: '860 kg @ 285 km/h',
-      nitro: false,
+      massKg: 1250, peakTorqueNm: 525, redlineRpm: 9250, gears: 6,
+      layoutLabel: 'RWD · Flat-six', aeroLabel: 'Swan-neck wing', nitro: false,
     }),
-    model: HAS_URL ? new URL('../assets/cars/gt.glb', import.meta.url).href : null,
-    // Rebuilt PBR textures encode body paint / forged-rim masks in RGBA Alpha and AO/Roughness/Metalness
-    // in ORM channels; multi-layer paint/rim colour-blend shader tints painted zones while keeping carbon,
-    // glass, decals, gold crest and rubber tyres intact, plus glowing front headlamp ovals & rear light bar.
+    model: HAS_URL ? new URL('../assets/cars/gt3r.glb', import.meta.url).href : null,
     finish: {
       GT_Body: {
         role: 'paint',
@@ -98,54 +91,48 @@ export const CARS = Object.freeze([
         emissive: 0xfff5e4,
         emissiveIntensity: 0.95,
       },
-      GT_Wheel: {
-        role: 'rim',
-        paintMode: 'maskedRim',
-        color: 0xffffff,
-        metalness: 1,
-        roughness: 1,
-        rimMetalness: 0.88,
-        rimRoughness: 0.19,
-        clearcoat: 0.42,
-        clearcoatRoughness: 0.12,
-        aoMapIntensity: 0.45,
-        envMapIntensity: 1.35,
-      },
-      GT_BrakeDisc: { color: 0x5c626c, metalness: 0.92, roughness: 0.28, envMapIntensity: 1.25 },
+      GT3R_Glazing: { color: 0x709099, metalness: 0.24, roughness: 0.11, clearcoat: 0.85,
+        clearcoatRoughness: 0.065, envMapIntensity: 0.9, transparent: true, opacity: 0.46 },
+      GT3R_LightGuide: { role: 'lens', color: 0xe5efff, emissive: 0xe3edff, emissiveIntensity: 0.8, roughness: 0.18, metalness: 0.24 },
+      GT3R_Bronze: { role: 'rim', color: 0xb78a55, metalness: 0.77, roughness: 0.34 },
     },
-    lamps: { tail: [[0, 0.64, 1.975, 1.16, 0.024]] },
+    lamps: { tail: [[0, 0.64, 2.28, 1.24, 0.022]] },
     cockpit: 'gt',
     // Flat-six: 3 firing pulses per revolution (rpm / 20 Hz), dry and metallic, intake howl above 6,000 rpm.
     sound: { fires: 3, tone: 1.15, intake: 2.4, intakeFreq: [1100, 3200], drive: 0.8, body: 0.5, crackle: 0.6 },
-    // Sources: Porsche press kit and spec sheets (1,450 kg, 2,457 mm wheelbase, 465 Nm @ 6,300, 9,000 rpm,
-    // 860 kg downforce @ 285 km/h, 296 km/h), evo (springs ~50% stiffer than the GT3), Car and Driver
-    // (1.16 g skidpad). Unpublished figures are estimates: 39/61 weight split, ~2.9 Hz front / 3.0 Hz rear
-    // ride, damping ~0.7 bump / 0.85 rebound, 991.2 PDK ratios with a shorter final drive.
+    // 2023 Porsche 911 GT3 R technical data: 2507 mm wheelbase, staggered slicks,
+    // 4.2 L, up to 416 kW, six-speed sequential and mechanical rear differential.
+    // https://newsroom.porsche.com/en/2022/motorsports/porsche-911-gt3-r-generation-992-customer-racing-car-premiere-29201.html
+    // Race weight depends on BoP. Torque map, axle loads, gearing, tyre curves,
+    // dampers and aero coefficients below are simulation setup estimates.
     tuning: {
-      mass: 1450,
-      com: { y: 0.45, z: 0.25 }, // 39 % front
-      inertiaBox: { width: 1.87, height: 1.1, length: 4.0 },
-      geometry: { frontAxleZ: -1.12, rearAxleZ: 1.125, halfTrack: 0.742, wheelRadius: 0.335, wheelCenterY: 0.335 },
-      // Double wishbone front, multi-link rear, rose-jointed; per-wheel rates for the ride frequencies above.
+      mass: 1250, com: { y: 0.40, z: 0.22 },
+      inertiaBox: { width: 2.04, height: 1.24, length: 4.619 },
+      geometry: { frontAxleZ: -1.2535, rearAxleZ: 1.2535, halfTrack: 0.87, frontHalfTrack: 0.86,
+        wheelRadius: 0.355, frontWheelRadius: 0.34, wheelCenterY: 0.355 },
       suspension: {
-        staticLength: 0.22, travel: 0.08, springFront: 94000, springRear: 157000,
-        bumpFront: 7200, reboundFront: 8800, bumpRear: 11700, reboundRear: 14200,
-        antiRollFront: 42000, antiRollRear: 30000, maxForce: 90000,
+        staticLength: 0.21, travel: 0.071, springFront: 95000, springRear: 138000,
+        bumpFront: 5400, reboundFront: 8100, bumpRear: 7700, reboundRear: 11300,
+        antiRollFront: 35000, antiRollRear: 28500, maxForce: 90000,
       },
-      // Cup-type tyres, 275 front / 335 rear: the wider rear carries the engine.
-      tire: { mu: 1.3, frontGrip: 1.0, rearGrip: 1.06, peakSlipDeg: 7, slideRatio: 0.8, falloff: 1.6 },
+      steering: { maxLockDeg: 29, mechanicalLockDeg: 34, rate: 3.8, returnRate: 6.2 },
+      tire: { mu: 1.53, frontGrip: 1, rearGrip: 1.025, peakSlipDeg: 6.6, slideRatio: 0.83,
+        falloff: 1.45, tractionControl: 0.45, gravelPeakDeg: 10, gravelSlideRatio: 0.76,
+        surfaceGrip: { [SURFACE.GRAVEL]: 0.76, [SURFACE.GRASS]: 0.64, [SURFACE.DIRT]: 0.78,
+          [SURFACE.MUD]: 0.63, [SURFACE.SNOW]: 0.52, [SURFACE.HARDPACK]: 0.86, [SURFACE.WATER]: 0.57 } },
       drivetrain: {
-        peakTorque: 465, idleRpm: 950, launchRpm: 4500, redlineRpm: 9000, limiterRpm: 9100, upshiftRpm: 8900,
-        downshiftRpmCoast: 2600, downshiftRpmPower: 5600,
-        torqueCurve: [[0, 0.6], [1500, 0.71], [3000, 0.8], [4000, 0.86], [5500, 0.97], [6300, 1], [7500, 0.98], [8500, 0.94], [9000, 0.88], [9300, 0.4]],
-        gearRatios: [3.75, 2.38, 1.72, 1.34, 1.11, 0.96, 0.84], finalDrive: 4.5, shiftTime: 0.08,
+        frontDriveShare: 0, axleTorqueBias: 2.5, peakTorque: 525,
+        idleRpm: 1400, launchRpm: 4950, redlineRpm: 9250, limiterRpm: 9250, upshiftRpm: 9060,
+        downshiftRpmCoast: 3000, downshiftRpmPower: 5300,
+        torqueCurve: [[0,0.42],[2000,0.62],[3800,0.79],[5000,0.92],[6400,1],
+          [7500,0.97],[8000,0.935],[8600,0.879],[9000,0.83],[9250,0.785]],
+        gearRatios: [3.15, 2.22, 1.72, 1.40, 1.19, 1.02], finalDrive: 4.10, shiftTime: 0.065,
       },
-      brakes: { maxForce: 23000, frontBias: 0.6 },
-      // 860 kg at 79 m/s: liftArea = F / (0.5 rho v^2) = 2.2 m^2, balance ~30/70.
-      aero: { dragArea: 0.8, liftArea: 2.2, downforceFront: 0.3 },
+      brakes: { maxForce: 24800, frontBias: 0.584, absRatio: 0.95 },
+      aero: { dragArea: 1.08, liftArea: 2.7, downforceFront: 0.42 },
       body: {
-        contactPoints: scalePoints(BASE_TUNING.body.contactPoints, 1.04, 0.93, 0.93),
-        collisionSpheres: scalePoints(BASE_TUNING.body.collisionSpheres, 1.04, 0.93, 0.93),
+        contactPoints: scalePoints(BASE_TUNING.body.contactPoints, 1.10, 0.92, 1.05),
+        collisionSpheres: scalePoints(BASE_TUNING.body.collisionSpheres, 1.13, 0.94, 1.13),
       },
     },
   }),

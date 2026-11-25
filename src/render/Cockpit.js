@@ -12,6 +12,8 @@ const DRIVER_X = -0.37;
 export const COCKPIT_EYE = Object.freeze({ x: DRIVER_X, y: 1.03, z: 0.31 });
 
 const WHEEL_RADIUS = 0.172;
+const GT_RIM = [[-.165,.067],[-.106,.103],[.106,.103],[.165,.067],[.171,0],[.145,-.078],
+  [.098,-.099],[-.098,-.099],[-.145,-.078],[-.171,0]];
 const WHEEL_RATIO = 3.4; // steering-wheel turn per radian of road-wheel angle (display only)
 const WHEEL_MAX = 2.7; // radians either way
 const UPPER_ARM = 0.31;
@@ -70,7 +72,7 @@ const V = (x, y, z) => new THREE.Vector3(x, y, z);
 /**
  * Interior styles. The cabin is modelled once at rally-hatch size; `scale`, `y` and `z` fit it inside
  * another body (chassis space, chassis origin on the ground), the rest swaps parts and colours.
- * Details from press photos and reviews of a 992 GT3 RS (Weissach) and a Thar Roxx, brand marks left out.
+ * Interior layouts reference the 992 GT3 R and the Thar Roxx.
  */
 export const STYLES = Object.freeze({
   drift: {
@@ -81,15 +83,13 @@ export const STYLES = Object.freeze({
     shifter: 'sequential', handbrake: 'hydraulic', cluster: 'drift', aux: 'pod',
     sleeve: 0x1f3a2b, cuff: 0x14110d, glove: 0x141516, gloveAccent: 0xc8321e,
   },
-  // Black Race-Tex everywhere, carbon trim and buckets, red stitching and harness, a carbon half cage
-  // behind the seats, a small round wheel with two rotary dials and paddles, the five-dial cluster with
-  // a 9,000 rpm tach in the middle, a PDK selector, and the stopwatch on top of the dash.
+  // 992 customer racer: single seat, full cage, multifunction wheel and paddle shift.
   gt: {
-    scale: 0.857, y: 0.217, z: 0.07,
-    dash: 0x121212, trim: 0x2a2a2c, headliner: 0x161616, carpet: 0x0e0e0e, seat: 0x1c1c1e, seatAccent: 0xd5001c,
-    cage: 0x2a2a2c, cageLayout: 'rear', strip: false, extinguisher: false, seatType: 'bucket',
-    wheelType: 'gt', wheelStripe: 0xd5001c, rim: 0x141414, spoke: 0x2a2a2c,
-    shifter: 'pdk', handbrake: 'button', cluster: 'five', aux: 'clock', screen: 'gt',
+    scale: 0.91, y: 0.13, z: 0.07, eye: { x: DRIVER_X, y: 1.075, z: 0.29 }, headPitch: -0.08,
+    dash: 0x34373a, trim: 0x414449, headliner: 0x363d40, carpet: 0x25292c, seat: 0x272a2c, seatAccent: 0xcc3925,
+    cage: 0xc6cacc, cageLayout: 'full', strip: false, extinguisher: true, seatType: 'race',
+    wheelType: 'gt', wheelStripe: null, rim: 0x252729, spoke: 0x3b3d40,
+    shifter: 'paddles', handbrake: null, cluster: 'race', aux: null,
     sleeve: 0x18191b, cuff: 0x0d0d0d, glove: 0x121212, gloveAccent: 0xd5001c,
   },
   // A tall, upright black-and-beige dash with a grab handle in front of the passenger, twin 10.25-inch
@@ -202,7 +202,7 @@ export class Cockpit extends THREE.Group {
     const sleeveCuff = this.mat({ color: st.cuff, roughness: 0.9 });
     const mirrorGlass = this.mat({ color: 0x2a3036, roughness: 0.1, metalness: 0.6 });
     const insert = this.mat({ color: st.dashInsert ?? st.dash, roughness: 0.75 });
-    if (this.styleName === 'drift') {
+    if (this.styleName === 'drift' || this.styleName === 'gt') {
       for (const material of [dash, suede, seat, sleeve, glove]) textureRallySurface(material, 'Flock');
       for (const material of [trim, seatShell]) textureRallySurface(material, 'Carbon');
       textureRallySurface(metal, 'Steel');
@@ -236,7 +236,7 @@ export class Cockpit extends THREE.Group {
       // Beige band across the dash face, the two-tone that marks this cabin.
       this.add_(this.boxGeo(1.5, 0.126, 0.025, 0, 0.79, -0.388, 0, 0, 0, 0.01), insert);
     }
-    if (st.cluster !== 'twin') {
+    if (st.cluster === 'drift') {
       // Instrument binnacle: a hood over the cluster in front of the driver.
       this.add_(this.boxGeo(0.42, 0.016, 0.17, driverX, 0.955, -0.46, -0.16), dash);
       for (const side of [-1, 1]) this.add_(this.boxGeo(0.016, 0.085, 0.16, driverX + side * 0.205, 0.915, -0.46, -0.16), dash);
@@ -343,7 +343,33 @@ export class Cockpit extends THREE.Group {
       this.add_(this.boxGeo(1.23, 0.14, 0.43, 0, 0.39, 1.02), seat);
       this.add_(this.boxGeo(1.23, 0.53, 0.13, 0, 0.68, 1.24, -0.1), seat);
     } else {
-      const sx = 0.38;
+      const sx = st.seatType === 'race' ? driverX : 0.38;
+      if (st.seatType === 'race') {
+        for (const side of [-1, 1]) {
+          this.add_(this.boxGeo(0.073, 0.16, 0.18, sx + side * 0.153, 1.088, 0.51, -0.13, 0, 0, 0.024), seat);
+          this.add_(this.boxGeo(0.052, 0.045, 0.32, sx + side * 0.12, 0.424, 0.25, 0, side * 0.33), red);
+        }
+        const legend = canvasTexture(512, 288);
+        const ctx = legend.context;
+        ctx.fillStyle = '#182025';
+        ctx.fillRect(0, 0, 512, 288);
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#c1cdca';
+        ctx.font = 'bold 22px Arial, sans-serif';
+        for (const [i, name] of ['START','PUMP','IGN','RAIN','LIGHT','FAN','AUX','RESET'].entries()) {
+          ctx.fillText(name, 63 + (i % 4)*128, 89 + Math.floor(i/4)*122);
+        }
+        this.textures.push(legend.texture);
+        this.mesh(new THREE.PlaneGeometry(.208,.118).translate(0,.674,-.298),
+          this.mat({ map: legend.texture, roughness: .72 }));
+        // Removable electronics tray in the passenger footwell and the backlit switch bank.
+        this.add_(this.boxGeo(0.33, 0.085, 0.26, 0.39, 0.23, -0.22, 0, 0, 0, 0.014), trim);
+        for (let i = 0; i < 8; i++) {
+          this.add_(this.boxGeo(0.019, 0.012, 0.19, 0.278 + i * 0.032, 0.279, -0.22), metal);
+          const x = -0.078 + (i % 4) * 0.052, y = 0.645 + Math.floor(i / 4) * 0.05;
+          this.add_(new THREE.CylinderGeometry(0.015, 0.016, 0.014, 12).rotateX(Math.PI / 2).translate(x, y, -0.29), i % 3 === 0 ? red : marigold);
+        }
+      }
       this.add_(this.boxGeo(0.46, 0.1, 0.48, sx, 0.36, 0.22), seat);
       this.add_(this.boxGeo(0.46, 0.72, 0.1, sx, 0.78, 0.5, -0.16), seatShell);
       for (const side of [-1, 1]) {
@@ -372,7 +398,7 @@ export class Cockpit extends THREE.Group {
     for (const side of st.cageLayout === 'full' ? [-1, 1] : []) {
       const footA = V(side * 0.68, 0.16, -0.66);
       const dashA = V(side * 0.69, 0.84, -0.7);
-      const topA = V(side * 0.58, 1.205, -0.12);
+      const topA = V(side * 0.58, st.cluster === 'race' ? 1.245 : 1.205, -0.12);
       const topB = V(side * 0.56, 1.215, 0.6);
       const footB = V(side * 0.64, 0.16, 0.64);
       this.add_(tube(footA, dashA, r), cage);
@@ -384,7 +410,8 @@ export class Cockpit extends THREE.Group {
       this.add_(tube(V(side * 0.69, 0.2, -0.6), V(side * 0.67, 0.78, 0.6), r), cage);
     }
     if (st.cageLayout === 'full') {
-      this.add_(tube(V(-0.58, 1.205, -0.12), V(0.58, 1.205, -0.12), r), cage); // front hoop top
+      const railHeight = st.cluster === 'race' ? 1.245 : 1.205;
+      this.add_(tube(V(-0.58, railHeight, -0.12), V(0.58, railHeight, -0.12), r), cage); // front hoop top
       this.add_(tube(V(-0.56, 1.215, 0.6), V(0.56, 1.215, 0.6), r), cage); // main hoop top
       this.add_(tube(V(-0.56, 1.215, 0.6), V(0.62, 0.2, 0.62), r), cage); // main hoop diagonal
       this.add_(tube(V(-0.69, 0.84, -0.7), V(0.69, 0.84, -0.7), r * 0.9), cage); // dash bar (just under the cowl)
@@ -423,36 +450,74 @@ export class Cockpit extends THREE.Group {
     this.wheel = new THREE.Group();
     this.wheelMount.add(this.wheel);
     const dish = st.wheelType === 'dish' ? 0.06 : 0.025;
-    this.mesh(new THREE.TorusGeometry(WHEEL_RADIUS, st.wheelType === 'suv' ? 0.017 : 0.019, 10, 40), suede, this.wheel, { cast: true });
-    // Three spokes run back from the rim to the hub: deep-dished on the drift wheel, nearly flat otherwise.
-    for (const angle of [Math.PI / 2, -Math.PI / 2, Math.PI]) {
-      const from = V(Math.sin(angle) * (WHEEL_RADIUS - 0.01), Math.cos(angle) * (WHEEL_RADIUS - 0.01), 0);
-      const to = V(Math.sin(angle) * 0.04, Math.cos(angle) * 0.04, -dish);
-      if (st.wheelType === 'dish') this.mesh(tube(from, to, 0.012, 8), metal, this.wheel);
-      else this.mesh(this.boxGeo(0.045, from.distanceTo(to), 0.016, 0, 0, 0).applyQuaternion(_q1.setFromUnitVectors(Y_AXIS, _v1.subVectors(from, to).normalize())).translate((from.x + to.x) / 2, (from.y + to.y) / 2, (from.z + to.z) / 2), spokeMetal, this.wheel);
-    }
-    if (st.wheelType === 'suv') {
-      for (const side of [-1, 1]) {
-        this.mesh(this.boxGeo(0.071, 0.039, 0.016, side * 0.104, 0.002, 0.009, 0, 0, side * 0.12), metal, this.wheel);
-        this.mesh(this.boxGeo(0.058, 0.028, 0.01, side * 0.104, 0.004, 0.02), pad, this.wheel);
+    if (st.wheelType === 'gt') {
+      // Flattened upper/lower rim, thumb grips and carbon multifunction face.
+      const rim = GT_RIM;
+      for (let i = 0; i < rim.length; i++) {
+        const [x,y] = rim[i], [nx,ny] = rim[(i+1) % rim.length];
+        this.mesh(tube(V(x,y,0), V(nx,ny,0), 0.016, 10), suede, this.wheel);
       }
+      this.mesh(this.boxGeo(.245,.122,.026,0,0,-.016,0,0,0,.022), trim, this.wheel);
+      const face = canvasTexture(768, 384);
+      const ctx = face.context;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#f1f3ec';
+      ctx.font = 'bold 21px Arial, sans-serif';
+      for (const [i, label] of ['RAD','PIT','ACK','MAP','TC','FLS'].entries()) {
+        const x = [67,139,211,557,629,701][i];
+        ctx.fillText(label, x, 143);
+      }
+      ctx.font = 'bold 26px Arial, sans-serif';
+      ctx.fillText('ABS', 118, 209);
+      ctx.fillText('TC', 650, 209);
+      ctx.fillStyle = '#338b87';
+      ctx.fillRect(306, 212, 156, 4);
+      ctx.fillStyle = '#e2e5dd';
+      ctx.font = 'italic bold 37px Arial, sans-serif';
+      ctx.fillText('GT3 R', 384, 186);
+      this.textures.push(face.texture);
+      this.mesh(new THREE.PlaneGeometry(.245,.122).translate(0,0,.001),
+        this.mat({ map: face.texture, transparent: true, depthWrite: false }, true), this.wheel);
+      for (const side of [-1,1]) {
+        for (let i = 0; i < 3; i++) {
+          const cap = new THREE.CylinderGeometry(.009,.011,.011,12).rotateX(Math.PI/2);
+          this.mesh(cap.translate(side*(.055+.023*i),.030,.004), [marigold,red,metal][i], this.wheel);
+        }
+      }
+    } else {
+      this.mesh(new THREE.TorusGeometry(WHEEL_RADIUS, st.wheelType === 'suv' ? 0.017 : 0.019, 10, 40), suede, this.wheel, { cast: true });
+      // Three spokes run back from the rim to the hub: deep-dished on the drift wheel, nearly flat otherwise.
+      for (const angle of [Math.PI / 2, -Math.PI / 2, Math.PI]) {
+        const from = V(Math.sin(angle) * (WHEEL_RADIUS - 0.01), Math.cos(angle) * (WHEEL_RADIUS - 0.01), 0);
+        const to = V(Math.sin(angle) * 0.04, Math.cos(angle) * 0.04, -dish);
+        if (st.wheelType === 'dish') this.mesh(tube(from, to, 0.012, 8), metal, this.wheel);
+        else this.mesh(this.boxGeo(0.045, from.distanceTo(to), 0.016, 0, 0, 0).applyQuaternion(_q1.setFromUnitVectors(Y_AXIS, _v1.subVectors(from, to).normalize())).translate((from.x + to.x) / 2, (from.y + to.y) / 2, (from.z + to.z) / 2), spokeMetal, this.wheel);
+      }
+      if (st.wheelType === 'suv') {
+        for (const side of [-1, 1]) {
+          this.mesh(this.boxGeo(0.071, 0.039, 0.016, side * 0.104, 0.002, 0.009, 0, 0, side * 0.12), metal, this.wheel);
+          this.mesh(this.boxGeo(0.058, 0.028, 0.01, side * 0.104, 0.004, 0.02), pad, this.wheel);
+        }
+      }
+      const hubRadius = st.wheelType === 'suv' ? 0.068 : 0.05;
+      const hub = new THREE.CylinderGeometry(hubRadius, hubRadius + 0.004, 0.035, 20);
+      hub.rotateX(Math.PI / 2);
+      hub.translate(0, 0, -dish - 0.005);
+      this.mesh(hub, suede, this.wheel);
+      const horn = new THREE.CylinderGeometry(0.02, 0.02, 0.012, 18);
+      horn.rotateX(Math.PI / 2);
+      horn.translate(0, 0, -dish + 0.015);
+      this.mesh(horn, st.wheelType === 'dish' ? red : spokeMetal, this.wheel);
     }
-    const hubRadius = st.wheelType === 'suv' ? 0.068 : 0.05;
-    const hub = new THREE.CylinderGeometry(hubRadius, hubRadius + 0.004, 0.035, 20);
-    hub.rotateX(Math.PI / 2);
-    hub.translate(0, 0, -dish - 0.005);
-    this.mesh(hub, suede, this.wheel);
-    const horn = new THREE.CylinderGeometry(0.02, 0.02, 0.012, 18);
-    horn.rotateX(Math.PI / 2);
-    horn.translate(0, 0, -dish + 0.015);
-    this.mesh(horn, st.wheelType === 'dish' ? red : spokeMetal, this.wheel);
     if (st.wheelType === 'gt') {
       // Two rotary dials on the spokes (damper and drive mode), and shift paddles behind the rim.
       for (const [x, colour] of [[-0.085, red], [0.085, marigold]]) {
         const dial = new THREE.CylinderGeometry(0.014, 0.014, 0.014, 14);
         dial.rotateX(Math.PI / 2);
-        dial.translate(x, -0.03, -0.01);
+        dial.translate(x, -0.028, 0.006);
         this.mesh(dial, colour, this.wheel);
+        this.mesh(this.boxGeo(.003,.009,.002,x,-.023,.014), pad, this.wheel);
       }
       this.paddles = [];
       for (const side of [-1, 1]) {
@@ -472,17 +537,13 @@ export class Cockpit extends THREE.Group {
     this.add(this.shifter);
     const boot = new THREE.CylinderGeometry(0.02, 0.06, 0.07, 12);
     boot.translate(0, 0.035, 0);
-    this.add_(boot.clone().translate(-0.02, 0.5, -0.14), pad);
+    if (st.shifter !== 'paddles') this.add_(boot.clone().translate(-0.02, 0.5, -0.14), pad);
     this.shiftStick = new THREE.Group();
     this.shifter.add(this.shiftStick);
     if (st.shifter === 'sequential') {
       this.mesh(new THREE.CylinderGeometry(0.009, 0.011, 0.25, 8).translate(0, 0.125, 0), metal, this.shiftStick);
       this.mesh(new THREE.SphereGeometry(0.03, 16, 12).translate(0, 0.265, 0), metal, this.shiftStick);
-    } else if (st.shifter === 'pdk') {
-      // A short selector toggle; shifting happens on the paddles.
-      this.mesh(this.boxGeo(0.035, 0.05, 0.07, 0, 0.03, 0), pad, this.shiftStick);
-      this.mesh(this.boxGeo(0.03, 0.012, 0.05, 0, 0.06, 0.005), metal, this.shiftStick);
-    } else {
+    } else if (st.shifter === 'auto') {
       // Automatic lever with a chrome button, and the short 4x4 lever beside it.
       this.mesh(new THREE.CylinderGeometry(0.012, 0.016, 0.16, 10).translate(0, 0.08, 0), pad, this.shiftStick);
       this.mesh(this.boxGeo(0.045, 0.09, 0.06, 0, 0.19, 0), trim, this.shiftStick);
@@ -502,7 +563,7 @@ export class Cockpit extends THREE.Group {
       this.mesh(new THREE.CylinderGeometry(0.011, 0.013, 0.34, 8).translate(0, 0.17, 0), metal, this.handbrakeLever);
       this.mesh(new THREE.CylinderGeometry(0.019, 0.019, 0.1, 10).translate(0, 0.3, 0), pad, this.handbrakeLever);
       this.mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.01, 10).translate(0, 0.355, 0), marigold, this.handbrakeLever);
-    } else {
+    } else if (st.handbrake === 'button') {
       // Electronic parking brake: a small switch on the console.
       this.add_(this.boxGeo(0.03, 0.012, 0.04, -0.07, 0.505, 0.02), metal);
     }
@@ -513,7 +574,11 @@ export class Cockpit extends THREE.Group {
     this.cluster = canvasTexture(512, 208);
     this.textures.push(this.cluster.texture);
     const clusterMaterial = this.mat({ map: this.cluster.texture, toneMapped: false }, true);
-    if (st.cluster === 'twin') {
+    if (st.cluster === 'race') {
+      // 10.3-inch diagonal in finished chassis space.
+      this.add_(this.boxGeo(.281,.135,.030,driverX,.918,-.383,-.20,0,0,.011), trim);
+      this.mesh(new THREE.PlaneGeometry(.262,.119).rotateX(-.20).translate(driverX,.918,-.364), clusterMaterial);
+    } else if (st.cluster === 'twin') {
       // Low-set digital cluster immediately behind the wheel.
       const screen = new THREE.PlaneGeometry(0.3, 0.122);
       screen.rotateX(-0.2);
@@ -697,8 +762,8 @@ export class Cockpit extends THREE.Group {
     const onLever = Math.max(shiftReach, this.style.handbrake === 'hydraulic' ? this.handbrakeBlend : 0);
     if (this.paddles) {
       this.paddleFlick = this.shiftTimer > 0.3 ? 1 : Math.max(0, this.paddleFlick - dt * 8);
-      const up = this.lastGear !== 'R' && this.lastGear !== 'N';
-      this.paddles[up ? 1 : 0].rotation.x = -0.35 * this.paddleFlick;
+      this.paddles[0].rotation.x = this.shiftDirection < 0 ? -0.35 * this.paddleFlick : 0;
+      this.paddles[1].rotation.x = this.shiftDirection > 0 ? -0.35 * this.paddleFlick : 0;
     }
     const leverTarget = this.handbrakeBlend > shiftReach ? 'handbrake' : 'shifter';
 
@@ -752,7 +817,22 @@ export class Cockpit extends THREE.Group {
     const s = Math.sin(angle);
     const c = Math.cos(angle);
     // In the mount frame (not spun): point on the rim and the rim tangent there.
-    outPos.set(s * WHEEL_RADIUS, c * WHEEL_RADIUS, 0.012).applyMatrix4(this.wheelMount.matrix);
+    let radius = WHEEL_RADIUS;
+    if (this.style.wheelType === 'gt') {
+      // Intersect the hand's ray with the rotated polygonal grip. Sliding hands
+      // stay on the short top/bottom edges even at full steering lock.
+      const localAngle = angle - this.wheelTurn;
+      const dx = Math.sin(localAngle), dy = Math.cos(localAngle);
+      for (let i = 0; i < GT_RIM.length; i++) {
+        const [x,y] = GT_RIM[i], [nx,ny] = GT_RIM[(i+1) % GT_RIM.length];
+        const ex = nx-x, ey = ny-y;
+        const cross = dx*ey - dy*ex;
+        if (Math.abs(cross) < 1e-8) continue;
+        const t = (x*ey - y*ex) / cross, u = (x*dy - y*dx) / cross;
+        if (t > 0 && u >= 0 && u <= 1) { radius = t; break; }
+      }
+    }
+    outPos.set(s * radius, c * radius, 0.012).applyMatrix4(this.wheelMount.matrix);
     _v3.set(c, -s, 0).applyQuaternion(this.wheelMount.quaternion);
     outQuat.setFromUnitVectors(Y_AXIS, _v3.normalize());
     // Turn the fist so the back of the hand faces the driver, knuckles outward.
@@ -795,7 +875,7 @@ export class Cockpit extends THREE.Group {
   }
 
   drawCluster(state) {
-    if (this.style.cluster === 'five') return this.drawFiveDials(state);
+    if (this.style.cluster === 'race') return this.drawRaceDisplay(state);
     if (this.style.cluster === 'twin') return this.drawTwinDisplay(state);
     const { context: c, texture } = this.cluster;
     const W = 512;
@@ -892,98 +972,34 @@ export class Cockpit extends THREE.Group {
     texture.needsUpdate = true;
   }
 
-  /** Track RS: five round dials, the 9,000 rpm tach in the middle with digital speed and the gear. */
-  drawFiveDials(state) {
+  drawRaceDisplay(state) {
     const { context: c, texture } = this.cluster;
-    const W = 512;
-    const H = 208;
-    const rpmMax = state.rpmMax > 1000 ? state.rpmMax : 9000;
-    const scaleMax = Math.ceil(rpmMax / 1000) * 1000;
-    this.shownRpm += ((state.rpm || 0) - this.shownRpm) * 0.6;
-    const rpm = Math.max(0, this.shownRpm);
-    const rpmN = Math.min(1, rpm / rpmMax);
-    const limiter = rpm >= rpmMax * 0.97;
-    const flash = limiter && Math.floor(performance.now() / 70) % 2 === 0;
-    c.fillStyle = '#050505';
-    c.fillRect(0, 0, W, H);
-    const dial = (cx, cy, r, value, label, redFrom = 2) => {
-      c.fillStyle = '#0b0b0b';
-      c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2); c.fill();
-      c.strokeStyle = '#3b3b3b'; c.lineWidth = 2; c.stroke();
-      const a0 = Math.PI * 0.75;
-      const a1 = Math.PI * 2.25;
-      c.lineWidth = 2;
-      for (let k = 0; k <= 8; k += 1) {
-        const a = a0 + ((a1 - a0) * k) / 8;
-        c.strokeStyle = k / 8 >= redFrom ? '#e0002a' : '#d8d8d8';
-        c.beginPath();
-        c.moveTo(cx + Math.cos(a) * (r - 3), cy + Math.sin(a) * (r - 3));
-        c.lineTo(cx + Math.cos(a) * (r - 9), cy + Math.sin(a) * (r - 9));
-        c.stroke();
-      }
-      const a = a0 + (a1 - a0) * Math.min(1, Math.max(0, value));
-      c.strokeStyle = '#f2f2f2'; c.lineWidth = 2.5;
-      c.beginPath(); c.moveTo(cx, cy); c.lineTo(cx + Math.cos(a) * (r - 8), cy + Math.sin(a) * (r - 8)); c.stroke();
-      c.fillStyle = '#9a9a9a';
-      c.font = '500 12px Khand, system-ui, sans-serif';
-      c.textAlign = 'center'; c.textBaseline = 'middle';
-      c.fillText(label, cx, cy + r * 0.5);
-    };
-    // Outer pairs first; the tach overlaps them like the real cluster.
-    dial(58, 118, 44, 0.35 + 0.45 * rpmN, 'OIL °C');
-    dial(144, 104, 52, 0.2 + 0.7 * rpmN, 'OIL bar');
-    dial(368, 104, 52, 0.58 + 0.04 * rpmN, 'WATER');
-    dial(454, 118, 44, 0.74, 'FUEL');
-    // Centre tach.
-    const cx = 256;
-    const cy = 104;
-    const r = 94;
-    c.fillStyle = '#080808';
-    c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2); c.fill();
-    c.strokeStyle = flash ? '#ff1a2e' : '#4a4a4a';
-    c.lineWidth = flash ? 6 : 3;
-    c.stroke();
-    const a0 = Math.PI * 0.72;
-    const a1 = Math.PI * 2.28;
-    const angleFor = (value) => a0 + ((a1 - a0) * value) / scaleMax;
-    c.strokeStyle = '#e0002a';
-    c.lineWidth = 6;
-    c.beginPath(); c.arc(cx, cy, r - 6, angleFor(rpmMax * 0.95), a1); c.stroke();
-    c.font = '600 19px Teko, Khand, system-ui, sans-serif';
-    c.textAlign = 'center'; c.textBaseline = 'middle';
-    for (let k = 0; k <= scaleMax / 500; k += 1) {
-      const value = k * 500;
-      const a = angleFor(value);
-      const major = k % 2 === 0;
-      const red = value >= rpmMax * 0.95;
-      c.strokeStyle = red ? '#ff3344' : '#f0f0f0';
-      c.lineWidth = major ? 3 : 1.5;
-      c.beginPath();
-      c.moveTo(cx + Math.cos(a) * (r - 4), cy + Math.sin(a) * (r - 4));
-      c.lineTo(cx + Math.cos(a) * (r - (major ? 16 : 10)), cy + Math.sin(a) * (r - (major ? 16 : 10)));
-      c.stroke();
-      if (major) {
-        c.fillStyle = red ? '#ff3344' : '#f0f0f0';
-        c.fillText(String(value / 1000), cx + Math.cos(a) * (r - 30), cy + Math.sin(a) * (r - 30));
-      }
+    const rpm = Math.round(state.rpm || 0);
+    const fraction = rpm / (state.rpmMax || 9250);
+    const speed = Math.round(Math.abs(state.speedKmh ?? (state.speed || 0) * 3.6));
+    c.fillStyle = '#101921';
+    c.fillRect(0, 0, 512, 208);
+    for (let i = 0; i < 16; i++) {
+      c.fillStyle = fraction < .48 + i * .033 ? '#303a40' : i < 8 ? '#43dc93' : i < 12 ? '#ffd668' : '#ff5a46';
+      c.fillRect(9 + i * 31, 8, 27, 15);
     }
-    const needle = angleFor(Math.min(scaleMax, rpm));
-    c.strokeStyle = '#f5f5f5'; c.lineWidth = 4;
-    c.beginPath(); c.moveTo(cx - Math.cos(needle) * 14, cy - Math.sin(needle) * 14);
-    c.lineTo(cx + Math.cos(needle) * (r - 12), cy + Math.sin(needle) * (r - 12)); c.stroke();
-    c.fillStyle = '#e0002a';
-    c.beginPath(); c.arc(cx, cy, 9, 0, Math.PI * 2); c.fill();
-    const gear = String(state.gear ?? 'N');
-    c.fillStyle = gear === 'R' ? '#ff3344' : '#f0f0f0';
-    c.font = '700 30px Teko, Khand, system-ui, sans-serif';
-    c.fillText(gear, cx + 40, cy - 2);
-    const kmh = Math.round(Math.abs(state.speedKmh ?? (state.speed || 0) * 3.6));
-    c.font = '700 40px Teko, Khand, system-ui, sans-serif';
-    c.fillText(String(kmh), cx, cy + 46);
-    c.fillStyle = '#8a8a8a';
-    c.font = '500 12px Khand, system-ui, sans-serif';
-    c.fillText('km/h', cx, cy + 70);
-    if (state.boosting) { c.fillStyle = '#e0002a'; c.fillText('N2O', cx - 40, cy - 2); }
+    c.fillStyle = '#30424e';
+    c.fillRect(183, 35, 2, 154);
+    c.fillRect(332, 35, 2, 154);
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.font = 'bold 23px sans-serif';
+    c.fillStyle = '#8ec8cb';
+    c.fillText('KM/H', 94, 62);
+    c.fillText('RPM', 420, 62);
+    c.font = 'bold 55px sans-serif';
+    c.fillStyle = '#edf7f7';
+    c.fillText(String(speed), 94, 125);
+    c.font = 'bold 44px sans-serif';
+    c.fillText(String(rpm), 420, 125);
+    c.font = 'bold 132px sans-serif';
+    c.fillStyle = fraction > .97 ? '#ffb15f' : '#ffffff';
+    c.fillText(String(state.gear ?? 'N'), 258, 112);
     texture.needsUpdate = true;
   }
 
