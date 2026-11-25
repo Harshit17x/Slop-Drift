@@ -1128,6 +1128,15 @@ span.sdh-icon-sm { width: 2.2em; }
 .sdt-hand { background: var(--marigold); }
 .sdt-boost { background: var(--flag-blue); color: var(--chalk); }
 .sdt-gas.is-held, .sdt-brake.is-held, .sdt-hand.is-held, .sdt-boost.is-held { background: var(--ink); color: var(--chalk); }
+.sdt-pedals .sdt-btn { position: relative; overflow: hidden; align-content: center; gap: 0.2em; padding: 0.25em 0; }
+.sdt-ico { width: auto; height: calc(var(--tb) * 0.36); fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.sdt-gas .sdt-ico { height: calc(var(--tb) * 0.6); }
+.sdt-ico-fill { fill: currentColor; stroke: none; }
+.sdt-lbl { font-size: 0.78em; line-height: 1; }
+.sdt-gas .sdt-lbl { font-size: 0.9em; }
+/* N2O tank along the bottom of its button; dimmed when empty. */
+.sdt-boost::after { content: ''; position: absolute; left: 0; bottom: 0; height: 5px; width: 100%; background: var(--marigold); transform: scaleX(var(--fill, 1)); transform-origin: 0 50%; }
+.sdt-boost.is-empty { opacity: 0.55; }
 /* Respawn (and manual shifts) above the pedals, at least 44 px. */
 .sdt-actions { position: absolute; right: var(--tr); bottom: calc(var(--pad) + var(--tb) * 2.1 + var(--tgap) * 2); display: flex; gap: var(--tgap); }
 .sdt-small { min-width: 56px; height: 44px; padding: 0 0.7em; font-size: 0.85em; }
@@ -1154,8 +1163,15 @@ span.sdh-icon-sm { width: 2.2em; }
 .sdh.sdh--touch .sdh-speed { font-size: 3.4em; }
 .sdh.sdh--touch .sdh-stone-cap { height: 2.3em; }
 .sdh.sdh--touch .sdh-nitro { display: none; }
-.sdh.sdh--touch .sdh-bc { width: 15em; }
-.sdh.sdh--touch .sdh-drift-bank { font-size: 2.3em; }
+/* Drift score sits up top under the alerts, not over the road in front of the car. */
+.sdh.sdh--touch .sdh-bc { grid-area: auto; position: absolute; left: 50%; top: calc(max(var(--edge), env(safe-area-inset-top)) + 2.6em); width: 12em; transform: translateX(-50%); pointer-events: none; }
+.sdh.sdh--touch .sdh-drift { padding: 0.15em 0.6em 0.3em; border-width: 6px; transform-origin: 50% 0; }
+.sdh.sdh--touch .sdh-drift-head { gap: 0.4em; }
+.sdh.sdh--touch .sdh-drift-tag { font-size: 0.9em; }
+.sdh.sdh--touch .sdh-drift-angle, .sdh.sdh--touch .sdh-drift-mult { font-size: 1.1em; }
+.sdh.sdh--touch .sdh-drift-bank { font-size: 1.7em; }
+.sdh.sdh--touch .sdh-drift-total { display: none; }
+.sdh.sdh--touch .sdh-drift-stamp { top: 120%; font-size: 1.4em; }
 .sdh.sdh--touch .sdh-keycap { display: none; }
 .sdh.sdh--touch .sdh-main-time { font-size: 2.3em; }
 .sdh.sdh--touch .sdh-rows { min-width: 11em; }
@@ -1354,6 +1370,7 @@ span.sdh-icon-sm { width: 2.2em; }
     padding-bottom: calc(var(--edge) + 13.4em + env(safe-area-inset-bottom));
   }
   .sdh-race-chips .sdh-mini-player { display: none; }
+  .sdh.sdh--touch .sdh-bc { top: calc(max(var(--edge), env(safe-area-inset-top)) + 10em); }
   .sdh[data-screen="race"] .sdh-toasts { top: 36%; }
   .sdh[data-screen="menu"] .sdh-toasts,
   .sdh[data-screen="finish"] .sdh-toasts,

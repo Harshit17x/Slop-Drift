@@ -2977,6 +2977,14 @@ export class Hud {
     v.nitro.setKey(Math.round(boost * 2), (k) => `scaleX(${k / 200})`);
     v.nitroLow.set(boost < 15);
     v.boosting.set(Boolean(f.boosting));
+    // The touch N2O button shows its own tank, since the meter is hidden on phones.
+    const tank = Math.round(boost / 5);
+    if (tank !== this.touchTank) {
+      this.touchTank = tank;
+      const button = this.touchRoot.querySelector('.sdt-boost');
+      button?.style.setProperty('--fill', String(tank / 20));
+      button?.classList.toggle('is-empty', tank < 1);
+    }
 
     // Session -----------------------------------------------------------
     const s = f.session;

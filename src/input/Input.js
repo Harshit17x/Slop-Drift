@@ -93,10 +93,18 @@ const TOUCH_MARKUP = `
     <button type="button" class="sdt-btn sdt-small sdt-shift" data-touch="shiftUp" aria-label="Shift up">+</button>
   </div>
   <div class="sdt-pedals">
-    <button type="button" class="sdt-btn sdt-hand" data-touch="handbrake" aria-label="Handbrake">DRIFT</button>
-    <button type="button" class="sdt-btn sdt-boost" data-touch="boost" aria-label="Nitro">N₂O</button>
-    <button type="button" class="sdt-btn sdt-brake" data-touch="brake" aria-label="Brake">BRAKE</button>
-    <button type="button" class="sdt-btn sdt-gas" data-touch="throttle" aria-label="Throttle">GAS</button>
+    <button type="button" class="sdt-btn sdt-hand" data-touch="handbrake" aria-label="Handbrake (drift)">
+      <svg class="sdt-ico" viewBox="0 0 32 24" aria-hidden="true"><circle cx="16" cy="12" r="7.5"/><path d="M13.5 16.5v-9h3.2a2.6 2.6 0 0 1 0 5.2h-3.2M5.5 4.5a11 11 0 0 0 0 15M26.5 4.5a11 11 0 0 1 0 15"/></svg>
+      <span class="sdt-lbl">DRIFT</span></button>
+    <button type="button" class="sdt-btn sdt-boost" data-touch="boost" aria-label="Nitro (also accelerates)">
+      <svg class="sdt-ico sdt-ico-fill" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 1.5c.6 4.2 6 6.3 6 12.3a7 7 0 0 1-14 0c0-3.4 1.9-5.4 3.2-7.6.1 3 1.8 4.4 3.1 4.7-.9-3.2-.4-6.6 1.7-9.4z"/></svg>
+      <span class="sdt-lbl">N₂O</span></button>
+    <button type="button" class="sdt-btn sdt-brake" data-touch="brake" aria-label="Brake">
+      <svg class="sdt-ico" viewBox="0 0 32 24" aria-hidden="true"><rect x="3" y="4" width="26" height="16" rx="3"/><path d="M8 9.5h16M8 14.5h16"/></svg>
+      <span class="sdt-lbl">BRAKE</span></button>
+    <button type="button" class="sdt-btn sdt-gas" data-touch="throttle" aria-label="Gas">
+      <svg class="sdt-ico" viewBox="0 0 20 32" aria-hidden="true"><rect x="3" y="2" width="14" height="28" rx="3"/><path d="M7 8h6M7 13h6M7 18h6M7 23h6"/></svg>
+      <span class="sdt-lbl">GAS</span></button>
   </div>`;
 
 export class Input {
@@ -479,6 +487,8 @@ export class Input {
     if (this.steerPointer !== null) steer = this.steerValue;
     let handbrake = this.key('handbrake') || this.touchHeld('handbrake');
     let boost = this.key('boost') || this.touchHeld('boost');
+    // One right thumb can't hold GAS and N2O together, so the touch N2O button also floors it.
+    if (this.touchHeld('boost') && this.nitroAvailable) throttle = 1;
     let lookBack = this.key('lookBack') || this.touchHeld('lookBack');
     let up = edges.has('shiftUp');
     let downShift = edges.has('shiftDown');
