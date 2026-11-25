@@ -1,5 +1,8 @@
 // Headless logic tests for the UI layer: node tests/ui.test.mjs
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { formatTime, formatDelta, formatInt, recordKind, formatTarget, medalFor, validateName, normalizePartyCode, isPartyCode, paintColor } from '../src/ui/Hud.js';
 import { applyDeadzone, isFormField, KEY_BINDINGS, PAD_BUTTONS } from '../src/input/Input.js';
 import { normalizeTrack } from '../src/ui/Minimap.js';
@@ -150,7 +153,8 @@ test('GarageUi car metadata, sorting, ratings and drivetrain SVG', () => {
   const byFav = sortCars(CARS, 'favorites', ['thar']);
   assert.equal(byFav[0].id, 'thar');
   const byName = sortCars(CARS, 'name', []);
-  assert.equal(byName[0].id, 'thar'); // Hill 4x4 < Porsche 911 GT3 R < Rally Hatch < Tokyo Sedan
+  assert.equal(byName[0].id, 'thar'); // Hill 4x4 < Rally Hatch < Tokyo Sedan < Track GT3
+  assert.ok(!CARS.some((c) => /porsche|911|992/i.test(`${c.label} ${c.titleLines.join(' ')} ${c.blurb}`)));
   const tokyo = CARS.find((c) => c.id === 'tokyo');
   assert.ok(tokyo && tokyo.classBand === 'a' && tokyo.model?.endsWith('tokyo.glb') && tokyo.thumbnail?.endsWith('car-tokyo.webp'));
   for (const car of CARS) {
@@ -242,6 +246,17 @@ test('Custom car wrap skins catalog and triplanar skin shader uniforms', () => {
   assert.equal(mat.userData.carPaintUniforms._wantedSkinUrl, getSkin('ember').skinUrl);
   assert.equal(loadSkinTexture(null), null);
   mat.dispose();
+});
+
+test('theme.css font urls exist in src/ui/fonts and public/assets/fonts', () => {
+  const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const css = fs.readFileSync(path.join(rootDir, 'src/ui/theme.css'), 'utf8');
+  const fontRefs = [...new Set([...css.matchAll(/url\("\.\/fonts\/([^"]+)"\)/g)].map((m) => m[1]))];
+  assert.ok(fontRefs.length >= 14);
+  for (const file of fontRefs) {
+    assert.ok(fs.existsSync(path.join(rootDir, 'src/ui/fonts', file)), `missing src/ui/fonts/${file}`);
+    assert.ok(fs.existsSync(path.join(rootDir, 'public/assets/fonts', file)), `missing public/assets/fonts/${file}`);
+  }
 });
 
 console.log(`\n${passed} passed`);

@@ -56,8 +56,8 @@ export function loadSkinTexture(url, onReady) {
 
 export const PAINT_MODES = Object.freeze({
   SOLID_PAINT: 0, // Solid paint slot (Thar_Paint, ProceduralCar body)
-  MASKED_BODY: 1, // Porsche GT_Body (map.a = body paint mask, ORM G/B = carbon/glass/underbody)
-  MASKED_RIM: 2,  // Porsche GT_Wheel (map.a = alloy spoke/lip mask, 0 = tire rubber)
+  MASKED_BODY: 1, // Track GT3 GT_Body (map.a = body paint mask, ORM G/B = carbon/glass/underbody)
+  MASKED_RIM: 2,  // Track GT3 GT_Wheel (map.a = alloy spoke/lip mask, 0 = tire rubber)
   TRIM_ONLY: 3,   // Non-paint parts receiving Vertex AO strength / molded micro-grain
 });
 
@@ -211,7 +211,7 @@ const FRAGMENT_BEFORE_LIGHTING = /* glsl */ `
     #endif
     diffuseColor.rgb = serviceStripes(coatColor) * aoOnly;
   } else if ( uPaintMode < 1.5 ) {
-    // Porsche GT_Body: halo-free trim separation + triplanar custom skin wrap on masked body panels
+    // Track GT3 GT_Body: halo-free trim separation + triplanar custom skin wrap on masked body panels
     vec3 cleanTrim = max( diffuseColor.rgb - vec3( carZoneMask * 0.72 ), vec3( 0.0 ) );
     float panelAo = clamp( mix( 0.74, 1.0, diffuseColor.g / max( carZoneMask, 0.35 ) ), 0.68, 1.02 );
     float flopT = pow( 1.0 - dotNV, 2.4 ) * uPaintBlend;
@@ -230,7 +230,7 @@ const FRAGMENT_BEFORE_LIGHTING = /* glsl */ `
     }
     diffuseColor.rgb = cleanTrim + serviceStripes(coatColor) * ( panelAo * carZoneMask );
   } else if ( uPaintMode < 2.5 ) {
-    // Porsche GT_Wheel: halo-free separation between matte dark tire & forged tintable alloy rim
+    // Track GT3 GT_Wheel: halo-free separation between matte dark tire & forged tintable alloy rim
     vec3 cleanTire = max( diffuseColor.rgb - vec3( carZoneMask * 0.52 ), vec3( 0.0 ) );
     float spokeShade = clamp( mix( 0.58, 1.12, diffuseColor.g / max( carZoneMask, 0.35 ) ), 0.45, 1.12 );
     diffuseColor.rgb = cleanTire + ( uRimColor * spokeShade ) * carZoneMask;
@@ -245,7 +245,7 @@ const FRAGMENT_BEFORE_LIGHTING = /* glsl */ `
 const FRAGMENT_CLEARCOAT_AFTER = /* glsl */ `
 #ifdef USE_CLEARCOAT
 if ( uPaintMode > 0.5 && uPaintMode < 1.5 ) {
-  // Porsche: full lacquer clearcoat on paint & optical glass (low roughness), satin coat on woven carbon
+  // Track GT3: full lacquer clearcoat on paint & optical glass (low roughness), satin coat on woven carbon
   float trimCoat = roughnessFactor < 0.08 ? 0.90 : ( roughnessFactor < 0.45 ? 0.28 : 0.04 );
   material.clearcoat = saturate( mix( trimCoat, uPaintClearcoat, carZoneMask ) );
 } else if ( uPaintMode > 1.5 && uPaintMode < 2.5 ) {

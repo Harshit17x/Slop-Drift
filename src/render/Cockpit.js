@@ -475,7 +475,7 @@ export class Cockpit extends THREE.Group {
       ctx.fillRect(306, 212, 156, 4);
       ctx.fillStyle = '#e2e5dd';
       ctx.font = 'italic bold 37px Arial, sans-serif';
-      ctx.fillText('GT3 R', 384, 186);
+      ctx.fillText('GT3', 384, 186);
       this.textures.push(face.texture);
       this.mesh(new THREE.PlaneGeometry(.245,.122).translate(0,0,.001),
         this.mat({ map: face.texture, transparent: true, depthWrite: false }, true), this.wheel);
