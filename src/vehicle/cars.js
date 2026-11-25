@@ -181,7 +181,8 @@ export const CARS = Object.freeze([
       Thar_Signal_Amber: { color: 0xd4760a, emissive: 0xff8c12, emissiveIntensity: 0.35, roughness: 0.24, clearcoat: 0.60, vertexAoStrength: 0.10 },
       Thar_Headlamp_DRL: { role: 'lens', color: 0xf4f8ff, emissive: 0xfff5dc, emissiveIntensity: 0.85, roughness: 0.12, clearcoat: 0.80, envMapIntensity: 1.20, vertexAoStrength: 0.08 },
       Thar_Headlamp_Lens: { color: 0xdce6f0, metalness: 0.15, roughness: 0.04, clearcoat: 1.0, clearcoatRoughness: 0.03, envMapIntensity: 1.40, transparent: true, opacity: 0.22, vertexAoStrength: 0.0 },
-      Thar_Glass_Dark: { color: 0x0b1016, metalness: 0.12, roughness: 0.03, clearcoat: 1.0, clearcoatRoughness: 0.02, envMapIntensity: 1.50, transparent: true, opacity: 0.62, vertexAoStrength: 0.0 },
+      Thar_Cabin_Ivory: { color: 0xded6c4, roughness: 0.73, metalness: 0 },
+      Thar_Glass_Dark: { color: 0x0b1016, metalness: 0.12, roughness: 0.03, clearcoat: 1.0, clearcoatRoughness: 0.02, envMapIntensity: 1.50, transparent: true, opacity: 0.36, vertexAoStrength: 0.0 },
     },
     cockpit: 'suv',
     // Diesel four: 2 pulses per revolution (rpm / 30 Hz), dark, injector clatter, turbo whistle, no pops.
@@ -214,8 +215,18 @@ export const CARS = Object.freeze([
       brakes: { maxForce: 17000 },
       aero: { dragArea: 1.5, liftArea: 0 },
       body: {
-        contactPoints: scalePoints(BASE_TUNING.body.contactPoints, 1.12, 1.45, 1.1),
-        collisionSpheres: scalePoints(BASE_TUNING.body.collisionSpheres, 1.12, 1.45, 1.1),
+        // Underbody, rocker panels and roof corners in the exported model's metre frame.
+        contactPoints: [
+          [-0.81, 0.30, -1.98], [0.81, 0.30, -1.98], [-0.83, 0.32, 2.10], [0.83, 0.32, 2.10],
+          [0, 0.29, -2.04], [0, 0.5, 2.32], [-0.96, 0.34, 0], [0.96, 0.34, 0],
+          [-0.72, 1.9, -0.22], [0.72, 1.9, -0.22], [-0.74, 1.91, 1.90], [0.74, 1.91, 1.90],
+        ],
+        collisionSpheres: [
+          [-0.68, 0.55, -1.82, 0.30], [0.68, 0.55, -1.82, 0.30],
+          [-0.68, 0.58, 1.96, 0.30], [0.68, 0.58, 1.96, 0.30],
+          [-0.68, 0.54, 0, 0.30], [0.68, 0.54, 0, 0.30],
+          [0, 1.08, 2.18, 0.31], // tailgate-mounted spare
+        ],
       },
     },
   }),

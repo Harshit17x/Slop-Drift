@@ -263,7 +263,7 @@ export class CameraRig {
       else offset.set(this.cockpitEye.x, this.cockpitEye.y, this.cockpitEye.z);
       position.copy(offset).applyQuaternion(state.quaternion).add(state.position);
       // In the seat the head tips a little down, so the dash, the wheel and the hands sit in view.
-      const headTilt = cockpit && !lookBack ? -0.1 : 0;
+      const headTilt = cockpit && !lookBack ? (this.cockpitEye.pitch ?? -0.1) : 0;
       euler.set((freeLook ? freeLook.y : 0) + headTilt, (freeLook ? freeLook.x : 0) + (lookBack ? Math.PI : 0), 0, 'YXZ');
       desiredQuaternion.copy(this.interiorQuaternion).multiply(lookQuaternion.setFromEuler(euler));
       fovTarget = CONFIG.camera.fovBase + interiorSpeedFov + (cockpit ? 7 : 3) + 4.5 * this.boost;
