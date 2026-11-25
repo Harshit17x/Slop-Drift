@@ -183,6 +183,7 @@ export class MetaLayer {
       if (career.setCosmetic(slot, value)) {
         this.applyLook(this.game.car);
         this.syncNetProfile();
+        this.game.partyRace?.pushView?.();
       }
       hud.setGarage(career.garage());
     };

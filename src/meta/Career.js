@@ -85,6 +85,7 @@ function normalizeProfile(raw, now) {
   const profile = { ...base, ...raw };
   profile.stats = { ...base.stats, ...(raw.stats || {}) };
   profile.cosmetics = { ...base.cosmetics, ...(raw.cosmetics || {}) };
+  if (!CARS.some((car) => car.id === profile.cosmetics.car)) profile.cosmetics.car = base.cosmetics.car;
   profile.favorites = Array.isArray(raw.favorites)
     ? [...new Set(raw.favorites.filter((id) => CARS.some((car) => car.id === id)))]
     : [];

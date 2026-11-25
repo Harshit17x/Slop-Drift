@@ -50,6 +50,8 @@ export class Room extends Server {
     this.buckets = new Map();
     /** Party authority, created on first use in 'party.<CODE>' rooms only. */
     this.partyHost = null;
+    /** Serializes onConnect across awaits so concurrent joiners never allocate the same sender index. */
+    this._connectQueue = Promise.resolve();
   }
 
   get isParty() {
@@ -91,6 +93,12 @@ export class Room extends Server {
   }
 
   async onConnect(connection, ctx) {
+    const task = this._connectQueue.then(() => this._handleConnect(connection, ctx));
+    this._connectQueue = task.catch(() => {});
+    return task;
+  }
+
+  async _handleConnect(connection, ctx) {
     const url = new URL(ctx.request.url);
     const params = parseJoinParams(url.searchParams);
     if (!params) {
@@ -135,7 +143,7 @@ export class Room extends Server {
       const intent = url.searchParams.get('party') === 'create' ? 'create' : 'join';
       await this.party().prune(members.map((other) => other.state.member).filter(Boolean));
       const result = await this.party().connect(member, {
-        name: params.name, level: params.level, paint: params.paint, peer: index,
+        name: params.name, level: params.level, paint: params.paint, car: params.car, peer: index,
       }, { intent, mapId: url.searchParams.get('partyMap'), modeId: url.searchParams.get('partyMode') });
       if (result.error) {
         connection.send(JSON.stringify({ t: 'party', error: result.error, now: Date.now() }));
@@ -210,11 +218,18 @@ export class Room extends Server {
           rim: data.rim == null ? state.rim : sanitizeCosmetic(data.rim) || state.rim,
           number: data.number == null ? state.number : sanitizeCosmetic(data.number, 'number'),
           neon: data.neon == null ? state.neon : sanitizeCosmetic(data.neon),
-          car: data.car == null ? state.car : sanitizeCosmetic(data.car),
+          car: data.car == null ? state.car : sanitizeCosmetic(data.car) || state.car,
           modeId: typeof data.modeId === 'string' ? data.modeId : state.modeId,
         };
         connection.setState(next);
         this.broadcast(JSON.stringify({ t: 'update', peer: peerOf(next) }), [connection.id]);
+        if (state.member && this.isParty) {
+          const prev = this.party().state;
+          const partyRes = await this.party().connect(state.member, {
+            name: next.name, level: next.level, paint: next.paint, car: next.car, peer: next.i,
+          }, { intent: 'join' });
+          if (partyRes.state && partyRes.state !== prev) this.broadcastParty(partyRes.state);
+        }
       } else if (data && data.t === 'party' && state.member && this.isParty) {
         const result = await this.party().message(state.member, data);
         if (result.error) connection.send(JSON.stringify({ t: 'party', error: result.error, now: Date.now() }));

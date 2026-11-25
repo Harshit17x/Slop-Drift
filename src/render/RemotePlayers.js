@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import { createCarModel } from './ModelCar.js';
+import { createCarModel, hasCarModel, loadCarModels } from './ModelCar.js';
 import { NameTag } from './NameTag.js';
 import { getNeon, getPaint } from '../config.js';
 import { RIM_OPTIONS } from '../meta/catalog.js';
+import { getCar } from '../vehicle/cars.js';
 
 const WHEEL_KEYS = ['frontLeft', 'frontRight', 'rearLeft', 'rearRight'];
 const WHEEL_RADIUS = 0.34;
@@ -16,8 +17,8 @@ function rimColor(id) {
 }
 
 /** The peer's cosmetics as one comparable key, so the car is only repainted when something changed. */
-function lookKey(peer) {
-  return `${peer.paint}|${peer.rim}|${peer.number}|${peer.neon}|${peer.car}`;
+function lookKey(peer, carId = getCar(peer?.car).id) {
+  return `${peer.paint}|${peer.rim}|${peer.number}|${peer.neon}|${carId}`;
 }
 
 /**
@@ -44,6 +45,8 @@ export class RemotePlayers {
     this.wheelLayout = wheelLayout?.map((w) => ({ x: w.x, y: w.y, z: w.z })) || null;
     this.scratch = new THREE.Vector3();
     this.neonLevel = 0.2;
+    this.night = false;
+    this.requestedModels = new Set();
   }
 
   /** Hand the nearest glowing remote cars to the underglow light, until its slots run out. */
@@ -61,6 +64,12 @@ export class RemotePlayers {
   setNeonLevel(level) {
     this.neonLevel = level;
     for (const entry of this.cars.values()) entry.car.setUnderglowLevel(level);
+  }
+
+  /** Headlights for dusk/night drives on every remote car. */
+  setNight(on) {
+    this.night = Boolean(on);
+    for (const entry of this.cars.values()) entry.car.setHeadlamps?.(this.night);
   }
 
   /** Number of remote cars currently managed. */
@@ -86,12 +95,17 @@ export class RemotePlayers {
     if (!this.group.visible) return;
     const step = Math.min(Math.max(dt, 0), 0.1);
     for (const [id, peer] of peers) {
+      const wantedCarId = getCar(peer.car).id;
       let entry = this.cars.get(id);
-      if (entry && entry.carId !== (peer.car || 'hatch')) {
+      if (entry && (entry.carId !== wantedCarId || (!entry.visualReady && hasCarModel(wantedCarId)))) {
         this.remove(id, entry);
         entry = null;
       }
-      if (!entry) entry = this.add(id, peer);
+      if (!entry) entry = this.add(id, peer, wantedCarId);
+      if (!entry.visualReady && !this.requestedModels.has(wantedCarId)) {
+        this.requestedModels.add(wantedCarId);
+        loadCarModels([wantedCarId]).finally(() => this.requestedModels.delete(wantedCarId));
+      }
       this.refresh(entry, peer);
 
       const sample = this.net.samplePeer(id, renderTime, entry.car.position, entry.car.quaternion);
@@ -101,7 +115,8 @@ export class RemotePlayers {
       }
       entry.car.visible = true;
       entry.car.setSteering(sample.steer);
-      const spin = (sample.speed / WHEEL_RADIUS) * step;
+      const radius = getCar(entry.carId).tuning?.geometry?.wheelRadius || WHEEL_RADIUS;
+      const spin = (sample.speed / radius) * step;
       for (const key of WHEEL_KEYS) entry.car.addWheelSpin(key, spin);
       entry.car.setBraking(sample.braking);
       entry.car.setReversing(sample.reversing);
@@ -111,20 +126,30 @@ export class RemotePlayers {
         entry.tag.update(camera);
         const distance = this.scratch.copy(entry.car.position).distanceTo(camera.position);
         this.fade(entry, distance);
+        entry.tag.material.opacity *= entry.opacity < 0.5 ? 0.5 : 1;
       }
     }
   }
 
-  add(id, peer) {
-    const car = createCarModel(peer.car, { color: getPaint(peer.paint).color, name: `Remote_${peer.name}`, wheelLayout: this.wheelLayout });
+  add(id, peer, wantedCarId = getCar(peer.car).id) {
+    const car = createCarModel(wantedCarId, { color: getPaint(peer.paint).color, name: `Remote_${peer.name}`, wheelLayout: this.wheelLayout });
     car.visible = false;
     car.traverse((node) => {
       if (node.isMesh) node.castShadow = true;
     });
+    car.setHeadlamps?.(this.night);
     const tag = new NameTag({ text: peer.name, detail: `LV ${peer.level}` });
     car.add(tag.sprite);
     this.group.add(car);
-    const entry = { car, carId: peer.car || 'hatch', tag, look: '', opacity: 1, baseTransparent: new Map() };
+    const entry = {
+      car,
+      carId: wantedCarId,
+      visualReady: Boolean(car.userData?.visualReady),
+      tag,
+      look: '',
+      opacity: 1,
+      baseTransparent: new Map(),
+    };
     for (const material of car.materials) entry.baseTransparent.set(material, { transparent: material.transparent, opacity: material.opacity, depthWrite: material.depthWrite });
     this.cars.set(id, entry);
     return entry;
@@ -132,13 +157,14 @@ export class RemotePlayers {
 
   refresh(entry, peer) {
     entry.tag.set(peer.name, `LV ${peer.level}`);
-    const key = lookKey(peer);
+    const key = lookKey(peer, entry.carId);
     if (entry.look !== key) {
       entry.look = key;
       entry.car.setPaint(getPaint(peer.paint));
       entry.car.setRimColor(rimColor(peer.rim));
       if (peer.number) entry.car.setNumber(peer.number);
       entry.car.setUnderglow(getNeon(peer.neon)).setUnderglowLevel(this.neonLevel);
+      entry.car.setHeadlamps?.(this.night);
     }
   }
 

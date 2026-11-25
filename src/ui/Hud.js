@@ -1315,6 +1315,7 @@ export class Hud {
   }
 
   showRace() {
+    if (this.loadingActive) this.hideLoading();
     this.finishFresh = false;
     this.screen = 'race';
     this.sub = null;
@@ -1509,7 +1510,7 @@ export class Hud {
         const col = paintColor(m.paint);
         return `<li class="${m.isYou ? 'is-you' : ''}">
           <span class="sdh-lv-badge sdh-lv-sm sdh-num" title="Level">${esc(m.level ?? 1)}</span>
-          <span class="sdh-pm-name">${col ? `<i class="sdh-pm-paint" style="background:${col}"></i>` : ''}<span class="sdh-pm-text">${esc(m.name)}</span>${m.isHost ? `<span class="sdh-pm-host" title="Host">${ICON.host}<span class="sdh-sr">Host</span></span>` : ''}${m.isYou ? '<span class="sdh-pm-you">YOU</span>' : ''}</span>
+          <span class="sdh-pm-name">${col ? `<i class="sdh-pm-paint" style="background:${col}"></i>` : ''}<span class="sdh-pm-text">${esc(m.name)}</span>${m.carLabel ? `<span class="sdh-pm-car">${esc(m.carLabel)}</span>` : ''}${m.isHost ? `<span class="sdh-pm-host" title="Host">${ICON.host}<span class="sdh-sr">Host</span></span>` : ''}${m.isYou ? '<span class="sdh-pm-you">YOU</span>' : ''}</span>
           ${this.partyMemberRight(m, status)}
         </li>`;
       }).join('')}</ul>` : '';

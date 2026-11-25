@@ -1375,6 +1375,7 @@ span.sdh-icon-sm { width: 2.2em; }
 .sdh-pm-name { display: flex; align-items: center; gap: 0.4em; min-width: 0; font-size: 1.1em; font-weight: 700; }
 .sdh-pm-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sdh-pm-paint { flex: none; width: 0.7em; height: 0.7em; border: var(--line) solid var(--rim); outline: 1px solid var(--chalk); }
+.sdh-pm-car { flex: none; padding: 0.08em 0.38em 0; border: 1px solid rgba(244, 241, 232, 0.2); background: rgba(244, 241, 232, 0.08); color: var(--mist); font-size: 0.68em; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; }
 .sdh-pm-host { flex: none; display: inline-grid; place-items: center; color: var(--marigold); }
 .sdh-pm-host .sdh-ico { width: 1.15em; height: 1.15em; }
 .sdh-pm-you { flex: none; padding: 0.05em 0.35em 0; background: var(--chalk); color: var(--ink); font-size: 0.7em; letter-spacing: 0.12em; }

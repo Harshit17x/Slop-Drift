@@ -7,6 +7,10 @@ let livery;
 let rubber;
 let rubberNormal;
 
+export function hasRallyKit() {
+  return Boolean(template && livery && rubber && rubberNormal);
+}
+
 export async function loadRallyKit(loader) {
   if (template) return;
   const textures = new THREE.TextureLoader();

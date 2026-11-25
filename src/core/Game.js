@@ -358,6 +358,7 @@ export class Game {
     }
     this.car.setNeon({ level: neonLevel(this.settings.timeOfDay) });
     this.remotePlayers?.setNeonLevel(neonLevel(this.settings.timeOfDay));
+    this.remotePlayers?.setNight?.(this.atmosphere.isNight || this.atmosphere.timeOfDay === 'sunset' || this.atmosphere.timeOfDay === 'dawn');
     this.vehicle.setHandling(this.settings.handling, getCar(this.carId).tuning);
     this.vehicle.setAssists({ driftAssist: this.settings.driftAssist, abs: this.settings.abs, transmission: this.settings.transmission });
     this.input.setManualShift(this.settings.transmission === 'manual');

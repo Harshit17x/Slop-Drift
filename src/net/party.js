@@ -228,16 +228,21 @@ export function step(state, event, now) {
       const name = sanitizeName(event.name) || (member ? member.name : 'Driver');
       const level = sanitizeLevel(event.level ?? member?.level);
       const paint = sanitizeCosmetic(event.paint) || member?.paint || '';
+      const car = sanitizeCosmetic(event.car) || member?.car || '';
       const peer = typeof event.peer === 'string' || Number.isInteger(event.peer) ? event.peer : member?.peer ?? null;
-      const next = clone(state);
       if (member) {
         // Rejoin (or a profile change): keep the place, refresh the look.
-        Object.assign(next.members[id], { name, level, paint, peer });
+        if (member.name === name && member.level === level && member.paint === paint && (member.car || '') === car && member.peer === peer) {
+          return { state, error: null };
+        }
+        const next = clone(state);
+        Object.assign(next.members[id], { name, level, paint, car, peer });
         return { state: next, error: null };
       }
       if (Object.keys(state.members).length >= PARTY_MAX_MEMBERS) return reject(state, 'full');
+      const next = clone(state);
       const joined = {
-        name, level, paint, peer,
+        name, level, paint, car, peer,
         seq: next.seq,
         ready: false,
         // Joining during the countdown still makes the start; mid-race joiners wait for the next round.
@@ -368,7 +373,7 @@ export function eventFromOp(id, message, { allowJoin = false } = {}) {
     case 'start': return { type: 'start', id };
     case 'finish': return { type: 'finish', id, time: message.time, score: message.score, dnf: message.dnf };
     case 'rematch': return { type: 'rematch', id };
-    case 'join': return allowJoin ? { type: 'join', id, name: message.name, level: message.level, paint: message.paint, peer: message.peer } : null;
+    case 'join': return allowJoin ? { type: 'join', id, name: message.name, level: message.level, paint: message.paint, car: message.car, peer: message.peer } : null;
     case 'leave': return allowJoin ? { type: 'leave', id } : null;
     default: return null;
   }

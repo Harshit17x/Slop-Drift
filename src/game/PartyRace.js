@@ -19,6 +19,7 @@
 
 import { getMode } from '../config.js';
 import { mod } from '../core/math.js';
+import { getCar } from '../vehicle/cars.js';
 import { MAPS } from '../world/maps.js';
 import {
   PARTY_MAX_MEMBERS, isPartyCode, isScoreMode, memberOrder, normalizePartyCode, partyModes, partyRoomName,
@@ -219,6 +220,9 @@ export class PartyRace {
     this.peerPosition = { x: 0, y: 0, z: 0 };
     this.timer = null;
     this.unsubscribe = net ? net.onParty((state, info) => this.onParty(state, info)) : () => {};
+    this.unsubRoster = net?.onRoster ? net.onRoster(() => {
+      if (this.inParty && this.state) this.pushView();
+    }) : () => {};
     this.bindHud();
   }
 
@@ -335,6 +339,8 @@ export class PartyRace {
     this.state = null;
     this.status = null;
     this.error = null;
+    this.localFinish = null;
+    this.expectMap = null;
     this.runActive = false;
     this.runRound = 0;
     this.progress.clear();
@@ -629,8 +635,22 @@ export class PartyRace {
     }
     const members = memberOrder(state).map((id) => {
       const member = state.members[id];
+      const peerKey = id === this.you ? null : this.net?.partyPeerKey?.(id);
+      const peerInfo = peerKey ? this.net?.peers?.get?.(peerKey) : null;
+      const rawCar = id === this.you
+        ? (this.game?.carId || this.meta?.career?.profile?.cosmetics?.car || member.car || '')
+        : (peerInfo?.car || member.car || '');
+      const car = rawCar ? getCar(rawCar) : null;
+      const rawPaint = id === this.you
+        ? (this.meta?.career?.profile?.cosmetics?.paint || member.paint || '')
+        : (peerInfo?.paint || member.paint || '');
       const row = {
-        id, name: member.name, level: member.level, paint: member.paint,
+        id,
+        name: (id !== this.you && peerInfo?.name) || member.name,
+        level: (id !== this.you && peerInfo?.level) || member.level,
+        paint: rawPaint,
+        car: car ? car.id : '',
+        carLabel: car ? car.label : '',
         isHost: id === state.hostId, isYou: id === this.you,
         ready: Boolean(member.ready), finished: Boolean(member.finished), dnf: Boolean(member.dnf),
       };
@@ -662,5 +682,6 @@ export class PartyRace {
   dispose() {
     clearInterval(this.timer);
     this.unsubscribe?.();
+    this.unsubRoster?.();
   }
 }

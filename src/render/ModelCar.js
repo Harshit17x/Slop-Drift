@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { loadRallyKit } from './RallyKit.js';
+import { hasRallyKit, loadRallyKit } from './RallyKit.js';
 import { ProceduralCar } from './ProceduralCar.js';
 import { PAINT_MODES, patchCarPaint, setCarPaintUniforms } from './carPaintShader.js';
 import { patchUnderglow } from './underglowLight.js';
@@ -29,21 +29,28 @@ export function loadCarModels(ids) {
     if (!loading.has(car.id)) {
       loading.set(car.id, loader.loadAsync(car.model)
         .then((gltf) => templates.set(car.id, gltf.scene))
-        .catch((error) => console.warn(`[cars] ${car.id} model failed to load`, error)));
+        .catch((error) => {
+          loading.delete(car.id);
+          console.warn(`[cars] ${car.id} model failed to load`, error);
+        }));
     }
     return loading.get(car.id);
   });
   if (!ids || ids.includes('hatch')) {
     rallyKitLoading ??= loadRallyKit(loader)
-      .catch((error) => console.warn('[cars] rally kit failed to load', error));
+      .catch((error) => {
+        rallyKitLoading = null;
+        console.warn('[cars] rally kit failed to load', error);
+      });
     tasks.push(rallyKitLoading);
   }
   return Promise.all(tasks);
 }
 
-/** True once this car's model is loaded and createCarModel will build it. */
+/** True once this car's model is loaded and createCarModel will build its final visual. */
 export function hasCarModel(carId) {
-  return templates.has(getCar(carId).id);
+  const car = getCar(carId);
+  return car.model ? templates.has(car.id) : hasRallyKit();
 }
 
 /**
@@ -54,8 +61,12 @@ export function hasCarModel(carId) {
 export function createCarModel(carId, options = {}) {
   const car = getCar(carId);
   const template = templates.get(car.id);
-  if (!car.model || !template) return new ProceduralCar(options);
-  return new ModelCar({ ...options, car, template, chassisOffsetY: 0, underglowY: car.cockpit === 'suv' ? 0.36 : 0.12 });
+  const model = !car.model || !template
+    ? new ProceduralCar(options)
+    : new ModelCar({ ...options, car, template, chassisOffsetY: 0, underglowY: car.cockpit === 'suv' ? 0.36 : 0.12 });
+  model.userData.visualCarId = car.id;
+  model.userData.visualReady = hasCarModel(car.id);
+  return model;
 }
 
 /**

@@ -479,7 +479,7 @@ test('PartyRace: quitting mid-race is a DNF; late joiners wait; refused joins sh
   race.dispose();
 });
 
-test('PartyRace: a party on another map stores the code and switches the map', () => {
+test('PartyRace: a party on another map stores the code and switches the map', async () => {
   const store = new Map();
   globalThis.sessionStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) };
   const hud = fakeHud();
@@ -500,11 +500,34 @@ test('PartyRace: a party on another map stores the code and switches the map', (
   // After the reload, on Alpine: boot() rejoins.
   const net2 = fakeNet('me#2');
   const race2 = new PartyRace({ game: { ...game, settings: { map: 'alpine' } }, net: net2, hud: fakeHud(), meta: null, mapId: 'alpine' });
-  race2.boot();
+  await race2.boot();
   assert(net2.joined[0]?.[0] === 'party.K7QXM' && !store.has('slop-drift-party-rejoin'), 'rejoined after reload');
   race.dispose();
   race2.dispose();
   delete globalThis.sessionStorage;
+});
+
+test('PartyRace: exposes member car labels from state and live roster updates', () => {
+  const hud = fakeHud();
+  const net = fakeNet('me#1');
+  net.peers = new Map([['peer:friend#2', { name: 'Friend', level: 7, paint: 'acid', car: 'tokyo' }]]);
+  net.rosterListeners = new Set();
+  net.onRoster = (cb) => { net.rosterListeners.add(cb); return () => net.rosterListeners.delete(cb); };
+  const game = { state: 'menu', mode: { id: 'sprint' }, carId: 'gt', world: fakeWorld(), settings: { map: 'mussoorie' }, modes: [{ id: 'sprint' }] };
+  const race = new PartyRace({ game, net, hud, meta: null, mapId: 'mussoorie' });
+  hud.onPartyCreate();
+  let state = createParty({ code: 'K7QXM', mapId: 'mussoorie', modeId: 'sprint' });
+  state = reduce(state, { type: 'join', id: 'me#1', name: 'Me', level: 4, car: 'gt' }, T0);
+  state = reduce(state, { type: 'join', id: 'friend#2', name: 'Friend', level: 7, paint: 'acid' }, T0);
+  net.emit(state);
+  let view = hud.calls.party.at(-1);
+  assert(view.members[0].car === 'gt' && view.members[0].carLabel === 'Track GT3', JSON.stringify(view.members[0]));
+  assert(view.members[1].car === 'tokyo' && view.members[1].carLabel === 'Tokyo Sedan', JSON.stringify(view.members[1]));
+  net.peers.get('peer:friend#2').car = 'thar';
+  for (const cb of net.rosterListeners) cb(net.peers);
+  view = hud.calls.party.at(-1);
+  assert(view.members[1].car === 'thar' && view.members[1].carLabel === 'Hill 4x4', JSON.stringify(view.members[1]));
+  race.dispose();
 });
 
 // ------------------------------------------------------------------ run

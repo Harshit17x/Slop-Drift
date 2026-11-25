@@ -265,6 +265,7 @@ class SocketTransport {
     this.you = -1;
     this.refusal = 0;
     this.stopped = true;
+    this.connectProfileKey = '';
   }
 
   start(modeId) {
@@ -322,6 +323,7 @@ class SocketTransport {
       if (party.mapId) params.set('partyMap', party.mapId);
       if (party.modeId) params.set('partyMode', party.modeId);
     }
+    this.connectProfileKey = client._profileKey();
     let socket;
     try {
       socket = new WebSocket(`${this.base}/parties/room/${encodeURIComponent(this.modeId)}?${params}`);
@@ -391,6 +393,8 @@ class SocketTransport {
         client._setStatus('connected');
         for (const peer of message.peers || []) this.addPeer(peer, false);
         client._emitRoster();
+        // If cosmetics, car or name changed while connecting, push the fresh profile immediately.
+        if (client._profileKey() !== this.connectProfileKey) this.sendProfile();
       } else if (message.t === 'join' || message.t === 'update') {
         this.addPeer(message.peer, true);
       } else if (message.t === 'full' || message.t === 'rejected') {
@@ -548,7 +552,7 @@ class LocalTransport {
 
   selfMember() {
     const info = this.client._selfInfo();
-    return { name: info.name, level: info.level, paint: info.paint, peer: info.key };
+    return { name: info.name, level: info.level, paint: info.paint, car: info.car, peer: info.key };
   }
 
   isAuthority() {
@@ -701,6 +705,9 @@ class LocalTransport {
 
   sendProfile() {
     this.post({ t: 'here', peer: this.client._selfInfo() });
+    if (this.code && this.client.party?.state?.members?.[this.client.instanceId]) {
+      this.sendParty('join', this.selfMember());
+    }
   }
 
   stop() {
@@ -1044,6 +1051,11 @@ export class NetClient {
     };
   }
 
+  _profileKey() {
+    const cosmetics = this.profile.cosmetics || {};
+    return `${this.profile.name}|${this.level}|${cosmetics.paint || ''}|${cosmetics.rim || ''}|${cosmetics.number || ''}|${cosmetics.neon || ''}|${cosmetics.car || ''}|${this.currentMode || 'menu'}`;
+  }
+
   /** A party state arrived (`now`: the authority's clock when it was sent). */
   _onPartyState(state, now, you) {
     const party = this.party;
@@ -1110,11 +1122,11 @@ export class NetClient {
     peer.playerId = String(info.id ?? peer.playerId);
     peer.name = String(info.name ?? peer.name).slice(0, 24);
     peer.level = Number(info.level) || 1;
-    peer.paint = String(info.paint ?? '');
-    peer.rim = String(info.rim ?? '');
-    peer.number = String(info.number ?? '');
-    peer.neon = String(info.neon ?? '');
-    peer.car = String(info.car ?? '');
+    if (info.paint !== undefined) peer.paint = String(info.paint ?? '');
+    if (info.rim !== undefined) peer.rim = String(info.rim ?? '');
+    if (info.number !== undefined) peer.number = String(info.number ?? '');
+    if (info.neon !== undefined) peer.neon = String(info.neon ?? '');
+    if (info.car !== undefined) peer.car = String(info.car ?? '');
     peer.modeId = info.modeId || peer.modeId || 'menu';
     if (!existing) {
       this.peers.set(key, peer);

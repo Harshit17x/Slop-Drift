@@ -23,6 +23,8 @@ const { MEDAL_TARGETS, MUSSOORIE_MEDAL_TARGETS } = await import('../src/meta/cat
 const { MetaLayer } = await import('../src/game/MetaLayer.js');
 const { PartyHost } = await import('../server/src/partyHost.js');
 const { PARTY_COUNTDOWN_MS, PARTY_FINISH_GRACE_MS } = await import('../src/net/party.js');
+const THREE = await import('three');
+const { RemotePlayers } = await import('../src/render/RemotePlayers.js');
 
 let failures = 0;
 let passes = 0;
@@ -939,6 +941,97 @@ if (LIVE) {
     }
   });
 }
+
+test('local mode: party propagates car and paint updates across tabs', async () => {
+  if (typeof BroadcastChannel === 'undefined') return;
+  const make = (name, car, paint) => {
+    const client = new NetClient({ profile: { id: 'same-profile-id', name, level: 2, cosmetics: { paint, car } } });
+    const seen = [];
+    client.onParty((state, info) => seen.push({ state, info }));
+    return { client, seen, last: () => seen.at(-1) };
+  };
+  const a = make('Host A', 'tokyo', 'ember');
+  const b = make('Guest B', 'gt', 'acid');
+  try {
+    a.client.join('party.M7QXP', { party: { intent: 'create', mapId: 'mussoorie', modeId: 'sprint' } });
+    b.client.join('party.M7QXP');
+    assert(await waitFor(() => a.client.peers.size === 1 && a.last()?.state?.members?.[b.client.instanceId]?.car === 'gt'), 'initial car sync');
+    b.client.updateProfile({ name: 'Guest B2', cosmetics: { paint: 'violet', car: 'thar' } });
+    assert(await waitFor(() => {
+      const peer = a.client.peers.get(b.client.instanceId);
+      const member = a.last()?.state?.members?.[b.client.instanceId];
+      return peer?.car === 'thar' && peer?.paint === 'violet' && member?.car === 'thar' && member?.paint === 'violet' && member?.name === 'Guest B2';
+    }), 'updated car + paint sync in peers and party');
+  } finally {
+    a.client.dispose();
+    b.client.dispose();
+  }
+});
+
+test('SocketTransport flushes profile/car edits made while connecting', async () => {
+  memoryStore.clear();
+  const prevFetch = globalThis.fetch;
+  const prevWs = globalThis.WebSocket;
+  const sockets = [];
+  globalThis.fetch = async () => new Response(JSON.stringify({ token: 'tok-01234567890123456789' }), { status: 200 });
+  class MockSocket {
+    constructor(url) {
+      this.url = url;
+      this.readyState = 0;
+      this.sent = [];
+      sockets.push(this);
+    }
+    send(data) { this.sent.push(data); }
+    close() { this.readyState = 3; }
+  }
+  globalThis.WebSocket = MockSocket;
+  const client = new NetClient({ host: 'https://api.example.com', profile: { id: 'p-connect-race-1', name: 'Racer', level: 2, cosmetics: { car: 'hatch', paint: 'pearl' } } });
+  try {
+    client.join('sprint');
+    await waitFor(() => sockets.length === 1);
+    const sock = sockets[0];
+    // Simulate changing car in garage while the WebSocket handshake is still open.
+    client.updateProfile({ cosmetics: { car: 'tokyo', paint: 'ember' } });
+    assert(sock.sent.length === 0, 'not sent before open');
+    sock.readyState = 1;
+    sock.onmessage({ data: JSON.stringify({ t: 'roster', you: 0, peers: [] }) });
+    const profileMsg = sock.sent.map((raw) => JSON.parse(raw)).find((m) => m.t === 'profile');
+    assert(profileMsg && profileMsg.car === 'tokyo' && profileMsg.paint === 'ember', `flushed on connect: ${JSON.stringify(sock.sent)}`);
+  } finally {
+    client.dispose();
+    globalThis.fetch = prevFetch;
+    globalThis.WebSocket = prevWs;
+  }
+});
+
+test('RemotePlayers tracks wanted car id, swaps on change and handles missing/incomplete models', () => {
+  const prevDoc = globalThis.document;
+  const fakeCtx = () => ({
+    fillStyle: '', font: '', textAlign: '', textBaseline: '',
+    beginPath() {}, roundRect() {}, fill() {}, fillRect() {}, clearRect() {},
+    measureText: (t) => ({ width: String(t || '').length * 10 }), fillText() {},
+  });
+  globalThis.document = { createElement: () => ({ width: 0, height: 0, getContext: fakeCtx }) };
+  try {
+    const scene = new THREE.Scene();
+    const peers = new Map([['p1', { id: 'p1', name: 'Friend', level: 5, paint: 'ember', rim: 'silver', number: '7', neon: 'off', car: 'tokyo' }]]);
+    const net = {
+      peers,
+      samplePeer: () => ({ steer: 0.1, speed: 12, braking: false, boosting: false, drifting: false, reversing: false }),
+    };
+    const remotes = new RemotePlayers({ scene, net });
+    remotes.update(1 / 60, new THREE.PerspectiveCamera(), 100);
+    const entry = remotes.cars.get('p1');
+    assert(entry && entry.carId === 'tokyo' && entry.visualReady === false, 'fallback hatch keeps target carId and awaits model load');
+    peers.get('p1').car = 'gt';
+    remotes.update(1 / 60, new THREE.PerspectiveCamera(), 116);
+    assert(remotes.cars.get('p1').carId === 'gt', 'rebuilt immediately when peer switches car');
+    remotes.dispose();
+  } finally {
+    if (prevDoc === undefined) delete globalThis.document;
+    else globalThis.document = prevDoc;
+  }
+});
 
 // ------------------------------------------------------------------ run
 
