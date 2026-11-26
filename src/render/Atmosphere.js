@@ -115,6 +115,7 @@ export function resolveAtmospherePreset(name, mapId = null) {
   const overrides = mapId === 'mussoorie' ? MUSSOORIE_OVERRIDES
     : mapId === 'jungle' ? JUNGLE_OVERRIDES
     : null;
+  if(mapId==='apex')return {...base,exposure:base.exposure*.83,sunIntensity:base.sunIntensity*.81,envIntensity:base.envIntensity*.51,hemiIntensity:base.hemiIntensity*.83,lightElevation:key==='day'?36:base.lightElevation,skyElevation:key==='day'?36:base.skyElevation};
   if (!overrides) return base;
   return Object.freeze({ ...base, ...(overrides[key] || {}) });
 }

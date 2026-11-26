@@ -172,8 +172,13 @@ export class RaceSession {
     const px = state.position ? state.position.x : 0;
     const pz = state.position ? state.position.z : 0;
     const loc = this.world.locate(px, pz, this._loc, this.roadId, state.position?.y);
-    const located = Boolean(loc) && loc.roadId !== -1 && Number.isFinite(loc.s);
+    let located = Boolean(loc) && loc.roadId !== -1 && Number.isFinite(loc.s);
 
+    if(this.world.apex && this.isRace && located && this.apexExitD!=null){
+      const resumed=this._dOf(loc.s),jump=wrapSigned(resumed-this.apexExitD,this.roadLength);
+      if(Math.abs(jump)>36 && !this._respawnPending)located=false;
+      else this.apexExitD=null;
+    }
     if (located) {
       const d = this._dOf(loc.s);
       if (!this._hasPrev) {
@@ -191,6 +196,7 @@ export class RaceSession {
       this._respawnPending = false;
     }
 
+    if (!located && this.world.apex) { if(this._hasPrev && this.isRace)this.apexExitD??=this._prevD;this._hasPrev=false;this._budget=0; }
     if (this.finished) {
       this._writeHud();
       return events;
