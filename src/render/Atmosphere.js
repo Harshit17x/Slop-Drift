@@ -147,7 +147,7 @@ export class Atmosphere {
    * @param {object} [options.quality]  Entry of QUALITY_PRESETS.
    * @param {string} [options.timeOfDay]
    */
-  constructor({ scene, renderer, world = null, quality = null, timeOfDay = 'day' }) {
+  constructor({ scene, renderer, world = null, quality = null, timeOfDay = 'day',cityPanorama=null }) {
     this.scene = scene;
     this.renderer = renderer;
     this.world = world;
@@ -241,6 +241,7 @@ export class Atmosphere {
     this.probePixels = new Float32Array(4 * 4 * 4);
     this.pmrem = new THREE.PMREMGenerator(renderer);
     this.environmentTarget = null;
+    this.cityPanorama=cityPanorama;
 
     if (quality) this.setQuality(quality);
     this.setTimeOfDay(timeOfDay);
@@ -348,6 +349,13 @@ export class Atmosphere {
     this.measureHorizon();
     this.fog.color.copy(this.fogColor);
     this.fog.density = preset.fogDensity;
+    if (this.world?.config.map === 'tokyo') {
+      this.sky.visible=false;
+      this.scene.background=new THREE.Color(0x030816);
+      this.fog.color.setHex(0x172139); this.fog.density=.0011;
+      this.hemisphere.intensity=1.45; this.sun.intensity=1.1;
+      this.stars.visible=false;
+    }
     if (this.world?.config.map === 'hollow') {
       this.sky.visible=false;
       this.fog.color.setHex(preset.moon ? 0x293f50 : 0x6f939f);
@@ -429,9 +437,9 @@ export class Atmosphere {
   buildEnvironment() {
     const previous = this.environmentTarget;
     try {
-      this.environmentTarget = this.pmrem.fromScene(this.probeScene, 0, 1, 2000);
+      this.environmentTarget = this.cityPanorama?.image ? this.pmrem.fromEquirectangular(this.cityPanorama) : this.pmrem.fromScene(this.probeScene, 0, 1, 2000);
       this.scene.environment = this.environmentTarget.texture;
-      this.scene.environmentIntensity = this.preset.envIntensity * (this.world?.config.map === 'hollow' ? .22 : this.world?.bridge ? .48 : 1);
+      this.scene.environmentIntensity = this.cityPanorama ? 1.75 : this.preset.envIntensity * (this.world?.config.map === 'hollow' ? .22 : this.world?.bridge ? .48 : 1);
     } catch {
       this.environmentTarget = null;
       this.scene.environment = null;

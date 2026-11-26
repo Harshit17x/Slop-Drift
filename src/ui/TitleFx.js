@@ -24,6 +24,11 @@ const TRACK_HALF_WIDTH = 5.6;
 const UP = new THREE.Vector3(0, 1, 0);
 
 const MAP_PALETTES = {
+  tokyo: {
+    turbidity:3, rayleigh:.18, mie:.005, mieG:.78, elevation:-4, azimuth:217,
+    exposure:.68, clouds:.18, cloudDensity:.4, fog:0x192237, fogDensity:.003,
+    sun:0xb7cfff, hemiSky:0xa3b4da, hemiGround:0x2a2733, neon:0xff5b52, paint:0x6e7e9b, snowLevel:99
+  },
   hollow: {
     turbidity:8, rayleigh:1.25, mie:.012, mieG:.78, elevation:7, azimuth:215,
     exposure:.61, clouds:.76, cloudDensity:.72, fog:0x526d78, fogDensity:.011,

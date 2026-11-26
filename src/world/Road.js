@@ -174,10 +174,11 @@ export class Road {
    * Nearest point on the centreline within ~40 m of (x, z). Fills `out` (a RoadLocation plus the
    * segment `index` and interpolation `u`) and returns true, or returns false when no segment is near.
    */
-  locate(x, z, out) {
+  locate(x, z, out, referenceY) {
     const cx = Math.floor(x / HASH_CELL) + HASH_OFFSET;
     const cz = Math.floor(z / HASH_CELL) + HASH_OFFSET;
     let bestDistance = HASH_CELL * HASH_CELL;
+    let bestMetric = bestDistance;
     let bestIndex = -1;
     let bestU = 0;
     for (let ox = -1; ox <= 1; ox += 1) {
@@ -197,7 +198,10 @@ export class Road {
           const dx = x - (ax + abx * u);
           const dz = z - (az + abz * u);
           const distanceSq = dx * dx + dz * dz;
-          if (distanceSq < bestDistance) {
+          const dy = referenceY === undefined ? 0 : this.py[i] + (this.py[j]-this.py[i])*u - referenceY;
+          const metric = distanceSq + dy*dy;
+          if (metric < bestMetric) {
+            bestMetric = metric;
             bestDistance = distanceSq;
             bestIndex = i;
             bestU = u;

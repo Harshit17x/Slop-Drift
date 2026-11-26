@@ -294,7 +294,7 @@ export class CameraRig {
         this.anchorY + this.height - this.slope * this.distance * (lookBack ? -0.7 : 0.7) + pitchLift,
         state.position.z - dirZ * this.distance + rightZ * lateral,
       );
-      const floor = this.world.heightAt(position.x, position.z) + 0.85;
+      const floor = this.world.heightAt(position.x, position.z, state.position.y) + 0.85;
       if (position.y < floor) position.y = floor;
 
       const lead = 4.2 + Math.min(8, planarSpeed * 0.12) + this.drift * 1.2;
@@ -321,7 +321,7 @@ export class CameraRig {
     this.clock += dt;
     this.orbitAngle += speed * dt;
     position.set(focus.x + Math.cos(this.orbitAngle) * radius, focus.y + height, focus.z + Math.sin(this.orbitAngle) * radius);
-    const floor = this.world.heightAt(position.x, position.z) + 1.2;
+    const floor = this.world.heightAt(position.x, position.z, focus.y) + 1.2;
     if (position.y < floor) position.y = floor;
     target.set(focus.x, focus.y + 0.9, focus.z);
     lookMatrix.lookAt(position, target, UP);
@@ -345,7 +345,7 @@ export class CameraRig {
       focus.y + 0.72 + Math.sin(elev) * radius,
       focus.z - Math.cos(angle) * horiz,
     );
-    const floor = this.world.heightAt(position.x, position.z) + 0.55;
+    const floor = this.world.heightAt(position.x, position.z, focus.y) + 0.55;
     if (position.y < floor) position.y = floor;
     target.set(focus.x, focus.y + 0.68, focus.z);
     showcaseFwd.subVectors(target, position).normalize();

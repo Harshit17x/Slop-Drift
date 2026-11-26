@@ -49,7 +49,7 @@ export function normalizeTrack(track) {
   for (const m of markers) grow(m.x, m.z);
   const extent = Number.isFinite(e.minX) ? e : { ...b };
   const labels = (track?.labels || []).filter((l) => Number.isFinite(l.x) && Number.isFinite(l.z) && l.name);
-  return { bounds: { ...b }, extent, roads, markers, labels };
+  return { routeRoads:track?.routeRoads,bounds: { ...b }, extent, roads, markers, labels };
 }
 
 function traceRoad(ctx, road, tx, tz) {
@@ -80,6 +80,20 @@ export function drawNetwork(ctx, track, activeRoad, tx, tz, width) {
     ctx.strokeStyle = pass.color;
     ctx.lineWidth = pass.w;
     ctx.stroke();
+    if(!pass.active){
+      for(const road of track.roads){
+        if(!road.layered || road.id===activeRoad)continue;
+        for(const [type,colour] of [['elevated','#65cfdf'],['tunnel','#ad8cda'],['parkade','#ff7d7b']]){
+          ctx.beginPath();let pen=false;
+          for(let i=0;i<road.heights.length;i++){
+            const match=type==='parkade'?road.parkade:!road.parkade&&(type==='tunnel'?road.heights[i]<-2:road.heights[i]>3);
+            if(match){const x=tx(road.points[i*2]),z=tz(road.points[i*2+1]);if(pen)ctx.lineTo(x,z);else ctx.moveTo(x,z);}
+            pen=match;
+          }
+          ctx.strokeStyle=colour;ctx.stroke();
+        }
+      }
+    }
   }
 }
 

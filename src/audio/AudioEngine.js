@@ -750,7 +750,7 @@ export class AudioEngine {
     );
 
     this._g = {
-      output, sfxBus, envBus, noiseBuffer, sources, beds,
+      output, sfxBus, envBus, engineBus, tireBus, noiseBuffer, sources, beds,
       engineAmp, limiterGate, body, tone, driveMix, onBus, offBus, intakeGain, intakeFilter,
       fallbackGain, fallbackTone, fallbackOsc, clatterLevel, clatterOsc, turboGain, turboOsc,
       synthLevel, synthLp, synthPeak, synthClean, synthDriveMix, synthToIntake, synthLow, synthHigh, oscLow, oscHigh,

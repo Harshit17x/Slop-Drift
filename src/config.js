@@ -41,6 +41,15 @@ export const MODES = Object.freeze([
   Object.freeze({ id: 'drift', label: 'Drift Session', tagline: '120 s · score attack', route: 'loop', laps: 0, timeLimit: 120 }),
   Object.freeze({ id: 'peak', label: 'Nag Tibba Hill Climb', tagline: 'Switchbacks to the top', route: 'peak', laps: 1, tab: 'Nag Tibba' }),
   Object.freeze({ id: 'peakdown', label: 'Nag Tibba Descent', tagline: 'Hairpins all the way down', route: 'peakdown', laps: 1, tab: 'Nag Descent' }),
+  ...[
+    ['shibuya','Neon Crown','3 km · Shibuya Neon Circuit'],
+    ['express','Metropolitan Expressway','9 km · elevated sweepers and tunnels'],
+    ['bay','Tokyo Bay Run','4 km · waterfront circuit'],
+    ['parkade','Midnight Parkade Ascent','B2 to 7F · climb all nine levels'],
+    ['parkdown','Full Building Descent','7F to B2 · reverse time trial'],
+    ['underground','Underground Echo','Tunnel sector · point to point'],
+    ['tour','Grand Tokyo Tour','15 km · night endurance circuit'],
+  ].map(([id,label,tagline])=>Object.freeze({id,label,tagline,route:id,laps:1})),
   Object.freeze({ id:'quarter', label:'Forgotten Quarter', tagline:'3 km · Clock Square time trial', route:'quarter', laps:1 }),
   Object.freeze({ id:'vanishing', label:'The Vanishing Road', tagline:'7 km · Signal Tunnel endurance run', route:'vanishing', laps:1 }),
   Object.freeze({ id: 'roam', label: 'Free Roam', tagline: 'Explore the whole mountain', route: 'loop', laps: 0 }),
@@ -57,6 +66,10 @@ export function getMode(id) {
 export function modesForWorld(world) {
   const routes = world?.routes || {};
   const modes=MODES.filter((mode) => Object.prototype.hasOwnProperty.call(routes, mode.route));
+  if(world?.config?.map==='tokyo')return modes.map(mode=>{
+    const overrides={sprint:['Tokyo Midnight Circuit','5 km · Minato and Electric Town'],circuit:['Midnight Endurance','Two laps of Tokyo'],roam:['City Explorer','Explore districts and collect night photographs']};
+    return overrides[mode.id]?{...mode,label:overrides[mode.id][0],tagline:overrides[mode.id][1]}:mode;
+  });
   if(world?.config?.map!=='hollow')return modes;
   return modes.map(mode=>mode.id==='sprint'?{...mode,label:'Hollow Creek Circuit',tagline:'5 km · main circuit'}:
     mode.id==='circuit'?{...mode,label:'Creek Endurance',tagline:'Two laps of the main circuit'}:
@@ -66,6 +79,7 @@ export function modesForWorld(world) {
 const HAS_SKIN_URL = typeof import.meta.url === 'string';
 
 export const PAINT_OPTIONS = Object.freeze([
+  Object.freeze({id:'minato-gold',label:'Minato Gold',color:0xcb8f43,flopColor:0x722e55,creviceColor:0x231a32,metalness:.79,roughness:.21,clearcoat:.92,flake:.31,blend:.7}),
   Object.freeze({ id:'saltline', label:'Saltline Service', color:0x507b76, creviceColor:0x1b3639, flopColor:0xe6d6ab, metalness:.58, roughness:.36, clearcoat:.67, flake:.14, blend:.66 }),
   Object.freeze({ id: 'pearl', label: 'Himalayan Topo', skinUrl: HAS_SKIN_URL ? new URL('./assets/skins/himalayan-topo.webp', import.meta.url).href : null, color: 0xe9eef5, creviceColor: 0x9aa8bc, flopColor: 0xffffff, metalness: 0.24, roughness: 0.16, clearcoat: 0.94, flake: 0.16, blend: 0.56 }),
   Object.freeze({ id: 'ember', label: 'Tokyo Touge', skinUrl: HAS_SKIN_URL ? new URL('./assets/skins/tokyo-touge.webp', import.meta.url).href : null, color: 0xff5b36, creviceColor: 0x8f1106, flopColor: 0xff9b52, metalness: 0.36, roughness: 0.16, clearcoat: 0.92, flake: 0.20, blend: 0.58 }),

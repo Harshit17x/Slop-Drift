@@ -142,7 +142,7 @@ export class Game {
     // Views are built one per frame so the progress bar keeps moving.
     const activeQuality = getQualityPreset(this.settings.quality, this.autoQuality);
     const stages = [
-      ['Shaping the terrain', () => { this.terrain = new TerrainView({ world: this.world, quality: activeQuality }); this.scene.add(this.terrain.group); }],
+      ['Shaping the terrain', () => { if(this.map.id==='tokyo') return; this.terrain = new TerrainView({ world: this.world, quality: activeQuality }); this.scene.add(this.terrain.group); }],
       ['Filling the lake', async () => {
         const { WaterView } = await import('../render/WaterView.js');
         this.water = new WaterView({ world: this.world });
@@ -163,14 +163,16 @@ export class Game {
       }],
       ['Building roadside scenery', async () => {
         let Forest;
-        if (this.map.id === 'hollow') ({ HollowCreekTown: Forest } = await import('../render/HollowCreekTown.js'));
+        if (this.map.id === 'tokyo') ({ TokyoCity: Forest } = await import('../render/TokyoCity.js'));
+        else if (this.map.id === 'hollow') ({ HollowCreekTown: Forest } = await import('../render/HollowCreekTown.js'));
         else if (this.world.bridge) ({ JungleCanopy: Forest } = await import('../render/JungleCanopy.js'));
         else Forest = Scenery;
         this.scenery = new Forest({ world: this.world, quality: activeQuality });
         this.scene.add(this.scenery.group);
+        if (this.scenery.towerReady) await this.scenery.towerReady;
         if (this.map.id === 'hollow') await this.scenery.loadCoupe(this.world);
       }],
-      ['Lighting the sky', () => { this.atmosphere = new Atmosphere({ scene: this.scene, renderer: this.renderer, world: this.world, quality: activeQuality }); }],
+      ['Lighting the sky', () => { this.atmosphere = new Atmosphere({ scene: this.scene, renderer: this.renderer, world: this.world, quality: activeQuality,cityPanorama:this.scenery.panorama }); }],
       // Only the equipped car's model (they are megabytes each); other cars load on demand when selected or seen online.
       ['Warming the engine', async () => { await loadCarModels([this.career.profile.cosmetics.car]); this.createVehicle(); }],
     ];
@@ -185,6 +187,10 @@ export class Game {
     this.hud.setMap(this.map.id);
     this.hud.setTrack(this.world.getMapData());
     this.meta = new MetaLayer({ career: this.career, hud: this.hud, scene: this.scene, wheelLayout: this.vehicle.wheelLayout, game: this, mapId: this.map.id });
+    if (this.map.id === 'tokyo') {
+      const { TokyoNight } = await import('../game/TokyoNight.js');
+      this.adventure = new TokyoNight(this);
+    }
     if (this.map.id === 'hollow') {
       const { HollowAdventure } = await import('../game/HollowAdventure.js');
       this.adventure = new HollowAdventure(this);
@@ -378,10 +384,10 @@ export class Game {
       return;
     }
     this.applyQuality();
-    this.atmosphere.setTimeOfDay(this.settings.timeOfDay);
+    this.atmosphere.setTimeOfDay(this.map.id === 'tokyo' ? 'night' : this.settings.timeOfDay);
     this.roads.setNight?.(this.atmosphere.isNight);
     this.landmarks?.setNight(this.atmosphere.isNight, this.atmosphere.timeOfDay === 'sunset' || this.atmosphere.timeOfDay === 'dawn');
-    this.terrain.setSun?.(this.atmosphere.sunDirection, this.atmosphere.sunColor, this.atmosphere.ambientColor);
+    this.terrain?.setSun?.(this.atmosphere.sunDirection, this.atmosphere.sunColor, this.atmosphere.ambientColor);
     if (this.atmosphere.isNight) {
       this.water.setSun(this.atmosphere.sunDirection, this.atmosphere.sunColor, this.atmosphere.ambientColor);
     } else {
@@ -826,7 +832,7 @@ export class Game {
     const gates = route.checkpoints;
     const nextS = event.index + 1 < gates.length ? gates[event.index + 1] : route.finishS;
     const position = this.vehicle.getState().position;
-    const here = this.world.locate(position.x, position.z, this.location, route.roadId).s;
+    const here = this.world.locate(position.x, position.z, this.location, route.roadId, position.y).s;
     let metres = (nextS - here) * route.direction;
     if (route.closed) metres = ((metres % road.length) + road.length) % road.length;
     return Math.max(0, metres) / 1000;
@@ -866,7 +872,7 @@ export class Game {
     frame.position.z = state.position.z;
     frame.heading = Math.atan2(state.forward.x, -state.forward.z);
     frame.altitude = this.world.displayAltitude(state.position.y);
-    const location = this.world.locate(state.position.x, state.position.z, this.location);
+    const location = this.world.locate(state.position.x, state.position.z, this.location, -1, state.position.y);
     if (location.roadId >= 0 && location.distance < location.halfWidth + 6) {
       const along = location.tx * state.forward.x + location.tz * state.forward.z;
       frame.grade = location.grade * 100 * (along >= 0 ? 1 : -1);
@@ -933,7 +939,9 @@ export class Game {
     } else if (this.state === 'finished') this.cameraRig.orbit(dt, state.position, { radius: 8, height: 2.6, speed: 0.22 });
     else if (!paused) this.cameraRig.follow(dt, state, input);
 
-    const camera = this.cameraRig.camera;
+    const photoCamera=this.adventure?.previewCamera?.(state);
+    const camera = photoCamera || this.cameraRig.camera;
+    if(this.map.id==='tokyo')this.renderer.toneMappingExposure=this.atmosphere.preset.exposure*(photoCamera?Number(this.adventure.exposure.value):1);
     if (this.state !== 'running') this.meta.idle(camera, state.position);
     if (!paused) this.remotePlayers.update(dt, camera, performance.now());
     underglowFrame.begin();
@@ -944,10 +952,10 @@ export class Game {
       this.effects.update(dt);
       this.water.update(dt, camera);
     }
-    this.effects.setLight(this.atmosphere.ambientColor);
+    this.effects.setLight(this.scenery.smokeLight?.(this.atmosphere.ambientColor,state.brake>0.1) ?? this.atmosphere.ambientColor);
     this.effects.setViewport(this.renderer.domElement.height, camera.fov);
     this.atmosphere.update(paused ? 0 : dt, camera, state.position);
-    this.terrain.update(camera);
+    this.terrain?.update(camera);
     this.scenery.update(camera.position, paused ? 0 : dt, this.atmosphere.isNight, state.position, camera);
     this.landmarks?.update?.(camera);
     this.roads.jungle?.update(camera.position);

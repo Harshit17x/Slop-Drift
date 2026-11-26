@@ -90,8 +90,8 @@ export class RouteProgress {
   }
 
   /** Feeds a position; returns metres driven (null until the car has been located once). */
-  update(x, z) {
-    const loc = this.world.locate(x, z, this.loc, this.route.roadId);
+  update(x, z, y) {
+    const loc = this.world.locate(x, z, this.loc, this.route.roadId, y);
     if (!loc || loc.roadId === -1 || !Number.isFinite(loc.s)) return this.distance;
     const d = this.dOf(loc.s);
     if (this.prevD === null) {
@@ -601,7 +601,7 @@ export class PartyRace {
       }
       const key = this.net.partyPeerKey(id);
       const sample = key ? this.net.samplePeer(key, now, this.peerPosition, null) : null;
-      distances.set(id, sample ? tracker.update(this.peerPosition.x, this.peerPosition.z) : tracker.distance);
+      distances.set(id, sample ? tracker.update(this.peerPosition.x, this.peerPosition.z, this.peerPosition.y) : tracker.distance);
     }
     if (!geometry) return;
     const localTimes = Number.isFinite(this.localFinish) ? { [this.you]: this.localFinish } : {};
