@@ -33,12 +33,20 @@ export function jungleSoil(view) {
       float bough = 0.52*canopyNoise(forestXZ*0.20) + 0.28*canopyNoise(forestXZ*0.68) + 0.20*canopyNoise(forestXZ*2.24);
       float fleck = smoothstep(0.46,0.67,bough);
       float pool = smoothstep(0.80,0.93, wetSoil + 0.44*(canopyNoise(forestXZ*0.89)-0.5) + 0.09*sin(vMapUv.x*34.0));
+      // Two polished wheel channels, darker where the clay stays damp.
+      float rutA = 1.0-smoothstep(0.02,0.085,abs(vMapUv.x-0.335));
+      float rutB = 1.0-smoothstep(0.02,0.085,abs(vMapUv.x-0.665));
+      float rut = max(rutA,rutB);
+      float grit = canopyNoise(forestXZ*7.3);
       diffuseColor.rgb *= mix(vec3(0.38,0.44,0.44), vec3(1.34,1.21,0.99),fleck);
       diffuseColor.rgb *= 1.0-0.43*wetSoil;
-      diffuseColor.rgb = mix(diffuseColor.rgb,vec3(0.054,0.043,0.021)*(0.65+fleck*0.65),0.81*pool);
+      diffuseColor.rgb *= 1.0 - 0.13*rut*(0.35+0.65*wetSoil);
+      diffuseColor.rgb *= 0.94+0.12*grit;
+      diffuseColor.rgb = mix(diffuseColor.rgb,vec3(0.054,0.043,0.021)*(0.65+fleck*0.65),0.81*pool+0.22*rut*wetSoil);
     `).replace('#include <roughnessmap_fragment>', `
       #include <roughnessmap_fragment>
       roughnessFactor = mix(0.92-0.27*wetSoil,0.17,pool);
+      roughnessFactor = mix(roughnessFactor, 0.38, rut*wetSoil*0.55);
     `).replace('#include <lights_fragment_end>', `
       #include <lights_fragment_end>
       // A water-filled rut sees the dark overhead leaves between gaps in the sky.

@@ -4,6 +4,50 @@ export const WASHOUT = Object.freeze({ lip: 1710, bank: 1736, retry: 1480, targe
 export const TAPIR_BEND = 3130;
 export const RIDGE = 3950;
 
+// Named adventure beats along the lap. The renderer places its set pieces from
+// these chainages, and the same numbers drive the map pins and roadside boards.
+export const STAGE = Object.freeze({
+  timberCamp: 930,
+  shrine: 2330,
+  bamboo: Object.freeze({ start: 2600, end: 2860 }),
+  watchtower: 3230,
+  elephants: 3590,
+  deerGlade: 3675,
+});
+
+// Man-made clearings cut into the canopy so the set pieces stay readable.
+// side is -1 left, 1 right, 0 both sides; radius is measured along the road.
+// Radii cover the approach as well as the beat: a 15 m hole in the canopy is
+// invisible from 50 m back, which is how the tower and herd used to get lost.
+export const CLEARINGS = Object.freeze([
+  Object.freeze({ s: STAGE.timberCamp, side: 1, radius: 38 }),
+  Object.freeze({ s: STAGE.shrine, side: -1, radius: 36 }),
+  Object.freeze({ s: STAGE.watchtower, side: 1, radius: 34 }),
+  Object.freeze({ s: STAGE.elephants, side: 1, radius: 48 }),
+  Object.freeze({ s: STAGE.deerGlade, side: 1, radius: 38 }),
+]);
+
+export function inClearing(s, lateral, core = null) {
+  for (const clearing of CLEARINGS) {
+    if (clearing.side !== 0 && Math.sign(lateral || 1) !== clearing.side) continue;
+    let distance = Math.abs(s - clearing.s);
+    distance = Math.min(distance, 5000 - distance); // the lap wraps
+    if (distance < (core ?? clearing.radius)) return clearing;
+  }
+  return null;
+}
+
+// Rolling crests and compressions break the constant-radius drive into
+// readable rises, so the car breathes and the camera gets moments of sky.
+// [chainage, height, span] – a crest is followed by a smaller rebound dip.
+const CRESTS = Object.freeze([
+  [760, 1.45, 27],
+  [1240, 2.15, 32],
+  [2150, 1.75, 30],
+  [2870, 1.35, 24],
+  [4490, 1.9, 33],
+]);
+
 export function inWashout(s) {
   return s >= WASHOUT.lip && s < WASHOUT.bank;
 }
@@ -12,6 +56,15 @@ export function inWashout(s) {
 // spawn poses, checkpoint gates and road ribbon all use the same elevation.
 export function shapeStage(road) {
   const {lip, bank} = WASHOUT;
+  // Gentle natural rollers first; the washout deck then wins around the cut.
+  for (let i = 0; i < road.count; i++) {
+    const s = i * road.spacing;
+    for (const [centre, rise, span] of CRESTS) {
+      const crest = (s - centre) / span;
+      const rebound = (s - centre - span * 1.35) / (span * 0.85);
+      road.py[i] += rise * Math.exp(-crest * crest) - rise * 0.48 * Math.exp(-rebound * rebound);
+    }
+  }
   const y = road.frameAt(lip, {}).y;
   for (let i = 0; i < road.count; i++) {
     const s = i * road.spacing;
