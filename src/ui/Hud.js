@@ -2179,8 +2179,7 @@ export class Hud {
     if (!this.modes.some((m) => m.id === modeId)) return;
     this.forzaModeId = modeId;
     const mode = getMode(modeId);
-    const wantedIndex = mode.route === 'quarter' ? 1 : mode.route === 'vanishing' ? 2 : (mode.route === 'climb' || mode.route === 'descent') ? 1
-      : (mode.route === 'peak' || mode.route === 'peakdown') ? 2 : 0;
+    const wantedIndex = this.track?.routeRoads?.[mode.route] ?? 0;
     const road = this.track?.roads?.[wantedIndex] || this.track?.roads?.[0];
     if (road && this.previewMapId === this.mapId) {
       this.setActiveRoad(road.id);

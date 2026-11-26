@@ -317,10 +317,10 @@ export class Vehicle {
     return count + 1;
   }
 
-  _sampleGround(x, z, out) {
+  _sampleGround(x, z, out, referenceY = this.position.y) {
     const w = this.world;
     if (w && typeof w.sampleGround === 'function') {
-      w.sampleGround(x, z, out);
+      w.sampleGround(x, z, out, referenceY);
       if (!Number.isFinite(out.y)) out.y = -1e9;
       const len = Math.hypot(out.nx, out.ny, out.nz);
       if (!(len > 1e-6) || !Number.isFinite(len)) {
@@ -382,7 +382,7 @@ export class Vehicle {
     const px = num(p.x);
     const pz = num(p.z);
     if (this.world && typeof this.world.sampleGround === 'function') {
-      this._sampleGround(px, pz, _sample);
+      this._sampleGround(px, pz, _sample, p.y);
       _b.set(0, 1, 0).applyQuaternion(this.quaternion);
       _c.set(_sample.nx, _sample.ny, _sample.nz);
       if (_c.y > 0.3 && _b.y > 0.3) {

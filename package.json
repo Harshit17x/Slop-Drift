@@ -11,7 +11,7 @@
     "build:crazygames": "CRAZYGAMES=1 vite build",
     "package:crazygames": "rm -f ../slop-drift-crazygames-v2.zip && CRAZYGAMES=1 vite build && (cd dist && zip -qr ../../slop-drift-crazygames-v2.zip . -x '*.DS_Store' '*.map')",
     "preview": "vite preview",
-    "test": "node tests/world.test.mjs && node tests/map.test.mjs && node tests/roads.test.mjs && node tests/vehicle.test.mjs && node tests/vehicle-impacts.test.mjs && node tests/vehicle-suspension.test.mjs && node tests/damage.test.mjs && node tests/session.test.mjs && node tests/career.test.mjs && node tests/ghost.test.mjs && node tests/net.test.mjs && node tests/party.test.mjs && node tests/camera.test.mjs && node tests/jungle.test.mjs && node tests/hollow.test.mjs && node tests/ui.test.mjs"
+    "test": "node tests/world.test.mjs && node tests/map.test.mjs && node tests/roads.test.mjs && node tests/vehicle.test.mjs && node tests/vehicle-impacts.test.mjs && node tests/vehicle-suspension.test.mjs && node tests/damage.test.mjs && node tests/session.test.mjs && node tests/career.test.mjs && node tests/ghost.test.mjs && node tests/net.test.mjs && node tests/party.test.mjs && node tests/camera.test.mjs && node tests/jungle.test.mjs && node tests/hollow.test.mjs && node tests/tokyo.test.mjs && node tests/ui.test.mjs"
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",

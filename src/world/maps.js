@@ -55,6 +55,15 @@ export const MAPS = Object.freeze({
       props: HAS_URL ? new URL('../assets/maps/mussoorie/props.glb', import.meta.url).href : null,
     }),
   }),
+  tokyo: Object.freeze({
+    id:'tokyo', label:'Tokyo: After Hours', tagline:'東京・深夜 · Neon streets, bay tunnels and rooftop drift',
+    highlights:['Shibuya Crossing','B2–7F Midnight Parkade','Minato Tower'],
+    routes:['loop','shibuya','express','bay','parkade','parkdown','underground','tour'], assets:null,
+    preview: HAS_URL ? new URL('../assets/maps/previews/tokyo.jpg', import.meta.url).href : null,
+    config:{...WORLD,map:'tokyo',seed:81086,grid:{size:257,cell:40},
+      mountain:{...WORLD.mountain,waterLevel:-30,valleyFloor:0,lake:null},
+      road:{...WORLD.road,shoulder:.45,verge:.5,vergeDrop:.12,railHeight:1.4}},
+  }),
   hollow: Object.freeze({
     id: 'hollow', label: 'Hollow Creek', tagline: 'Three circuits through a town abandoned to the fog',
     highlights: ['Clock Square', 'Signal Tunnel', 'East Wharf'],

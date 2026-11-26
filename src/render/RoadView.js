@@ -58,6 +58,8 @@ function loadTileTexture(url, anisotropy) {
   return tex;
 }
 
+import { finishTokyoRoads } from './tokyoRoads.js';
+
 export class RoadView {
   /**
    * @param {object} options
@@ -103,7 +105,12 @@ export class RoadView {
     this.steelMaterial = this.track(new THREE.MeshStandardMaterial({ color: 0xb9c0c6, roughness: 0.42, metalness: 0.75, side: THREE.DoubleSide }));
     this.darkMaterial = this.track(new THREE.MeshStandardMaterial({ color: 0x23272c, roughness: 0.6, metalness: 0.5 }));
 
-    if (mapId === 'hollow') {
+    if (mapId === 'tokyo') {
+      this.buildSurfaces();
+      this.buildMarkings();
+      this.buildRails();
+      finishTokyoRoads(this);
+    } else if (mapId === 'hollow') {
       this.buildSurfaces();
       this.asphaltMesh.material[0].color.setHex(0x999d95);
       this.asphaltMesh.material[0].roughness=.53;
@@ -162,13 +169,14 @@ export class RoadView {
    * `exceptRoad` is the road asking (-1: a plaza is asking, so plazas do not count); with `lowerOnly`
    * only roads listed before it (and the plazas) count.
    */
-  coverClass(x, z, exceptRoad, lowerOnly = false) {
+  coverClass(x, z, exceptRoad, lowerOnly = false, referenceY) {
+    const layer=this.world.layered?referenceY:undefined;
     let best = 9;
     const roads = this.world.roads;
     for (let r = 0; r < roads.length; r += 1) {
       if (r === exceptRoad || (lowerOnly && r > exceptRoad)) continue;
       const road = roads[r];
-      if (!road.locate(x, z, location) || location.beyondEnd) continue;
+      if (!road.locate(x, z, location,layer) || location.beyondEnd || (layer!==undefined&&Math.abs(layer-location.y)>1)) continue;
       const a = location.distance;
       const surfaceClass = a <= location.halfWidth ? 0 : a <= location.halfWidth + road.shoulderEdge ? 1 : a <= location.halfWidth + road.vergeEdge ? 2 : 9;
       if (surfaceClass < best) best = surfaceClass;
@@ -217,7 +225,7 @@ export class RoadView {
           const x = road.px[i] + road.rx[i] * lateral;
           const z = road.pz[i] + road.rz[i] * lateral;
           let y = this.planeY(road, i, lateral);
-          if (this.coverClass(x, z, road.id, true) === 0) y -= OVERLAP_SINK;
+          if (this.coverClass(x, z, road.id, true,y) === 0) y -= OVERLAP_SINK;
           const tone = laneTone[k] - (k === 1 || k === 3 ? wear : 0);
           asphalt.vertex(x, y, z, x / ASPHALT_TILE, z / ASPHALT_TILE, tone, tone, tone, -gradX * inverse, inverse, -gradZ * inverse);
         }
@@ -371,7 +379,7 @@ export class RoadView {
           const az = road.pz[i] + road.rz[i] * lateral;
           const bx = road.px[j] + road.rx[j] * lateral;
           const bz = road.pz[j] + road.rz[j] * lateral;
-          return this.coverClass((ax + bx) * 0.5, (az + bz) * 0.5, road.id);
+          return this.coverClass((ax + bx) * 0.5, (az + bz) * 0.5, road.id,false,road.py[i]);
         };
         const inner = (road.halfWidth[i] + road.halfWidth[j]) * 0.5;
         // A strip is dropped where a better surface of another road (or the plaza) already covers that ground.
@@ -450,7 +458,7 @@ export class RoadView {
     };
 
     for (const road of world.roads) {
-      if(world.config.map==='hollow' && road.id!==0)continue;
+      if((world.config.map==='hollow' && road.id!==0)||(world.layered&&road.id===4))continue;
       const count = road.count;
       // Solid double line wherever the road bends, dashes on the straights.
       const solid = new Uint8Array(count);
@@ -464,10 +472,10 @@ export class RoadView {
       const centreClear = new Uint8Array(count);
       const edgeClear = [new Uint8Array(count), new Uint8Array(count)];
       for (let i = 0; i < count; i += 1) {
-        centreClear[i] = this.coverClass(road.px[i], road.pz[i], road.id, true) === 0 ? 0 : 1;
+        centreClear[i] = this.coverClass(road.px[i], road.pz[i], road.id, true,road.py[i]) === 0 ? 0 : 1;
         for (let s = 0; s < 2; s += 1) {
           const lateral = (s === 0 ? -1 : 1) * (road.halfWidth[i] + 0.5);
-          edgeClear[s][i] = this.coverClass(road.px[i] + road.rx[i] * lateral, road.pz[i] + road.rz[i] * lateral, road.id) === 0 ? 0 : 1;
+          edgeClear[s][i] = this.coverClass(road.px[i] + road.rx[i] * lateral, road.pz[i] + road.rz[i] * lateral, road.id,false,road.py[i]) === 0 ? 0 : 1;
         }
       }
       for (let i = 0; i < road.segments; i += 1) {

@@ -171,7 +171,7 @@ export class RaceSession {
 
     const px = state.position ? state.position.x : 0;
     const pz = state.position ? state.position.z : 0;
-    const loc = this.world.locate(px, pz, this._loc, this.roadId);
+    const loc = this.world.locate(px, pz, this._loc, this.roadId, state.position?.y);
     const located = Boolean(loc) && loc.roadId !== -1 && Number.isFinite(loc.s);
 
     if (located) {
@@ -210,7 +210,7 @@ export class RaceSession {
       }
     } else {
       // Free modes may roam onto any road: off-road against the nearest road of any kind.
-      const any = this.world.locate(px, pz, this._anyLoc);
+      const any = this.world.locate(px, pz, this._anyLoc, -1, state.position?.y);
       const anyOk = Boolean(any) && any.roadId !== -1 && Number.isFinite(any.lateral);
       offCond = !anyOk || Math.abs(any.lateral) > any.halfWidth + OFFROAD_MARGIN;
       if (anyOk && any.roadId === this.roadId) {

@@ -44,7 +44,7 @@ export function attach({ targetSpeed = 32, lateralAccel = 8.5 } = {}) {
     const state = g.vehicle.getState();
     const route = g.world.routes[g.mode.route];
     const road = g.world.roads[route.roadId];
-    g.world.locate(state.position.x, state.position.z, location, route.roadId);
+    g.world.locate(state.position.x, state.position.z, location, route.roadId, state.position.y);
     const frame = road.frameAt(location.s + route.direction * (7 + state.speed * 0.45), ahead);
     const dx = frame.x - state.position.x;
     const dz = frame.z - state.position.z;
@@ -126,7 +126,7 @@ export function look(position, target) {
 function renderStill() {
   const g = game();
   const camera = g.cameraRig.camera;
-  g.terrain.update(camera.position, true);
+  g.terrain?.update(camera.position, true);
   g.scenery.update(camera.position);
   g.atmosphere.update(0, camera, camera.position);
   g.renderer.render(g.scene, camera);

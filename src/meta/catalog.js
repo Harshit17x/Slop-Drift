@@ -51,6 +51,11 @@ function keyedByTrack(mapId, targets) {
  * bare mode ids of MEDAL_TARGETS. Its keys are exactly the tracks with medals and leaderboards.
  */
 export const TRACK_MEDAL_TARGETS = Object.freeze({
+  ...keyedByTrack('tokyo', {
+    ...Object.fromEntries(Object.entries({sprint:245,circuit:490,shibuya:152,express:347,bay:196,parkade:179,parkdown:165,tour:635,underground:85})
+      .map(([id,gold])=>[id,{kind:'time',bronze:Math.round(gold*1.5),silver:Math.round(gold*1.23),gold,author:Math.round(gold*.85)}])),
+    drift:MEDAL_TARGETS.drift,
+  }),
   ...keyedByTrack('hollow', {
     sprint:{kind:'time',bronze:276,silver:235,gold:205,author:186},
     circuit:{kind:'time',bronze:552,silver:470,gold:410,author:372},
@@ -125,6 +130,7 @@ export const UNLOCKS = Object.freeze([
   { id: 'neon:violet', slot: 'neon', value: 'violet', label: 'Violet neon', requires: { level: 9 } },
   { id: 'neon:ice', slot: 'neon', value: 'ice', label: 'Ice White neon', requires: { level: 12 } },
   { id: 'neon:rainbow', slot: 'neon', value: 'rainbow', label: 'Rainbow neon', requires: { achievement: 'night-run' } },
+  {id:'paint:minato-gold',slot:'paint',value:'minato-gold',label:'Minato Gold',requires:{achievement:'tokyo-tower'}},
   { id: 'paint:saltline', slot:'paint', value:'saltline', label:'Saltline Service', requires:{achievement:'hollow-pumps'} },
   { id: 'paint:obsidian', slot: 'paint', value: 'obsidian', label: 'Obsidian Oni skin', requires: { achievement: 'all-gold' } },
 ]);
@@ -142,6 +148,9 @@ export const RIM_OPTIONS = Object.freeze([
  * awarded by Career when the named moment happens. `xp` is granted once on unlock.
  */
 export const ACHIEVEMENTS = Object.freeze([
+  {id:'tokyo-tower',title:'Tower Photographer',description:'Photograph Minato, the rooftop and the expressway.',xp:85},
+  {id:'tokyo-explorer',title:'Night Passport',description:'Discover every Tokyo district.',xp:120},
+  {id:'tokyo-parkade',title:'Deck Champion',description:'Master all eight lower decks in Midnight Parkade.',xp:180},
   { id:'hollow-pumps', title:'Saltline Service', description:'Find the abandoned fuel station in Hollow Creek.', xp:55 },
   { id:'hollow-cartographer', title:'Town Archivist', description:'Discover every Hollow Creek landmark.', xp:150 },
   { id: 'first-finish', title: 'Off the Line', description: 'Finish any timed event.', event: 'finish', xp: 50 },

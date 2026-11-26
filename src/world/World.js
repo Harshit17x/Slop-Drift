@@ -74,6 +74,10 @@ export class World {
       onProgress(fraction, label);
       await pause();
     };
+    if (config.map === 'tokyo') {
+      const { buildTokyo } = await import('./Tokyo.js');
+      return buildTokyo(this, stage);
+    }
     if (config.map === 'hollow') return buildHollowCreek(this, stage);
     if (config.map === 'jungle') return buildJungle(this, stage);
     if (this.mapData) return this.buildFromMap(stage);
@@ -704,12 +708,12 @@ export class World {
     return this.waterLevel;
   }
 
-  heightAt(x, z) {
-    return this.sampleGround(x, z, scratchGround).y;
+  heightAt(x, z, referenceY) {
+    return this.sampleGround(x, z, scratchGround, referenceY).y;
   }
 
   /** @returns {import('../core/contracts.js').GroundSample} */
-  sampleGround(x, z, out) {
+  sampleGround(x, z, out, referenceY = 0) {
     const dock=this.dock;
     if(dock){
       const dx=x-dock.x,dz=z-dock.z,along=-(dx*dock.rx+dz*dock.rz);
@@ -729,7 +733,8 @@ export class World {
 
     for (let r = 0; r < this.roads.length; r += 1) {
       const current = this.roads[r];
-      if (!current.locate(x, z, scratchLocation) || scratchLocation.beyondEnd) continue;
+      if (!current.locate(x, z, scratchLocation, this.layered ? referenceY : undefined) || scratchLocation.beyondEnd) continue;
+      if (this.layered && scratchLocation.y > referenceY + 1.65) continue;
       const halfWidth = scratchLocation.halfWidth;
       const a = scratchLocation.distance;
       if (a > halfWidth + current.vergeEdge) continue;
@@ -753,8 +758,10 @@ export class World {
         }
       }
       // The verge is soft ground: where another road's bed has been cut higher, the ground wins.
-      if (surfaceClass === 2) y = Math.max(y, this.grid.heightAt(x, z));
-      if (surfaceClass < bestClass || (surfaceClass === bestClass && y > bestY)) {
+      if (surfaceClass === 2 && !this.layered) y = Math.max(y, this.grid.heightAt(x, z));
+      // A lower crossing must never take a tyre off the shoulder of an upper deck.
+      const differentDeck = this.layered && bestClass < 9 && Math.abs(y-bestY) > 1.65;
+      if (differentDeck ? y > bestY : surfaceClass < bestClass || (surfaceClass === bestClass && y > bestY)) {
         bestClass = surfaceClass;
         bestY = y;
         bestRoad = r;
@@ -833,15 +840,16 @@ export class World {
    * Returns `out` with roadId -1 when no road is within ~40 m.
    * @returns {import('../core/contracts.js').RoadLocation}
    */
-  locate(x, z, out, roadId = -1) {
+  locate(x, z, out, roadId = -1, referenceY) {
+    const layerY = this.layered ? referenceY : undefined;
     out.roadId = -1;
     if (roadId >= 0) {
-      this.roads[roadId].locate(x, z, out);
+      if (this.roads[roadId].locate(x, z, out, layerY) && layerY !== undefined && Math.abs(out.y-layerY)>3) out.roadId=-1;
       return out;
     }
     let best = Infinity;
     for (let r = 0; r < this.roads.length; r += 1) {
-      if (this.roads[r].locate(x, z, scratchLocationB) && scratchLocationB.distance < best) {
+      if (this.roads[r].locate(x, z, scratchLocationB, layerY) && (layerY === undefined || Math.abs(scratchLocationB.y-layerY)<3) && scratchLocationB.distance < best) {
         best = scratchLocationB.distance;
         Object.assign(out, scratchLocationB);
       }
@@ -859,7 +867,8 @@ export class World {
 
     for (let r = 0; r < this.roads.length; r += 1) {
       const current = this.roads[r];
-      if (!current.locate(x, z, scratchLocation) || scratchLocation.beyondEnd) continue;
+      if (!current.locate(x, z, scratchLocation, this.layered ? y : undefined) || scratchLocation.beyondEnd) continue;
+      if (this.layered && y < scratchLocation.y-0.6) continue;
       const railAt = scratchLocation.halfWidth + road.shoulder + road.railOffset;
       const a = Math.abs(scratchLocation.lateral);
       // Only the road side of a rail is solid; a car that is already beyond it is left alone.
@@ -949,12 +958,48 @@ export class World {
     }
   }
 
+  indexTokyoSolids() {
+    this.tokyoObstacleHash=new Map();
+    for(const item of this.tokyoSolids){
+      const key=(Math.floor(item.p.x/32)+512)*2048+Math.floor(item.p.z/32)+512;
+      if(!this.tokyoObstacleHash.has(key))this.tokyoObstacleHash.set(key,[]);
+      this.tokyoObstacleHash.get(key).push(item);
+    }
+  }
+
   /** @returns {import('../core/contracts.js').BarrierHit} */
   collideObstacle(x, y, z, radius, out) {
     out.hit = false;
     out.depth = 0;
     out.nx = 0;
     out.nz = 0;
+    if(this.tokyoObstacleHash){
+      const ix=Math.floor(x/32)+512,iz=Math.floor(z/32)+512;
+      for(let dx=-1;dx<=1;dx++)for(let dz=-1;dz<=1;dz++){
+        const bucket=this.tokyoObstacleHash.get((ix+dx)*2048+iz+dz);
+        if(!bucket)continue;
+        for(const item of bucket){
+          if(item.box){
+            const {p,h,box}=item;
+            if(y+radius<p.y || y-radius>p.y+h)continue;
+            const dx=x-p.x,dz=z-p.z;
+            const u=dx*box.tx+dz*box.tz,v=-dx*box.tz+dz*box.tx;
+            const du=Math.abs(u)-box.length,dv=Math.abs(v)-box.width;
+            const gap=Math.hypot(Math.max(0,du),Math.max(0,dv));
+            const depth=radius-gap-Math.min(0,Math.max(du,dv));
+            if(depth<=out.depth)continue;
+            const nu=gap>0?Math.sign(u)*Math.max(0,du)/gap:du>=dv?(Math.sign(u)||1):0;
+            const nv=gap>0?Math.sign(v)*Math.max(0,dv)/gap:dv>du?(Math.sign(v)||1):0;
+            out.hit=true;out.depth=depth;out.nx=nu*box.tx-nv*box.tz;out.nz=nu*box.tz+nv*box.tx;
+            continue;
+          }
+          const {p,r,h}=item;
+          if(y<p.y-1.8 || y>p.y+h)continue;
+          const a=x-p.x,b=z-p.z,d=Math.hypot(a,b),depth=r+radius-d;
+          if(depth>out.depth && d>.001){out.hit=true;out.depth=depth;out.nx=a/d;out.nz=b/d;}
+        }
+      }
+    }
     if (!this.obstacles) return out;
     const cx = Math.floor(x / OBSTACLE_CELL) + 512;
     const cz = Math.floor(z / OBSTACLE_CELL) + 512;
@@ -1035,7 +1080,7 @@ export class World {
       };
       for (let i = 0; i < road.count; i += 3) add(i);
       if (!road.closed) add(road.count - 1);
-      return { id: road.id, closed: road.closed, points, heights };
+      return { id: road.id, closed: road.closed, points, heights, layered: this.layered, parkade: this.layered && road.id===4 };
     });
     const start = this.roads[LOOP].frameAt(this.routes.loop.startS, scratchFrame);
     const markers = [{ x: start.x, z: start.z, kind: 'start' }];
@@ -1048,7 +1093,7 @@ export class World {
       if (plaza.label) marker.label = plaza.label;
       markers.push(marker);
     }
-    return { bounds: { ...this.bounds }, roads, markers, labels: this.labels.map((label) => ({ ...label })) };
+    return { routeRoads:Object.fromEntries(Object.entries(this.routes).map(([id,r])=>[id,r.roadId])),bounds: { ...this.bounds }, roads, markers, labels: this.labels.map((label) => ({ ...label })) };
   }
 }
 

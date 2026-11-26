@@ -1,0 +1,9 @@
+.tokyo-night{position:absolute;right:max(1rem,env(safe-area-inset-right));top:23%;z-index:7;max-width:min(22rem,calc(100vw - 2rem));font:500 .85rem/1.4 system-ui,sans-serif;color:#f3f5ff;text-align:right;pointer-events:auto}
+.tokyo-night[hidden],.tokyo-night [hidden]{display:none!important}
+.tokyo-night button,.tokyo-night select{font:inherit;color:#fff;background:#192338;border:1px solid #8498b3;border-radius:3px;padding:.3rem .55rem}
+.tokyo-night button:focus-visible,.tokyo-night button:hover{background:#334968}
+.tokyo-night output{display:block;background:#111929df;border-right:3px solid #ff6356;padding:.25rem .5rem}
+.tokyo-night section{margin-top:.2rem;text-align:left;padding:.7rem;background:#111a2bf5;max-height:45dvh;overflow:auto}
+.tokyo-night button:disabled{color:#a3b7bd;background:#203039}.tokyo-night div button{margin:.22rem 0 0 .2rem}
+.tokyo-night label{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin:.4rem 0}.tokyo-night p{margin:.5rem 0}.tokyo-night small{color:#bdd5f4}.tn-camera{margin:.6rem 0}.tn-camera input{max-width:7rem;accent-color:#ff7469}.tn-camera summary{cursor:pointer}
+@media(max-height:520px){.tokyo-night{top:10%}.tokyo-night section{max-height:46dvh}}

@@ -29,6 +29,7 @@ const HAS_URL = typeof import.meta.url === 'string';
 export const TITLE_BACKDROP_URL = HAS_URL ? new URL('../assets/ui/title-backdrop.webp', import.meta.url).href : '';
 
 export const MAP_SUBTITLES = {
+  tokyo: '<span lang="ja">東京・深夜</span> · Tokyo After Hours',
   hollow: 'Hollow Creek · The Forgotten Town',
   mussoorie: '<span lang="hi">मसूरी</span> · Mussoorie · Landour',
   alpine: 'Alpine Peak · High Summit Hairpins',
