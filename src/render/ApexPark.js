@@ -1,4 +1,7 @@
 import * as T from 'three';
+import {flagColors} from '../game/apexControl.js';
+import {outerGrounds} from './apexGrounds.js';
+import {ApexLandscape} from './ApexLandscape.js';
 import {ApexWoodland} from './ApexWoodland.js';
 import {MeshBuffer} from './road/MeshBuffer.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
@@ -25,7 +28,7 @@ function local(kit,f){
   };
   return {p,block,beam,sign};
 }
-function stand(kit,frame,side,rows,bays,random){
+function stand(kit,frame,side,rows,bays,random,canopy=true){
   const {block,beam}=local(kit,frame),width=bays*6,run=1.02,rise=.53;
   for(let row=0;row<rows;row++){
     const v=side*(row*run),h=row*rise;
@@ -43,6 +46,7 @@ function stand(kit,frame,side,rows,bays,random){
       }
     }
   }
+  if(!canopy)return;
   const back=side*(rows*run+.5),top=rows*rise+4.6;
   block(0,side*(rows*.5),top,width+2,rows+5,.29,0xc4c7c3,'steel');
   block(0,-side*2.5,top-.28,width+2,.35,.69,IVORY,'steel');
@@ -66,7 +70,8 @@ export class ApexPark extends ApexWoodland{
     const reserve=world.isReserved.bind(world);
     world.isReserved=(x,z,margin)=>Math.abs(x-f.x)<395+margin && Math.abs(z-f.z)<128+margin || reserve(x,z,margin);
     super(options);
-    this.kit=new ApexKit(this.group);this.standsDensity=1;this.park=world.apex;
+    this.landscape=new ApexLandscape(world,this.group,options.cutRock);
+    this.world=world;this.kit=new ApexKit(this.group);this.standsDensity=1;this.park=world.apex;
     const a=local(this.kit,f),{block,sign,beam}=a,rand=createRandom(4271);
     // Apron, 40 open-front garages and glazed upper-level hospitality gallery.
     block(0,51,-.23,364,75,.35,0x626261);
@@ -104,6 +109,12 @@ export class ApexPark extends ApexWoodland{
     for(let j=-14;j<14;j++)for(let k=0;k<2;k++)block(k*.5,j*.5+.25,.053,.50,.5,.028,(j+k)%2===0?IVORY:INK);
     block(0,-10,4.55,.65,.65,9.1,STEEL,'steel');block(0,10,4.55,.65,.65,9.1,STEEL,'steel');
     block(0,0,8.15,1.4,22,2.15,DARK,'steel');sign('APEX   GRAND PRIX',-.73,0,8.15,18.5,1.98);
+    this.pitLamps=[];
+    for(const u of [-252,216]){
+      block(u,12.7,1.62,.20,.24,3.2,STEEL,'steel');block(u,12.7,3.34,.5,.62,.95,INK);
+      const light=new T.Mesh(new T.SphereGeometry(.20,8,6),new T.MeshBasicMaterial({color:0x59d280}));
+      light.position.copy(a.p(u-.3,12.7,3.37));this.pitLamps.push(light);this.group.add(light);
+    }
     this.startLights=[];
     for(let i=0;i<5;i++){
       block(0,(i-2)*.76,6.59,.45,.67,1.02,INK);
@@ -114,7 +125,7 @@ export class ApexPark extends ApexWoodland{
     const m=world.apex.main;
     for(const station of [41.7,42.4,43.5,44.2]){
       const k=Math.floor(station),s=world.apex.stations[k]+(station-k)*(world.apex.stations[k+1]-world.apex.stations[k]);
-      const q=m.frameAt(s,{}),side=-Math.sign(q.curvature)||1;stand(this.kit,this.offset(q,0,side*34,0),side,8,5,rand);
+      const q=m.frameAt(s,{}),side=-Math.sign(q.curvature)||1;stand(this.kit,this.offset(q,0,side*34,0),side,8,5,rand,station<43);
     }
     // Control and medical facilities, paddock entries, technical and media compounds.
     for(const [u,v,title] of [[-202,36,'RACE CONTROL'],[189,38,'MEDICAL CENTRE'],[157,92,'SCRUTINEERING'],[-73,93,'MEDIA CENTRE'],[60,93,'PARC FERME']]){
@@ -137,11 +148,25 @@ export class ApexPark extends ApexWoodland{
       const u=-130+i*32;block(u,76,2.9,8.5,7,.36,teams[i%5]);
       for(const d of [-4,4])for(const v of [73,79])block(u+d,v,1.45,.12,.12,2.9,STEEL);
     }
+    const transforms=[];
     for(let i=0;i<16;i++){
       const q=m.frameAt(i*m.length/16+130,{}),b=local(this.kit,q),side=q.curvature>0?-1:1;
+      const panel=new T.Object3D();
+      panel.position.copy(b.p(-2.05,side*19,3.9));
+      panel.rotation.y=Math.atan2(-q.tx,-q.tz);panel.updateMatrix();transforms.push(panel.matrix.clone());
       b.block(0,side*19,1.4,3.6,2.4,2.8,0xb2aca0);b.block(0,side*19,2.2,3.66,2.48,.8,GLASS,'glass');b.block(0,side*19,3,4.4,3.4,.24,DARK);
       b.sign('MP  '+String(i+1).padStart(2,'0'),-1.84,side*19,1.1,2.1,.82);
     }
+    const lightMaterial=new T.MeshBasicMaterial({color:0xffffff,side:T.DoubleSide,toneMapped:false});
+    this.chequer={value:0};
+    lightMaterial.onBeforeCompile=s=>{
+      s.uniforms.chequer=this.chequer;
+      s.vertexShader='varying vec2 flagUV;\n'+s.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\n flagUV=uv;');
+      s.fragmentShader='uniform float chequer; varying vec2 flagUV;\n'+s.fragmentShader.replace('#include <color_fragment>','#include <color_fragment>\n diffuseColor.rgb*=mix(1.,mix(.045,1.,mod(floor(flagUV.x*6.)+floor(flagUV.y*4.),2.)),chequer);');
+    };
+    this.marshalPanels=new T.InstancedMesh(new T.PlaneGeometry(1.65,.98),lightMaterial,transforms.length);
+    transforms.forEach((m,i)=>this.marshalPanels.setMatrixAt(i,m));
+    this.group.add(this.marshalPanels);this.marshalSignal('GREEN');
     for(const {name,start,end} of world.apex.sections){
       const f=m.frameAt(start-12,{}),b=local(this.kit,f),side=-Math.sign(m.frameAt((start+end)/2,{}).curvature)||1;
       b.block(0,side*17,1.65,.25,.27,3.3,STEEL);b.sign(name.toUpperCase(),-.2,side*17,2.6,5.7,1.16);
@@ -150,6 +175,18 @@ export class ApexPark extends ApexWoodland{
         g.sign(String(d),-.1,side*11,1.68,1.75,.94,'traffic','white');
       }
     }
+    const crossing=local(this.kit,m.frameAt(world.apex.stations[39],{}));
+    for(const side of [-1,1]){
+      crossing.block(0,side*22,3.5,1.6,2.4,7,0x918f84);
+      for(let n=0;n<14;n++)crossing.block(-n*.65,side*23,6.94-n*.45,1.35,2.15,.30,0x95958b);
+      crossing.beam(.2,side*24,8,-8.3,side*24,2.15,.10,STEEL);
+    }
+    crossing.block(0,0,7.24,3.1,47,.55,0x898e8e,'steel');
+    for(const u of [-1.48,1.48]){
+      crossing.beam(u,-23,9.22,u,23,9.22,.15,STEEL);
+      for(let v=-23;v<22;v+=2.5)crossing.beam(u,v,7.5,u,v+2.5,9.22,.10,STEEL);
+    }
+    crossing.sign('V E L O C I T Y    /    A P E X',-1.62,0,8.16,16,1.42,'traffic','dark');
     const br=m.frameAt(world.apex.bridge,{}),b=local(this.kit,br);
     b.block(0,0,-1.02,89,16.6,1.85,0x929591);
     for(const v of [-8.2,8.2]){
@@ -163,7 +200,14 @@ export class ApexPark extends ApexWoodland{
     finishPaddock(a,this.kit,rand);this.crew=crewModel();this.group.add(this.crew);
     this.facades(a);
     this.makeTimingBoard(a);
+    const screen=document.createElement('canvas');screen.width=320;screen.height=180;
+    this.screenCtx=screen.getContext('2d');this.screenMap=new T.CanvasTexture(screen);this.screenMap.colorSpace=T.SRGBColorSpace;
+    this.screen=new T.Mesh(new T.PlaneGeometry(15,8.45),new T.MeshBasicMaterial({map:this.screenMap,side:T.DoubleSide,toneMapped:false}));
+    this.screen.position.copy(a.p(112,-27,17));this.screen.rotation.y=Math.atan2(f.rx,f.rz);
+    this.group.add(this.screen);block(112,-27,9,1.1,.85,13,STEEL);this.telecast(0,world.routes.loop,null,[]);
+
     this.lights=[-120,0,120].map(u=>{const l=new T.PointLight(0xffebd4,4100,115,1.65);l.position.copy(a.p(u,6,14));this.group.add(l);return l;});
+    this.fields=outerGrounds(world,this.kit,local,rand);this.group.add(this.fields);
     this.kit.finish();this.setQuality(options.quality);
     const pos=a.p(178,-25,0);
     this.towerReady=new GLTFLoader().loadAsync(new URL('../assets/maps/apex-pylon.glb',import.meta.url).href).then(({scene})=>{
@@ -185,6 +229,19 @@ export class ApexPark extends ApexWoodland{
       ctx.font='bold 27px Arial';ctx.fillStyle='#e3e0d4';ctx.fillText(s,80,y);ctx.font='bold 63px monospace';ctx.fillStyle='#f9ad48';ctx.fillText(v,80,y+65);
     }
     ctx.font='bold 39px monospace';ctx.fillStyle='#e4b56e';ctx.fillText(Math.floor(second/60)+':'+String(second%60).padStart(2,'0'),80,451);this.boardMap.needsUpdate=true;
+  }
+  telecast(seconds,route,player,field){
+    const stamp=Math.floor(seconds);
+    if(stamp===this.screenStamp && this.screenRoute===route)return;
+    this.screenStamp=stamp;this.screenRoute=route;
+    const ctx=this.screenCtx,road=this.world.roads[route.roadId],x=v=>164+v*.099,y=v=>92+v*.084;
+    ctx.fillStyle='#152528';ctx.fillRect(0,0,320,180);ctx.fillStyle='#f4ece0';ctx.font='bold 16px Arial';ctx.fillText('APEX  /  LIVE TIMING',10,20);
+    ctx.beginPath();for(let i=0;i<road.count;i+=6){if(i)ctx.lineTo(x(road.px[i]),y(road.pz[i]));else ctx.moveTo(x(road.px[i]),y(road.pz[i]));}
+    ctx.closePath();ctx.strokeStyle='#aeb9ad';ctx.lineWidth=2;ctx.stroke();
+    const dot=(p,color)=>{ctx.fillStyle=color;ctx.beginPath();ctx.arc(x(p.x),y(p.z),3,0,Math.PI*2);ctx.fill();};
+    for(const b of field)if(!b.done)dot(b.car.position,'#e3aa59');
+    if(player)dot(player,'#fc7863');
+    ctx.font='bold 12px monospace';ctx.fillStyle='#e6dfcf';ctx.fillText(new Date(stamp*1000).toISOString().slice(11,19),237,20);this.screenMap.needsUpdate=true;
   }
   pitCrew(service){
     this.crew.visible=service?.phase==='service';
@@ -213,9 +270,22 @@ export class ApexPark extends ApexWoodland{
     return {...f,x:q.x,y:q.y+v*f.bank,z:q.z};
   }
   setQuality(q){super.setQuality(q);this.density=Math.min(1,q?.trees??1);this.kit?.crowd(this.density*(this.standsDensity??1));}
-  setEvent(race){this.standsDensity=race?1:.37;this.kit.crowd(this.density*this.standsDensity);}
+  setEvent(density){this.standsDensity=density;this.kit.crowd(this.density*this.standsDensity);}
+  marshalSignal(flag,position){
+    let local=-1;
+    if(position && (flag==='YELLOW'||flag==='BLUE')){
+      const road=this.park.main,loc=this.signalLoc??={};
+      if(road.locate(position.x,position.z,loc,position.y))
+        local=((Math.floor((loc.s-130)/road.length*16)%16)+16)%16;
+    }
+    const key=flag+local;if(key===this.signalKey)return;this.signalKey=key;
+    this.chequer.value=flag==='CHEQUERED'?1:0;
+    for(const light of this.pitLamps)light.material.color.setHex(flag==='RED'?flagColors.RED:flag==='FULL COURSE YELLOW'?flagColors.YELLOW:flagColors.GREEN);
+    for(let i=0;i<this.marshalPanels.count;i++)this.marshalPanels.setColorAt(i,this.kit.color.setHex(local<0||i===local?flagColors[flag]:flagColors.GREEN));
+    this.marshalPanels.instanceColor.needsUpdate=true;
+  }
   setSignals(state,countdown){this.startLights.forEach((m,i)=>m.material.color.setHex(state==='countdown' && i<Math.ceil((3.5-countdown)*1.5)?0xff2b15:0x38292a));}
-  update(view,dt,night,car,camera){super.update(view,dt,night,car,camera);for(const l of this.lights)l.visible=!!night;this.garageSkin.material.emissiveIntensity=night?.9:.12;}
-  dispose(){this.board.geometry.dispose();this.board.material.dispose();this.boardMap.dispose();this.crew.userData.dispose();this.pylon?.traverse(n=>{if(n.isMesh){n.geometry.dispose();for(const mat of [].concat(n.material))mat.dispose();}});this.garageSkin.geometry.dispose();this.garageSkin.material.map.dispose();this.garageSkin.material.dispose();this.kit.dispose();for(const l of this.startLights){l.geometry.dispose();l.material.dispose();}super.dispose();}
+  update(view,dt,night,car,camera){super.update(view,dt,night,car,camera);this.kit.wind.value+=dt;this.kit.cull(view,.6+this.density*.55);this.landscape.update(view,.6+this.density*.55);for(const l of this.lights)l.visible=!!night;this.garageSkin.material.emissiveIntensity=night?.9:.12;}
+  dispose(){this.screen.geometry.dispose();this.screen.material.dispose();this.screenMap.dispose();this.fields.geometry.dispose();this.fields.material.dispose();this.landscape.dispose();this.marshalPanels.geometry.dispose();this.marshalPanels.material.dispose();this.marshalPanels.dispose();this.board.geometry.dispose();this.board.material.dispose();this.boardMap.dispose();this.crew.userData.dispose();this.pylon?.traverse(n=>{if(n.isMesh){n.geometry.dispose();for(const mat of [].concat(n.material))mat.dispose();}});this.garageSkin.geometry.dispose();this.garageSkin.material.map.dispose();this.garageSkin.material.dispose();this.kit.dispose();for(const l of [...this.startLights,...this.pitLamps]){l.geometry.dispose();l.material.dispose();}super.dispose();}
 }
 

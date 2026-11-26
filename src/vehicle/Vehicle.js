@@ -687,7 +687,7 @@ export class Vehicle {
     const abs = this.assists.abs;
     for (let wi = 0; wi < 4; wi++) {
       const w = this.wheels[wi];
-      w.fx = 0; w.fy = 0; w.boundX = 0; w.boundY = 0; w.bound = 0;
+      w.fx = 0; w.fy = 0; w.absActive = false; w.boundX = 0; w.boundY = 0; w.bound = 0;
       w.locked = false;
       w.steer = w.front ? frontWheelAngle(this.steerAngle, w.mount.x, this.wheelbase) : 0;
       if (!w.contact) { w.accX = 0; w.accY = 0; w.slip = 0; continue; }
@@ -787,6 +787,7 @@ export class Vehicle {
       const room = Math.sqrt(Math.max(0, w.muN * w.muN - fx * fx - fy * fy));
       w.bound = room;
       w.boundY = (1 - w.blend) * room;
+      w.absActive = abs && Math.abs(w.vLong) > 1.5 && brakeForce > room * b.absRatio;
       if (brakeForce > 0) w.boundX = abs ? Math.min(brakeForce, room * b.absRatio) : brakeForce;
       if (this.hillHold) w.boundX = Math.max(w.boundX, b.hillHoldForce);
       if (w.slip < 1 && brakeForce > 0) w.slip = Math.max(w.slip, Math.min(brakeForce, w.muN) / Math.max(1, w.muN));

@@ -3,6 +3,18 @@ import { clamp, smoothstep } from '../core/math.js';
 const HASH_CELL = 40; // metres; locate() searches the 3x3 cells around a point
 const HASH_OFFSET = 512;
 
+// Broad phase for venues with several overlapping timing layouts. Include the
+// same nine cells as locate(), preserving road order and both decks at flyovers.
+export function indexPhysicalRoads(roads){
+  const cells=new Map(),empty=[];
+  for(const road of roads){
+    const reaches=new Set();
+    for(const key of road.hash.keys())for(let dx=-1;dx<=1;dx++)for(let dz=-1;dz<=1;dz++)reaches.add(key+dx*2048+dz);
+    for(const key of reaches){if(!cells.has(key))cells.set(key,[]);cells.get(key).push(road);}
+  }
+  return (x,z)=>cells.get((Math.floor(x/HASH_CELL)+HASH_OFFSET)*2048+Math.floor(z/HASH_CELL)+HASH_OFFSET)||empty;
+}
+
 function gaussianSmooth(values, sigmaSamples, closed) {
   const count = values.length;
   const radius = Math.max(1, Math.ceil(sigmaSamples * 3));

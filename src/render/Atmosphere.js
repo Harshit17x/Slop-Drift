@@ -293,7 +293,9 @@ export class Atmosphere {
     this.cloudsEnabled = quality?.clouds !== false;
     const shadow = this.sun.shadow;
     this.sun.castShadow = size > 0;
-    shadow.autoUpdate = size > 0;
+    this.shadowInterval=this.world?.apex && size===1024?1/25:0;
+    this.shadowClock=0;shadow.autoUpdate=size>0&&!this.shadowInterval;
+    shadow.needsUpdate=size>0;
     if (size > 0 && (shadow.mapSize.x !== size || !this.shadowMapSize)) {
       shadow.mapSize.set(size, size);
       shadow.map?.dispose();
@@ -308,6 +310,7 @@ export class Atmosphere {
 
   applyClouds() {
     const uniforms = this.sky.material.uniforms;
+    if(this.world?.apex)uniforms.cloudScale.value=.00065;
     uniforms.cloudCoverage.value = this.cloudsEnabled ? this.preset.clouds : 0;
     uniforms.cloudDensity.value = this.preset.cloudDensity;
   }
@@ -481,6 +484,12 @@ export class Atmosphere {
       const alongUp = focus.dot(scratchUp);
       focus.addScaledVector(scratchRight, Math.round(alongRight / texel) * texel - alongRight);
       focus.addScaledVector(scratchUp, Math.round(alongUp / texel) * texel - alongUp);
+    }
+    if(this.shadowInterval && this.sun.castShadow){
+      this.shadowClock+=dt;
+      if(this.shadowClock>=this.shadowInterval || !dt){
+        this.sun.shadow.needsUpdate=true;this.shadowClock=0;
+      }
     }
     this.sun.target.position.copy(focus);
     this.sun.position.copy(focus).addScaledVector(this.sunDirection, SHADOW_DISTANCE);

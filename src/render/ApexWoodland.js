@@ -9,8 +9,9 @@ export class ApexWoodland{
     this.atlas=new T.TextureLoader().load(new URL('../assets/maps/apex-woodland.webp',import.meta.url).href);
     this.atlas.colorSpace=T.SRGBColorSpace;this.atlas.anisotropy=4;
     const material=this.canopy=new T.ShaderMaterial({side:T.DoubleSide,fog:true,uniforms:{
-      ...T.UniformsUtils.clone(T.UniformsLib.fog),atlas:{value:this.atlas},light:{value:1}
+      ...T.UniformsUtils.clone(T.UniformsLib.fog),atlas:{value:this.atlas},light:{value:1},wind:{value:0}
     },vertexShader:`
+      uniform float wind;
       attribute vec4 tree; attribute vec2 variety;
       varying vec2 vUv; varying float shade;
       #include <fog_pars_vertex>
@@ -18,6 +19,7 @@ export class ApexWoodland{
         vec3 centre=tree.xyz;vec2 toward=normalize(cameraPosition.xz-centre.xz+vec2(.0001));
         vec3 right=vec3(toward.y,0.,-toward.x);
         vec3 p=centre+right*position.x*tree.w+vec3(0.,(position.y+.5)*tree.w,0.);
+        p.xz+=vec2(.09,.038)*tree.w*.16*uv.y*uv.y*sin(wind+tree.x*.047+tree.z*.021);
         vec2 cell=vec2(mod(variety.x,2.),1.-floor(variety.x/2.));
         vUv=(cell+clamp(uv,vec2(.003),vec2(.997)))*.5;
         shade=variety.y*mix(.72,1.0,uv.y);
@@ -60,7 +62,7 @@ export class ApexWoodland{
     this.quad=base;world.setObstacles(solid);this.setQuality(quality);
   }
   setQuality(q){const fraction=Math.min(1,.32+.64*(q?.trees??1));for(const mesh of this.forestTiles)mesh.geometry.instanceCount=Math.ceil(mesh.userData.count*fraction);}
-  update(view,dt,night){this.canopy.uniforms.light.value=night?.09:this.skyLight??1.2;}
+  update(view,dt,night){this.canopy.uniforms.wind.value+=dt*.95;this.canopy.uniforms.light.value=night?.09:this.skyLight??1.2;}
   dispose(){for(const tree of this.forestTiles)tree.geometry.dispose();this.quad.dispose();this.atlas.dispose();this.canopy.dispose();}
 }
 

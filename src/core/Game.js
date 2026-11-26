@@ -168,7 +168,7 @@ export class Game {
         else if (this.world.bridge) ({ JungleCanopy: Forest } = await import('../render/JungleCanopy.js'));
         else if (this.world.apex) ({ApexPark:Forest}=await import('../render/ApexPark.js'));
         else Forest = Scenery;
-        this.scenery = new Forest({ world: this.world, quality: activeQuality });
+        this.scenery = new Forest({ world: this.world, quality: activeQuality, cutRock:this.terrain?.cutRock });
         this.scene.add(this.scenery.group);
         if (this.scenery.towerReady) await this.scenery.towerReady;
         if (this.map.id === 'hollow') await this.scenery.loadCoupe(this.world);
@@ -479,7 +479,7 @@ export class Game {
     this.partyRace?.onRunStart(modeId, options);
     this.audio.unlock();
     this.mode = mode;
-    this.session = new RaceSession({ world: this.world, mode: this.mode, records: mode.id==='apex-meeting'?{}:this.records });
+    this.session = new RaceSession({ world: this.world, mode: this.mode, records: mode.id==='apex-meeting'?(this.apexMeeting.sessionType==='timeTrial'?this.apexMeeting.trialRecords(mode.route):{}):this.records });
     const spawn=this.session.getStartPose(this.pose);
     if(mode.id==='roam' && this.world.sites){
       const p=this.world.sites.garage;
@@ -489,7 +489,7 @@ export class Game {
     this.vehicle.teleport(spawn);
     this.adventure?.runStart(modeId);
     this.apexMeeting?.start(this.mode,options.party);
-    if(mode.id==='apex-meeting')this.meta.leaveRun();
+    if(mode.id==='apex-meeting'){this.meta.leaveRun();this.apexMeeting.beginTrial();}
     if(mode.id!=='apex-meeting')this.meta.beginRun(this.mode.id, this.settings.timeOfDay);
     this.meta.joinRoom(this.mode.id);
     this.drift.reset();
@@ -629,6 +629,7 @@ export class Game {
       this.platform?.happytime();
     }
     this.hud.showFinish(result, rewards);
+    this.apexMeeting?.showClassification();
     this.partyRace?.onFinish(result);
     this.cameraRig.startBlend();
   }
@@ -756,7 +757,7 @@ export class Game {
 
   updateRunning(dt, input) {
     const controls = this.controls;
-    const boosting = Boolean(getCar(this.carId).nitro) && input.boost && input.throttle > 0.1 && this.nitro > 0.5;
+    const boosting = !this.apexMeeting?.gt && Boolean(getCar(this.carId).nitro) && input.boost && input.throttle > 0.1 && this.nitro > 0.5;
     // Crash damage: a crushed nose loses power, bent front suspension pulls to one side.
     controls.throttle = input.throttle * this.damage.powerFactor;
     controls.brake = input.brake;
@@ -816,6 +817,7 @@ export class Game {
   }
 
   handleSessionEvent(event) {
+    if (event.type === 'apexLimit') this.hud.toast('Track limits · lap invalid' + (event.penalty ? ' · +' + event.penalty + ' s total' : ''), 'warn');
     this.meta.sessionEvent(event);
     if (event.type === 'checkpoint') {
       this.audio.checkpoint();
@@ -970,7 +972,7 @@ export class Game {
     this.landmarks?.update?.(camera);
     this.roads.jungle?.update(camera.position);
     this.updateHud(state);
-    this.renderer.render(this.scene, camera);
+    if(!this.apexMeeting?.renderPhoto(camera))this.renderer.render(this.scene, camera);
   }
 
   /** On a player's first three drives, show the controls until they get moving. */
@@ -1057,6 +1059,7 @@ export class Game {
     document.removeEventListener('visibilitychange', this.onVisibility);
     if (this.onContextLost) this.canvas?.removeEventListener('webglcontextlost', this.onContextLost);
     if (this.onContextRestored) this.canvas?.removeEventListener('webglcontextrestored', this.onContextRestored);
+    this.platform?.dispose();
     this.input?.destroy();
     this.meta?.dispose();
     this.partyRace?.dispose();

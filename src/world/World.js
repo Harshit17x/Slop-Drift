@@ -728,15 +728,16 @@ export class World {
     let bestDistance = Infinity;
     let bestY = 0;
     let bestSurface = SURFACE.GRASS;
+    let surfaceGrip = 1, selectedWetness = 0;
     let gradX = 0;
     let gradZ = 0;
     let bestRoad = -1;
     let roadSurface = SURFACE.ASPHALT;
     let wet = 0;
-    const physical = this.physicalRoads || this.roads;
+    const physical = this.apex ? this.apex.roadsAt(x,z) : this.roads;
 
     for (let r = 0; r < physical.length; r += 1) {
-      const current = this.roads[r];
+      const current = physical[r];
       if (!current.locate(x, z, scratchLocation, this.layered ? referenceY : undefined) || scratchLocation.beyondEnd) continue;
       if (this.layered && scratchLocation.y + (this.apex ? scratchLocation.lateral * scratchLocation.bank : 0) > referenceY + 1.65) continue;
       const halfWidth = scratchLocation.halfWidth;
@@ -778,7 +779,9 @@ export class World {
         bestClass = surfaceClass;
         bestY = y;
         bestDistance = a;
-        bestRoad = r;
+        selectedWetness = wet;
+        if (this.apex) surfaceGrip = surfaceClass === 0 ? this.apex.surfaceState.grip(current,scratchLocation,wet) : 1;
+        bestRoad = current.id;
         if (this.config.map === 'hollow') {
           roadSurface = r === 9 ? SURFACE.DIRT : r === 2
             ? (scratchLocation.s>=1830 && scratchLocation.s<1870 ? SURFACE.WOOD : scratchLocation.s > 3310 && scratchLocation.s < 3480 ? SURFACE.MUD : SURFACE.GRAVEL)
@@ -786,6 +789,10 @@ export class World {
         }
         bestSurface = surfaceClass === 0 ? roadSurface
           : surfaceClass === 1 ? SURFACE.GRAVEL : SURFACE.GRASS;
+        if(this.apex && surfaceClass===1 && a>halfWidth+.6){
+          const shoulder=this.apex.shoulder(current,scratchLocation.index,side);
+          bestSurface=shoulder==='paved'?SURFACE.ASPHALT:shoulder==='grass'?SURFACE.GRASS:SURFACE.GRAVEL;
+        }
         const lateralSlope = scratchLocation.bank + side * Road.profileSlope;
         // Horizontal tangent is (rz, -rx); height gradient = grade * tangent + lateralSlope * right.
         gradX = scratchLocation.grade * scratchLocation.rz + lateralSlope * scratchLocation.rx;
@@ -824,8 +831,8 @@ export class World {
       out.ny = inverse;
       out.nz = -gradZ * inverse;
       out.surface = surface;
-      out.grip = props.grip * (1 - 0.43 * wet) * (this.apex?.tyreGrip??1);
-      out.rolling = props.rolling * (1 + wet);
+      out.grip = props.grip * (1 - 0.43 * (this.apex ? selectedWetness : wet)) * surfaceGrip * (this.apex?.tyreGrip??1);
+      out.rolling = props.rolling * (1 + (this.apex ? selectedWetness : wet));
       out.roughness = props.roughness;
       out.roadId = bestRoad;
       return out;
@@ -877,8 +884,9 @@ export class World {
       return out;
     }
     let best = Infinity;
-    for (let r = 0; r < (this.physicalRoads || this.roads).length; r += 1) {
-      if (this.roads[r].locate(x, z, scratchLocationB, layerY) && (layerY === undefined || Math.abs(scratchLocationB.y-layerY)<3) && scratchLocationB.distance < best) {
+    const physical = this.apex ? this.apex.roadsAt(x,z) : this.roads;
+    for (let r = 0; r < physical.length; r += 1) {
+      if (physical[r].locate(x, z, scratchLocationB, layerY) && (layerY === undefined || Math.abs(scratchLocationB.y-layerY)<3) && scratchLocationB.distance < best) {
         best = scratchLocationB.distance;
         Object.assign(out, scratchLocationB);
       }
@@ -894,8 +902,9 @@ export class World {
     out.nx = 0;
     out.nz = 0;
 
-    for (let r = 0; r < (this.physicalRoads || this.roads).length; r += 1) {
-      const current = this.roads[r];
+    const physical = this.apex ? this.apex.roadsAt(x,z) : this.roads;
+    for (let r = 0; r < physical.length; r += 1) {
+      const current = physical[r];
       if (!current.locate(x, z, scratchLocation, this.layered ? y : undefined) || scratchLocation.beyondEnd) continue;
       if (this.layered && y < scratchLocation.y+(this.apex?scratchLocation.bank*scratchLocation.lateral:0)-0.6) continue;
       const railAt = scratchLocation.halfWidth + road.shoulder + road.railOffset + (scratchLocation.lateral<0?current.escapeLeft?.[scratchLocation.index]??0:current.escapeRight?.[scratchLocation.index]??0);

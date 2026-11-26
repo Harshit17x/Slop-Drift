@@ -4,7 +4,7 @@ import {clamp} from '../core/math.js';
 // suspension model. This session owns consumables and timed service only.
 export class ApexService{
   constructor(pit,box,limit=60){
-    this.pit=pit;this.box=box;this.limit=limit;this.fuel=64;this.tyres=1;this.brakes=1;
+    this.pit=pit;this.box=box;this.limit=limit;this.fuel=64;this.tyres=1;this.brakes=1;this.tyreTemp=52;
     this.elapsed=0;this.duration=0;this.phase='track';this.loc={};this.stops=0;
     this.tasks={fuel:true,tyres:true,repair:true};
   }
@@ -33,7 +33,7 @@ export class ApexService{
       this.elapsed+=dt;
       if(this.elapsed<this.duration)return;
       if(this.plan.fuel)this.fuel=90;
-      if(this.plan.tyres)this.tyres=1;
+      if(this.plan.tyres){this.tyres=1;this.tyreTemp=52;}
       if(this.plan.repair)this.brakes=1;
       this.phase='released';this.stops++;return this.plan;
     }

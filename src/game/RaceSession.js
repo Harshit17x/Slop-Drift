@@ -56,7 +56,7 @@ export class RaceSession {
 
     // Kind of run.
     const laps = mode.laps | 0;
-    if (laps > 0 && this.closed) this.kind = 'laps';
+    if ((laps > 0 || mode.practice) && this.closed) this.kind = 'laps';
     else if (laps > 0) this.kind = 'p2p';
     else if (mode.timeLimit > 0) this.kind = 'score';
     else this.kind = 'free';
@@ -83,6 +83,11 @@ export class RaceSession {
     this.nextGate = 0; // 0..cpCount-1 = checkpoint, cpCount = lap / finish line
     this.lapStart = 0;
     this.lastLap = null;
+    this.limitGrace = mode.limitGrace ?? .65;
+    this.trackWarnings = 0;
+    this.penaltySeconds = 0;
+    this.lapInvalid = false;
+    this.hadInvalidLap = false;
     this.sessionBestLap = null;
     this.lapTimes = [];
     this.splits = new Array(this.totalLaps * this.cpCount).fill(null);
@@ -147,6 +152,7 @@ export class RaceSession {
 
   addRespawn() {
     this.respawns += 1;
+    if (this.world.apex && this.isRace) this.hadInvalidLap = this.lapInvalid = true;
     this._respawnPending = true;
   }
 
@@ -176,8 +182,8 @@ export class RaceSession {
 
     if(this.world.apex && this.isRace && located && this.apexExitD!=null){
       const resumed=this._dOf(loc.s),jump=wrapSigned(resumed-this.apexExitD,this.roadLength);
-      if(Math.abs(jump)>36 && !this._respawnPending)located=false;
-      else this.apexExitD=null;
+      if (!this._respawnPending && jump > 0 && this._distTo(this._gateD(this.nextGate), this.apexExitD) <= jump) this._legit = false;
+      this.apexExitD = null;
     }
     if (located) {
       const d = this._dOf(loc.s);
@@ -196,7 +202,25 @@ export class RaceSession {
       this._respawnPending = false;
     }
 
-    if (!located && this.world.apex) { if(this._hasPrev && this.isRace)this.apexExitD??=this._prevD;this._hasPrev=false;this._budget=0; }
+    if (this.world.apex && this.isRace) {
+      if (!located) {
+        if (this._hasPrev) this.apexExitD = this._prevD;
+        this._hasPrev = false;
+        this._budget = 0;
+        this.outsideSeconds = (this.outsideSeconds || 0) + dt;
+        if (!this.warnedHere && this.outsideSeconds >= this.limitGrace) {
+          this.warnedHere = true;
+          this.lapInvalid = true;
+          this.hadInvalidLap = true;
+          this.trackWarnings++;
+          if (this.trackWarnings % 3 === 0) this.penaltySeconds += 5;
+          events.push({type:'apexLimit', count:this.trackWarnings, penalty:this.penaltySeconds});
+        }
+      } else {
+        this.outsideSeconds = 0;
+        this.warnedHere = false;
+      }
+    }
     if (this.finished) {
       this._writeHud();
       return events;
@@ -360,7 +384,7 @@ export class RaceSession {
     const index = this.nextGate;
     if (index < this.cpCount) {
       const k = this.lapsDone * this.cpCount + index;
-      if (k < this.splits.length) this.splits[k] = t;
+      if (this.mode.practice || k < this.splits.length) this.splits[k] = t;
       const record = this._record(false);
       const best = record && Array.isArray(record.splits) ? record.splits[k] : null;
       events.push({ type: 'checkpoint', index, total: this.cpCount, split: typeof best === 'number' ? t - best : null });
@@ -385,16 +409,18 @@ export class RaceSession {
     const recordLap = record && typeof record.bestLap === 'number' ? record.bestLap : null;
     let prevBest = recordLap;
     if (this.sessionBestLap !== null && (prevBest === null || this.sessionBestLap < prevBest)) prevBest = this.sessionBestLap;
-    const isBest = prevBest === null || lapTime < prevBest;
-    if (this.sessionBestLap === null || lapTime < this.sessionBestLap) this.sessionBestLap = lapTime;
-    if (recordLap === null || lapTime < recordLap) this._record(true).bestLap = lapTime;
-    events.push({ type: 'lap', lap: this.lapsDone, time: lapTime, isBest });
+    const isBest = !this.lapInvalid && (prevBest === null || lapTime < prevBest);
+    if (!this.lapInvalid && (this.sessionBestLap === null || lapTime < this.sessionBestLap)) this.sessionBestLap = lapTime;
+    if (!this.lapInvalid && (recordLap === null || lapTime < recordLap)) this._record(true).bestLap = lapTime;
+    events.push({ type: 'lap', lap: this.lapsDone, time: lapTime, isBest, invalid: this.lapInvalid });
+    this.lapInvalid = false;
     this.nextGate = 0;
-    if (this.lapsDone >= this.totalLaps) this._finish(t, events);
+    if (!this.mode.practice && this.lapsDone >= this.totalLaps) this._finish(t, events);
   }
 
   _finish(time, events) {
     this.finished = true;
+    time += this.penaltySeconds;
     this.elapsed = time;
     const id = this.mode.id;
     const prior = this._record(false);
@@ -409,7 +435,7 @@ export class RaceSession {
         bestScore = score;
       }
     } else {
-      isRecord = bestTime === null || time < bestTime;
+      isRecord = !this.hadInvalidLap && (bestTime === null || time < bestTime);
       if (isRecord) {
         const record = this._record(true);
         record.time = time;
@@ -440,7 +466,7 @@ export class RaceSession {
     if (this.kind === 'laps') {
       // Behind the line before the first checkpoint of a lap counts as the start of the lap.
       if (this.nextGate === 0 && lapFrac > 0.5) lapFrac = 0;
-      return saturate((this.lapsDone + lapFrac) / this.totalLaps);
+      return this.mode.practice ? saturate(lapFrac) : saturate((this.lapsDone + lapFrac) / this.totalLaps);
     }
     return saturate(lapFrac);
   }
@@ -448,7 +474,7 @@ export class RaceSession {
   _writeHud() {
     const hud = this.hud;
     hud.elapsed = this.elapsed;
-    hud.lap = this.totalLaps > 0 ? Math.min(this.lapsDone + 1, this.totalLaps) : 0;
+    hud.lap = this.mode.practice ? this.lapsDone + 1 : this.totalLaps > 0 ? Math.min(this.lapsDone + 1, this.totalLaps) : 0;
     if (this.kind === 'laps') hud.lapTime = this.finished ? this.lastLap || 0 : this.elapsed - this.lapStart;
     else hud.lapTime = this.elapsed;
     const record = this.records[this.mode.id];

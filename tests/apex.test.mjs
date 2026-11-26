@@ -1,4 +1,7 @@
+import {Group,Vector3,BufferGeometry,MeshBasicMaterial,Texture} from 'three';
+import {ApexGrid} from '../src/game/ApexGrid.js';
 import assert from 'node:assert/strict';
+import {controlFlag,capUnderFlag} from '../src/game/apexControl.js';
 import {World} from '../src/world/World.js';
 import {MAPS} from '../src/world/maps.js';
 import {modesForWorld} from '../src/config.js';
@@ -11,6 +14,7 @@ const t=performance.now(),world=await new World(MAPS.apex.config).build(),{main,
 console.log('World build',Math.round(performance.now()-t),'ms');
 const frame=(road,s)=>road.frameAt(s,{});
 assert.equal(Object.keys(world.routes).length,6);
+assert.deepEqual(Object.keys(world.routes).filter(k=>world.routes[k].pitPath).sort(),['bowl','gp','international','loop']);
 assert(Math.max(...main.py)-Math.min(...main.py)>143);
 for(const s of [bridge,under]){
   const p=frame(main,s),q=world.sampleGround(p.x,p.z,{},p.y+.5);
@@ -32,6 +36,64 @@ for(const [id,route] of Object.entries(world.routes)){
   console.log(id,route.metres.toFixed(1),'m, worst contact error',worst.toFixed(3),'m');
 }
 for(const r of world.physicalRoads){for(let i=0;i<r.count;i+=2){for(const side of [-.9,0,.9]){const d=side*r.halfWidth[i],y=r.py[i]+d*r.bank[i];assert(world.grid.heightAt(r.px[i]+d*r.rx[i],r.pz[i]+d*r.rz[i])<=y+.035,'terrain clips '+r.name+' at '+(i*r.spacing).toFixed(1));}}}
+// A long legal rejoin used to lock tracking until the car returned to its exit point.
+{
+  const mode={id:'limits',route:'loop',laps:1,limitGrace:.6},session=new RaceSession({world,mode});
+  const at=(s,d=0)=>{const f=frame(main,s);return {position:{x:f.x+d*f.rx,y:f.y,z:f.z+d*f.rz},speed:30};};
+  session.update(.1,at(70));session.update(.8,at(72,-55));
+  assert(session.lapInvalid && session.trackWarnings===1);
+  session.update(.1,at(155));assert(Math.abs(session._curD-155)<1 && session._legit);
+  for(let i=0;i<2;i++){session.update(.8,at(160,-55));session.update(.1,at(164));}
+  assert.equal(session.penaltySeconds,5);
+  session.update(.8,at(175,-56));session.update(.1,at(session.cpD[0]+15));
+  assert(!session._legit && session.nextGate===0,'skipping a timing gate must not count');
+  session.getRespawnPose({position:{},quaternion:{}});session.addRespawn();session.update(.1,at(165));
+  assert(session._legit);
+  const p={speed:12,upsideDown:false},field=[{d:session.L+165-20,speed:22}];
+  assert.equal(controlFlag(session,p,field,165,0),'BLUE');
+  assert.equal(controlFlag(session,p,[],165,1.1),'FULL COURSE YELLOW');
+  assert.equal(capUnderFlag(controlFlag(session,p,[],165,9)),0);
+  const surface=world.apex.surfaceState,s=335,p0=frame(main,s),loc={};
+  assert(main.locate(p0.x,p0.z,loc,p0.y));
+  const grip=surface.grip(main,loc,0),wet=surface.grip(main,loc,.9);
+  for(let i=0;i<30;i++)surface.deposit(p0);
+  assert(surface.grip(main,loc,0)>grip && surface.grip(main,loc,.9)<wet);
+  console.log('Track-limit recovery, invalid lap, missed gate, penalties, flag states and rubber-dependent grip passed');
+}
+{
+  // The pit route crosses the timing line. It finishes a legitimate lap,
+  // while repeated trips through the lane cannot substitute for the checkpoints.
+  const lap=new RaceSession({world,mode:{id:'pit-check',route:'loop',laps:1}});
+  const update=(s,pitLane=false)=>{const p=frame(pitLane?pit:main,s);lap.update(.1,{position:p,speed:30});};
+  for(let d=-6;d<main.length-360;d+=3)update(d);
+  for(let d=0;d<pit.length;d+=3)update(d,true);
+  assert(lap.finished && lap.lapsDone===1 && !lap.hadInvalidLap,'legal pit finish');
+  const cut=new RaceSession({world,mode:{id:'pit-cut',route:'loop',laps:1}});
+  for(let i=0;i<2;i++)for(let d=0;d<pit.length;d+=3)cut.update(.1,{position:frame(pit,d),speed:30});
+  assert(!cut.finished && cut.lapsDone===0,'pit shortcut');
+}
+{
+  const player={position:new Vector3(-1790,40,-1790),speed:0};
+  const game={world,scene:new Group(),atmosphere:{isNight:false},apexMeeting:{boxIndex:7,service:{limit:60}},
+    vehicle:{getState:()=>player,velocity:new Vector3()},mode:{laps:2}};
+  const grid=Object.assign(Object.create(ApexGrid.prototype),{game,field:[],lenses:[],template:new Group(),
+    plates:Array.from({length:3},()=>new MeshBasicMaterial({map:new Texture()})),plateGeometry:new BufferGeometry()});
+  for(const route of Object.values(world.routes)){
+    game.session={route,_loc:{lateral:0}};
+    grid.start(3,1);
+    let steps=0;
+    while(grid.field.some(b=>!b.done) && steps++<12000)grid.update(.1,-400);
+    assert(grid.field.every(b=>b.done && b.bestLap>0 && Number.isFinite(b.car.quaternion.w)),'AI field failed '+route.id);
+    assert(grid.field.every(b=>b.pitted===Boolean(route.pitPath)),'AI pit decision '+route.id);
+    console.log(route.id,'three AI finished two laps; pit stops',grid.field.filter(b=>b.pitted).length);
+  }
+  game.session={route:world.routes.loop,_loc:{lateral:0}};grid.start(1,1);
+  const bot=grid.field[0],f=frame(main,bot.d);
+  player.position.copy(bot.car.position).addScaledVector(new Vector3(f.rx,0,f.rz),1.5);
+  game.vehicle.velocity.set(-f.rx*7,0,-f.rz*7);const before=game.vehicle.velocity.clone();
+  grid.contact(.05,player);assert(before.distanceTo(game.vehicle.velocity)>2,'AI body contact');
+  grid.dispose();
+}
 const box=boxFor(world,19),service=new ApexService(pit,box);
 const parked={position:box,speed:0,throttle:0,slipAngle:0,brake:1};
 service.fuel=32;service.tyres=.6;service.update(.1,parked);assert.equal(service.phase,'ready');

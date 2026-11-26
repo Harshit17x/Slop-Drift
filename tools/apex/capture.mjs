@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { mkdtemp,writeFile,mkdir,rm } from 'node:fs/promises';
+import {driveBenchmark} from './drive-benchmark.mjs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -7,9 +8,9 @@ import {setTimeout as delay} from 'node:timers/promises';
 // Capture the actual game renderer using a temporary, isolated Chromium profile.
 const profile=await mkdtemp(path.join(tmpdir(),'apex-capture-'));
 const chrome=process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
-const {createServer}=await import('vite');
-const server=await createServer({server:{host:'127.0.0.1',port:0},logLevel:'error'});
-await server.listen();const url=server.resolvedUrls.local[0];
+const {createServer,preview}=await import('vite'),production=process.argv.includes('--production');
+const server=production?await preview({preview:{host:'127.0.0.1',port:0},logLevel:'error'}):await createServer({server:{host:'127.0.0.1',port:0},logLevel:'error'});
+if(!production)await server.listen();const url=server.resolvedUrls.local[0];
 const child=spawn(chrome,['--headless=new','--no-first-run','--disable-extensions','--remote-debugging-pipe','--disable-background-timer-throttling','--disable-renderer-backgrounding','--window-size=1280,800','--user-data-dir='+profile,'about:blank'],{stdio:['ignore','ignore','pipe','pipe','pipe'],windowsHide:true});
 const pending=new Map(),errors=[];let next=0,buffer='';
 child.on('error',e=>console.error(e));child.on('exit',(c)=>{for(const fn of pending.values())fn.reject(new Error('Chromium exited '+c));});
@@ -22,15 +23,43 @@ function send(method,params={},sessionId){return new Promise((resolve,reject)=>{
 let session;
 const call=(method,params)=>send(method,params,session);
 async function ev(expression){const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value;}
+async function gridPhoto(){
+  const lineup=await ev(`(()=>{const meet=g.apexMeeting;meet.layout.value='loop';meet.format.value='race';meet.time.value='day';meet.entries.value='3';meet.startButton.click();
+    const bot=meet.grid.field[0],p=bot.car.position,road=g.world.apex.main,f=road.frameAt(-12,{}),c=g.cameraRig.camera;
+    c.position.set(p.x+f.rx*5+f.tx*6,p.y+1.45,p.z+f.rz*5+f.tz*6);c.lookAt(p.x,p.y+.55,p.z);
+    c.fov=44;c.updateProjectionMatrix();c.updateMatrixWorld(true);g.terrain.update(c,true);g.scenery.update(c.position,0,false,c.position,c);g.atmosphere.update(0,c,p);g.renderer.render(g.scene,c);
+    const image=g.canvas.toDataURL('image/jpeg',.9).split(',')[1];g.enterMenu();meet.time.value='day';return image;})()`);
+  await writeFile('artifacts/apex/qualifying-grid.jpg',Buffer.from(lineup,'base64'));
+}
 try{
   const {targetId}=await send('Target.createTarget',{url:'about:blank'});
   session=(await send('Target.attachToTarget',{targetId,flatten:true})).sessionId;
   await call('Runtime.enable');await call('Page.enable');
-  await call('Page.addScriptToEvaluateOnNewDocument',{source:"const orig=console.error;console.error=(...args)=>orig(...args,new Error().stack);localStorage.setItem('slop-drift-settings-v2',JSON.stringify({map:'apex',timeOfDay:'day',quality:'Medium',startGate:false}));"});
+  const bootstrap=await call('Page.addScriptToEvaluateOnNewDocument',{source:"const orig=console.error;console.error=(...args)=>orig(...args,new Error().stack);localStorage.setItem('slop-drift-settings-v2',JSON.stringify({map:'apex',timeOfDay:'day',quality:'Medium',startGate:false}));"});
   await call('Page.navigate',{url});
   let ready=false;
   for(let i=0;i<150;i++){await delay(700);ready=await ev("!!window.__SLOP_DRIFT__?.frameHandle");if(ready || await ev("!!document.querySelector('.fatal-error')"))break;}
+  await call('Page.removeScriptToEvaluateOnNewDocument',{identifier:bootstrap.identifier});
   if(!ready)throw Error('Load failed: '+errors.join('\n')+' '+await ev('document.body.innerText.slice(-600)'));
+  if(process.argv.includes('--smoke-maps')){
+    await ev("window.g=window.__SLOP_DRIFT__;cancelAnimationFrame(g.frameHandle);");await gridPhoto();
+    await call('Emulation.setDeviceMetricsOverride',{width:844,height:390,deviceScaleFactor:1,mobile:true});
+    await call('Emulation.setTouchEmulationEnabled',{enabled:true});
+    await ev("window.g=window.__SLOP_DRIFT__;g.enterMenu();g.hud.setHubTab?.('events');g.apexMeeting.panel.open=true;");
+    const mobile=await ev(`(()=>{const m=g.apexMeeting;m.startButton.scrollIntoView({block:'center'});const b=m.startButton.getBoundingClientRect();
+      if(b.width<50 || b.height<15)throw Error('Phone setup button hidden');m.startButton.click();if(!g.session||g.mode.id!=='apex-meeting')throw Error('Phone race setup failed');
+      return {viewport:[innerWidth,innerHeight],buttonWidth:b.width,course:g.session.route.id};})()`);
+    const maps=[];
+    for(const map of ['tokyo','hollow','apex']){
+      await ev("window.g=window.__SLOP_DRIFT__;g.enterMenu();setTimeout(()=>g.selectMap("+JSON.stringify(map)+"),30);true");
+      let loaded=false;
+      for(let i=0;i<180;i++){await delay(500);try{loaded=await ev("window.__SLOP_DRIFT__?.map?.id==="+JSON.stringify(map)+" && !!window.__SLOP_DRIFT__?.frameHandle");}catch{}if(loaded)break;}
+      if(!loaded)throw Error('Map switch failed '+map+' '+errors.join(' '));
+      const entry=await ev("window.g=window.__SLOP_DRIFT__;g.beginRun('roam');({id:g.map.id,state:g.state})");maps.push(entry);
+    }
+    await writeFile('artifacts/apex/map-smoke.json',JSON.stringify({mobile,maps,errors},null,2));
+    console.log(JSON.stringify({mobile,maps,errors}));if(errors.length)process.exitCode=1;
+  }else{
   const destination='artifacts/apex';await mkdir(destination,{recursive:true});
   await ev("window.g=window.__SLOP_DRIFT__; cancelAnimationFrame(g.frameHandle);g.hud.hideLoading();g.beginRun('roam');cancelAnimationFrame(g.frameHandle);");
   const names=await ev("g.world.apex.sections.map(v=>v.name)");
@@ -72,10 +101,52 @@ try{
       g.hud.hideLoading();g.updateCountdown(4);g.cameraRig.snap();
       for(let i=0;i<65;i++){const before=performance.now();g.onFrame((g.lastTime||performance.now())+16.67);cancelAnimationFrame(g.frameHandle);g.renderer.getContext().finish();if(i>=5)samples.push(performance.now()-before);await new Promise(r=>setTimeout(r,0));}
       samples.sort((a,b)=>a-b);result.gridTimings.push({n,median:samples[30],p95:samples[56],triangles:g.renderer.info.render.triangles,calls:g.renderer.info.render.calls});}
-    g.enterMenu();return result;})()`);
-  await writeFile(path.join(destination,'browser-check.json'),JSON.stringify({stats,weekend,errors},null,2));console.log(JSON.stringify({stats,weekend,errors},null,2));
+    g.enterMenu();meeting.layout.value='academy';meeting.entries.value='3';meeting.format.value='weekend';meeting.laps.value='1';meeting.startButton.click();
+    // Drive surveyed positions through the real checkpoint and results handlers.
+    // The separate physics test executes all six laps with live tyre/suspension physics.
+    async function completeStage(){
+      await new Promise(r=>setTimeout(r,1150));
+      const session=g.session,r=session.route,road=g.world.roads[r.roadId],car=g.vehicle.getState();
+      g.updateCountdown(4);
+      for(let d=-6;d<road.length+8&&!session.finished;d+=4){
+        const f=road.frameAt(r.startS+d,{}),p={...car,position:car.position.clone().set(f.x,f.y+.3,f.z),speed:30,velocity:car.velocity.clone().set(f.tx*30,0,f.tz*30)};
+        if(g.meta.recorder.active)g.meta.recorder.sample(session.elapsed,p);
+        const dt=4/(meeting.sessionType==='qualify'?16:30);
+        const events=[...session.update(dt,p)];meeting.update(dt,p);
+        for(const e of events)g.handleSessionEvent(e);
+      }
+      if(!session.finished||g.state!=='finished')throw Error('Stage failed: '+g.mode.label);
+    }
+    await completeStage();document.querySelector('.apx-classification button').click();
+    if(meeting.sessionType!=='qualify')throw Error('Practice did not advance');
+    await completeStage();const order=[...meeting.gridOrder];
+    document.querySelector('.apx-classification button').click();
+    if(meeting.sessionType!=='race'||JSON.stringify(meeting.grid.order)!==JSON.stringify(order))throw Error('Race grid order mismatch');
+    await completeStage();meeting.visibility();
+    meeting.photo.open=true;meeting.view.value='replay';meeting.view.dispatchEvent(new Event('change'));
+    const cam=meeting.photoCamera();
+    if(!cam || meeting.replay.duration<21 || meeting.replay.stride!==32)throw Error('Full-field replay missing');
+    meeting.aperture.value='.00006';await meeting.aperture.onchange();if(!meeting.renderPhoto(cam))throw Error('Photo depth failed');
+    result.program={grid:order,stages:3,replaySeconds:meeting.replay.duration,recordedCars:meeting.replay.stride/8,finishFlag:meeting.flag};
+    g.enterMenu();meeting.format.value='timeTrial';meeting.startButton.click();await completeStage();
+    if(!g.session.result.isRecord)throw Error('First clean time trial did not set a record');
+    g.enterMenu();meeting.startButton.click();
+    if(!g.meta.ghost||!g.session.hud.bestLap)throw Error('Time trial failed to reload the personal best and ghost');
+    result.timeTrial={ghost:g.meta.ghost.data.count,best:g.session.hud.bestLap};g.enterMenu();
+    meeting.format.value='school';meeting.format.dispatchEvent(new Event('change'));meeting.startButton.click();
+    const school=meeting.school,session=g.session,state=g.vehicle.getState();
+    for(const [i,d] of school.gates.entries()){session._curD=d;session._loc.roadId=session.roadId;session._loc.lateral=i%2?-1.6:1.6;school.update(.1,session,state);}
+    session._curD=136;session._loc.lateral=0;school.update(1.1,session,state);
+    if(!school.done || school.passed!==5)throw Error('Driving school targets failed');
+    result.academy=school.instruction;g.enterMenu();meeting.format.value='race';meeting.format.dispatchEvent(new Event('change'));
+    return result;})()`);
+  await gridPhoto();
+  const drive=process.argv.includes('--drive')?await ev('('+driveBenchmark.toString()+')()'):undefined;
+  const report={build:production?'production':'development',stats,weekend,drive,errors};
+  await writeFile(path.join(destination,'browser-check.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
   if(errors.length)process.exitCode=1;
+  }
 }finally{
-  await server.close();await send('Browser.close').catch(()=>{});await delay(300);child.kill();await rm(profile,{recursive:true,force:true,maxRetries:3}).catch(()=>{});
+  if(production)await new Promise(resolve=>server.httpServer.close(resolve));else await server.close();await send('Browser.close').catch(()=>{});await delay(300);child.kill();await rm(profile,{recursive:true,force:true,maxRetries:3}).catch(()=>{});
 }
 

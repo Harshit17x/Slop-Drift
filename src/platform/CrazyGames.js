@@ -17,6 +17,9 @@ export class CrazyGamesPlatform {
     this._settingsListener = null;
     this._loadingState = null; // 'start' | 'stop'
     this._gameplayState = null; // 'start' | 'stop'
+    this._gameplayTimes = { start: -Infinity, stop: -Infinity };
+    this._lastHappy = -Infinity;
+    this._gameplayTimer = null;
     this._gameplaySent = null; // 'start' | 'stop'
   }
 
@@ -42,8 +45,7 @@ export class CrazyGamesPlatform {
         try { this.sdk.game?.loadingStop?.(); } catch {}
       }
       if (this._gameplayState === 'start') {
-        try { this.sdk.game?.gameplayStart?.(); } catch {}
-        this._gameplaySent = 'start';
+        this.flushGameplay();
       }
 
       // Enforce CrazyGames SDK v3 muteAudio setting and subscribe to live toggles.
@@ -95,27 +97,45 @@ export class CrazyGamesPlatform {
   gameplayStart() {
     if (this._gameplayState === 'start') return;
     this._gameplayState = 'start';
-    if (!this.initialized) return;
-    try {
-      this.sdk?.game?.gameplayStart();
-      this._gameplaySent = 'start';
-    } catch {}
+    this.flushGameplay();
   }
 
   /** Call when player leaves gameplay (pause, menu, crash, or race finish) */
   gameplayStop() {
     if (this._gameplayState !== 'start') return;
     this._gameplayState = 'stop';
-    if (!this.initialized || this._gameplaySent !== 'start') return;
+    this.flushGameplay();
+  }
+
+  // Coalesce rapid menu changes. The SDK throttles repeat calls to each endpoint.
+  flushGameplay() {
+    clearTimeout(this._gameplayTimer);
+    const state = this._gameplayState;
+    if (!this.initialized || state === this._gameplaySent || (state === 'stop' && !this._gameplaySent)) return;
+    const now = performance.now(), delay = 1050 - (now - this._gameplayTimes[state]);
+    if (delay > 0) {
+      this._gameplayTimer = setTimeout(() => this.flushGameplay(), delay);
+      return;
+    }
     try {
-      this.sdk?.game?.gameplayStop();
-      this._gameplaySent = 'stop';
+      if (state === 'start') this.sdk.game?.gameplayStart?.();
+      else this.sdk.game?.gameplayStop?.();
+      this._gameplaySent = state;
+      this._gameplayTimes[state] = now;
     } catch {}
+  }
+
+  dispose() {
+    clearTimeout(this._gameplayTimer);
+    if(this._settingsListener)this.sdk?.game?.removeSettingsChangeListener?.(this._settingsListener);
+    this._muteListeners.clear();
   }
 
   /** Call on milestone / celebratory moments (new record, gold medal, achievement) */
   happytime() {
-    if (!this.initialized) return;
+    const now = performance.now();
+    if (!this.initialized || now - this._lastHappy < 1050) return;
+    this._lastHappy = now;
     try {
       this.sdk?.game?.happytime();
     } catch {}

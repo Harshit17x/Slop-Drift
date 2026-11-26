@@ -1,3 +1,6 @@
+.apx-clean .sdh{visibility:hidden}.apx-seek{display:block;width:100%;accent-color:#e8ab73}.apx-seek[hidden]{display:none}
+.apx-classification{font-variant-numeric:tabular-nums;display:grid;gap:.2em}.apx-classification button{margin-top:.35rem}
+.apx-race b[data-flag="BLUE"]{color:#8ab8ff}.apx-race b[data-flag="RED"]{color:#ff8d85}.apx-race b[data-flag="FULL COURSE YELLOW"]{color:#f7cc68}
 .apx-setup,.apx-photo,.apx-race{font:500 14px/1.4 'Saira Condensed',Arial,sans-serif;color:#efece2;background:#172027f5;border:1px solid #617078;border-radius:5px}
 .apx-setup{margin:0 0 .6rem;padding:.5rem .8rem}.apx-setup summary,.apx-photo summary{cursor:pointer;font-weight:700;letter-spacing:.035em}
 .apx-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:6px 12px;padding:9px 0}

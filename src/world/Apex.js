@@ -1,5 +1,6 @@
 import { CatmullRomCurve3, Vector3 } from 'three';
-import { Road } from './Road.js';
+import {ApexSurfaceState} from './ApexSurfaceState.js';
+import { Road, indexPhysicalRoads } from './Road.js';
 import { clamp, smoothstep, lerp } from '../core/math.js';
 
 // Survey stations in plan coordinates plus height. Both visits to the viaduct have
@@ -49,6 +50,12 @@ export function apexSurface(road,s){
   if(road.heritage && s>=road.heritage[0] && s<=road.heritage[1])return 'slab';
   if(road.carousel && s>=road.carousel[0] && s<=road.carousel[1])return 'concrete';
   return 'asphalt';
+}
+export function apexShoulder(road,i,side){
+  if(road.pitApron || (road.stadiumEnd && (i*road.spacing<road.stadiumEnd || i*road.spacing>road.length-255)))return 'paved';
+  const escape=(side<0?road.escapeLeft:road.escapeRight)?.[i]||0;
+  if(escape>1)return 'gravel';
+  return 'grass';
 }
 export function apexKerbHeight(s,lateral,width,curvature){
   const a=Math.abs(lateral)-width;
@@ -110,6 +117,7 @@ export async function buildApex(world,stage){
       (side<0?main.escapeLeft:main.escapeRight)[i]+=profile(width,s,S[enter]-32,S[exit]+32,58);
     }
   }
+  main.stadiumEnd=S[1];
   const at=s=>main.frameAt(s,{});
   function connector(name,a,b,via,width=6){
     const f=at(S[a]),g=at(S[b]);
@@ -139,6 +147,7 @@ export async function buildApex(world,stage){
     pitPoints.push(new Vector3(f.x+f.rx*offset, f.y+f.bank*offset+.015, f.z+f.rz*offset));
   }
   const pit=makeRoad(world,'Pit lane',pitPoints,false,5.5);
+  pit.pitApron=true;
   const access=connector('Academy approach',1,2,[[-340,578,29],[-338,657,29],[-387,730,29],[-452,730,29],[-451,632,29],[-504,586,29]],3.5);
   const physical=world.roads.slice();
   function lapWithLink(key,link,begin,end){
@@ -159,8 +168,16 @@ export async function buildApex(world,stage){
   route('loop',main,0);
   lapWithLink('gp',gp,13,29);lapWithLink('ridge',ridge,27,12);
   lapWithLink('international',sprint,6,40);lapWithLink('bowl',bowl,2,41);route('academy',academy,0);
+  for(const route of Object.values(world.routes)){
+    const road=world.roads[route.roadId],p=pit.frameAt(0,{}),q=pit.frameAt(pit.length,{});
+    const enter={},exit={};
+    if(road.locate(p.x,p.z,enter,p.y) && road.locate(q.x,q.z,exit,q.y) && enter.distance<3 && exit.distance<3){
+      const span=(exit.s-enter.s+road.length)%road.length;
+      if(span>600 && span<750)route.pitPath={entry:(enter.s-route.startS+road.length)%road.length,span};
+    }
+  }
   world.layered=true;world.physicalRoads=physical;
-  world.apex={kerb:apexKerbHeight,surface:apexSurface,stations:S,pit,access,physical,main,bridge:S[14],under:S[28],sections:sections.map(([name,a,b])=>({name,start:S[a],end:S[b]}))};
+  world.apex={roadsAt:indexPhysicalRoads(physical),shoulder:apexShoulder,surfaceState:new ApexSurfaceState(physical),kerb:apexKerbHeight,surface:apexSurface,stations:S,pit,access,physical,main,bridge:S[14],under:S[28],sections:sections.map(([name,a,b])=>({name,start:S[a],end:S[b]}))};
   world.labels=world.apex.sections.map(({name,start,end})=>({name,...at((start+end)/2)}));
   world.summit=at(S[20]);
   await stage(.34,'Cutting the ridge and grading the circuit');
@@ -192,6 +209,18 @@ export async function buildApex(world,stage){
   // Long walls use overlapping footings, registered once with the scenery hash.
   const wall=(from,to,v,r,step)=>{for(let u=from;u<=to;u+=step)world.staticObstacles.push(f.x+f.tx*u+f.rx*v,f.z+f.tz*u+f.rz*v,r);};
   wall(-224,214,9.25,.38,.55);wall(-162,162,43.9,.4,.57);wall(-143,160,-19,1.3,1.8);
+  // Fronts stay open to lane traffic. Closed paddock buildings and the dividing
+  // walls between garages have contacts on their actual rendered footprint.
+  for(let i=0;i<40;i++){
+    const u=-159.88+i*8;
+    for(let v=27.6;v<=45.2;v+=.7)world.staticObstacles.push(f.x+f.tx*u+f.rx*v,f.z+f.tz*u+f.rz*v,.23);
+  }
+  for(const [u,v,l,d] of [[-202,36,36,13],[189,38,36,13],[157,92,36,13],[-73,93,36,13],[60,93,36,13],[-227,78,31,13]]){
+    for(const side of [-1,1]){
+      wall(u-l/2,u+l/2,v+side*d/2,.38,.65);
+      for(let b=-d/2;b<=d/2;b+=.65)world.staticObstacles.push(f.x+f.tx*(u+side*l/2)+f.rx*(v+b),f.z+f.tz*(u+side*l/2)+f.rz*(v+b),.38);
+    }
+  }
   world.setObstacles([]);world.built=true;
   await stage(.9,'Opening the pit lane');
   return world;

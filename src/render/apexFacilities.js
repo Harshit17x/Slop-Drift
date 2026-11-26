@@ -50,7 +50,7 @@ export function finishPaddock(a,kit,random){
   }
   for(let i=0;i<12;i++){
     const u=-148+i*27;block(u,-39,5.65,.12,.12,11.3,0x8c9697,'steel');
-    block(u+1.35,-39,10.49,2.65,.055,1.55,[0xb23a28,0xd2ccaf,0x34646f][i%3]);
+    block(u+1.35,-39,10.49,2.65,.055,1.55,[0xb23a28,0xd2ccaf,0x34646f][i%3],'fabric');
   }
   for(let i=0;i<16;i++){
     const u=-148+i*19,l=1.38+random()*.17;
