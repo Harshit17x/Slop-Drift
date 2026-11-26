@@ -21,10 +21,12 @@ export class DriftBackground {
 
   size() {
     const rect = this.canvas.getBoundingClientRect();
+    const coarse = Boolean(globalThis.matchMedia?.('(pointer: coarse)')?.matches);
+    const maxDpr = coarse ? 1 : MAX_DPR;
     return {
       width: Math.round(rect.width) || globalThis.innerWidth || 1280,
       height: Math.round(rect.height) || globalThis.innerHeight || 720,
-      dpr: Math.min(globalThis.devicePixelRatio || 1, MAX_DPR),
+      dpr: Math.min(globalThis.devicePixelRatio || 1, maxDpr),
     };
   }
 
@@ -90,5 +92,14 @@ export class DriftBackground {
   settle() {
     const t0 = performance.now();
     for (let t = 0; t < 3000; t += 16) this.scene.frame(t0 + t);
+  }
+
+  destroy() {
+    this.stop();
+    this.observer?.disconnect();
+    this.observer = null;
+    this.worker?.terminate();
+    this.worker = null;
+    this.scene = null;
   }
 }

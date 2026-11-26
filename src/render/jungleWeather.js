@@ -185,6 +185,12 @@ export class JungleWeather {
     this.group.add(this.fireflies);
   }
 
+  setQuality(quality = null) {
+    const scale = Math.max(0.25, Math.min(1, Number(quality?.effects ?? 1)));
+    const totalSegments = this.rain.geometry.attributes.position.count / 2;
+    this.rain.geometry.setDrawRange(0, Math.round(totalSegments * scale) * 2);
+  }
+
   update(dt, camera, night = false) {
     this.time += dt;
     this.rainMaterial.uniforms.uTime.value = this.time;

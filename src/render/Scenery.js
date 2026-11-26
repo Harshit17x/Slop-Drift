@@ -912,6 +912,14 @@ export class Scenery {
   }
 
   setQuality(quality) {
+    this.shadowsEnabled = quality ? quality.shadowMapSize > 0 : true;
+    if (this.foliageTex) {
+      const aniso = Math.min(8, Math.max(1, Number(quality?.anisotropy || 4)));
+      if (this.foliageTex.anisotropy !== aniso) {
+        this.foliageTex.anisotropy = aniso;
+        this.foliageTex.needsUpdate = true;
+      }
+    }
     const scale = clamp(quality?.trees ?? 1, 0.1, MAX_TREE_SCALE);
     this.treeScale = scale;
     const treeLimit = Math.min(this.trees.length, Math.round(BASE_TREES * scale));
@@ -989,7 +997,7 @@ export class Scenery {
       const inRange = distance - tile.reach < maxDist;
       const inFrustum = !inRange || !camera || this.frustum.intersectsSphere(tile.sphere);
       const visible = inRange && inFrustum;
-      const shadows = visible && tile.layer < 2 && distance - tile.reach < SHADOW_RANGE;
+      const shadows = this.shadowsEnabled && visible && tile.layer < 2 && distance - tile.reach < SHADOW_RANGE;
       const useHero = tile.layer === 0 && tile.heroMeshes.length > 0 && visible && distance - tile.reach < this.heroTreeDistance;
 
       for (let m = 0; m < tile.meshes.length; m += 1) {

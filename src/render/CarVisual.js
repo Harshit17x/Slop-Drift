@@ -85,6 +85,10 @@ export class CarVisual {
     this.model.setColor(color);
   }
 
+  setQuality(quality) {
+    this.model.setQuality?.(quality);
+  }
+
   /**
    * Apply the player's cosmetics.
    * @param {{paint?: {color:number, metalness?:number, roughness?:number}, rimColor?: number, number?: string, neon?: {color:(number|null), cycle?:boolean}}} look

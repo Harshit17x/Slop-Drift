@@ -484,7 +484,6 @@ export class JungleAnimals {
     this.macaques.update(dt, camera, car);
     this.deer.update(dt, camera, car);
     this.kingfisher.update(dt, camera, car);
-    this.group.visible = !night;
     this.group.visible = true;
   }
 

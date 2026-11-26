@@ -730,6 +730,18 @@ export class ProceduralCar extends THREE.Group {
     coat.value += (target - coat.value) * (1 - Math.exp(-distance * pickup));
   }
 
+  setQuality(quality) {
+    const shadows = !quality || quality.shadowMapSize > 0;
+    this.traverse((node) => {
+      if (!node.isMesh) return;
+      if (node.userData.baseCastShadow === undefined) node.userData.baseCastShadow = node.castShadow;
+      if (node.userData.baseReceiveShadow === undefined) node.userData.baseReceiveShadow = node.receiveShadow;
+      node.castShadow = shadows && Boolean(node.userData.baseCastShadow);
+      node.receiveShadow = shadows && Boolean(node.userData.baseReceiveShadow);
+    });
+    return this;
+  }
+
   getMountPoints() {
     return WHEEL_KEYS.map((key) => ({ key, position: this.wheelPivots.get(key).position.clone(), steer: key.startsWith('front'), drive: !this.carDef || Boolean(this.carDef.tuning?.drivetrain?.awd) || key.startsWith('rear') }));
   }

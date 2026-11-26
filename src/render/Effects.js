@@ -196,6 +196,8 @@ export class Effects {
     this.baseAlpha = new Float32Array(MAX_PARTICLES);
     this.additive = new Uint8Array(MAX_PARTICLES);
     this.cursor = 0;
+    this.particlesAlive = 0;
+    this.maxParticles = MAX_PARTICLES;
     for (let i = 0; i < MAX_PARTICLES; i += 1) this.seeds[i] = Math.random();
     const particleGeometry = new THREE.BufferGeometry();
     particleGeometry.setAttribute('position', new THREE.BufferAttribute(this.positions, 3).setUsage(THREE.DynamicDrawUsage));
@@ -310,7 +312,10 @@ export class Effects {
 
   /** @param {{effects:number}} quality */
   setQuality(quality) {
-    this.intensity = clamp(Number(quality?.effects ?? 1), 0.3, 1.5);
+    const scale = clamp(Number(quality?.effects ?? 1), 0.3, 1.5);
+    this.intensity = scale;
+    this.maxParticles = Math.max(240, Math.round(MAX_PARTICLES * clamp(scale, 0.35, 1)));
+    this.cursor %= this.maxParticles;
   }
 
   /** Scene light level so smoke is not glowing white at night. */
@@ -327,7 +332,8 @@ export class Effects {
     const style = STYLES[kind];
     if (!style) return;
     const i = this.cursor;
-    this.cursor = (this.cursor + 1) % MAX_PARTICLES;
+    this.cursor = (this.cursor + 1) % this.maxParticles;
+    if (this.life[i] <= 0) this.particlesAlive += 1;
     const jitter = 0.7 + Math.random() * 0.6;
     this.positions[i * 3] = x;
     this.positions[i * 3 + 1] = y;
@@ -363,6 +369,7 @@ export class Effects {
   spark(x, y, z, vx, vy, vz, floor) {
     const k = this.sparkCursor;
     this.sparkCursor = (this.sparkCursor + 1) % MAX_SPARKS;
+    if (this.sparkLife[k] <= 0) this.sparksAlive += 1;
     this.sparkPos[k * 3] = x;
     this.sparkPos[k * 3 + 1] = y;
     this.sparkPos[k * 3 + 2] = z;
@@ -610,39 +617,44 @@ export class Effects {
   /** Advance particles and fade skid marks. Call every frame, including while paused menus render. */
   update(dt) {
     this.time += dt;
-    const { positions, velocities, colors, sizes, life } = this;
-    for (let i = 0; i < MAX_PARTICLES; i += 1) {
-      if (life[i] <= 0) continue;
-      life[i] -= dt;
-      if (life[i] <= 0) {
-        colors[i * 4 + 3] = 0;
-        sizes[i] = 0;
-        continue;
+    if (this.particlesAlive > 0) {
+      const { positions, velocities, colors, sizes, life } = this;
+      let alive = 0;
+      for (let i = 0; i < MAX_PARTICLES; i += 1) {
+        if (life[i] <= 0) continue;
+        life[i] -= dt;
+        if (life[i] <= 0) {
+          colors[i * 4 + 3] = 0;
+          sizes[i] = 0;
+          continue;
+        }
+        alive += 1;
+        const v = i * 3;
+        velocities[v + 1] -= this.gravity[i] * dt;
+        const drag = 1 - Math.min(0.9, dt * this.drag[i]);
+        velocities[v] *= drag;
+        velocities[v + 1] *= 1 - Math.min(0.9, dt * this.drag[i] * 0.5);
+        velocities[v + 2] *= drag;
+        positions[v] += velocities[v] * dt;
+        positions[v + 1] += velocities[v + 1] * dt;
+        positions[v + 2] += velocities[v + 2] * dt;
+        // Billows spread fast at first, then slow as they thin out.
+        const age = 1 - life[i] / this.maxLife[i];
+        sizes[i] += this.growth[i] * dt * (1.4 - age);
+        const fadeIn = this.fadeIn[i] > 0 ? Math.min(1, age / this.fadeIn[i]) : 1;
+        const fadeOut = Math.pow(1 - age, 1.4);
+        // Alpha is packed with a flag: values in [2, 3) are emissive, [0, 1) are lit.
+        colors[i * 4 + 3] = Math.min(0.99, this.baseAlpha[i] * fadeIn * fadeOut) + (this.additive[i] ? 2 : 0);
       }
-      const v = i * 3;
-      velocities[v + 1] -= this.gravity[i] * dt;
-      const drag = 1 - Math.min(0.9, dt * this.drag[i]);
-      velocities[v] *= drag;
-      velocities[v + 1] *= 1 - Math.min(0.9, dt * this.drag[i] * 0.5);
-      velocities[v + 2] *= drag;
-      positions[v] += velocities[v] * dt;
-      positions[v + 1] += velocities[v + 1] * dt;
-      positions[v + 2] += velocities[v + 2] * dt;
-      // Billows spread fast at first, then slow as they thin out.
-      const age = 1 - life[i] / this.maxLife[i];
-      sizes[i] += this.growth[i] * dt * (1.4 - age);
-      const fadeIn = this.fadeIn[i] > 0 ? Math.min(1, age / this.fadeIn[i]) : 1;
-      const fadeOut = Math.pow(1 - age, 1.4);
-      // Alpha is packed with a flag: values in [2, 3) are emissive, [0, 1) are lit.
-      colors[i * 4 + 3] = Math.min(0.99, this.baseAlpha[i] * fadeIn * fadeOut) + (this.additive[i] ? 2 : 0);
-    }
-    const geometry = this.particles.geometry;
-    geometry.attributes.position.needsUpdate = true;
-    geometry.attributes.aColor.needsUpdate = true;
-    geometry.attributes.aSize.needsUpdate = true;
-    if (this.seedsDirty) {
-      geometry.attributes.aSeed.needsUpdate = true;
-      this.seedsDirty = false;
+      this.particlesAlive = alive;
+      const geometry = this.particles.geometry;
+      geometry.attributes.position.needsUpdate = true;
+      geometry.attributes.aColor.needsUpdate = true;
+      geometry.attributes.aSize.needsUpdate = true;
+      if (this.seedsDirty) {
+        geometry.attributes.aSeed.needsUpdate = true;
+        this.seedsDirty = false;
+      }
     }
 
     this.updateSparks(dt);
@@ -658,6 +670,7 @@ export class Effects {
   }
 
   updateSparks(dt) {
+    if (this.sparksAlive === 0) return;
     const { sparkPos: pos, sparkVel: vel, sparkLife: life, sparkHead: head, sparkTail: tail, sparkHeat: heat } = this;
     let alive = 0;
     const drag = 1 - Math.min(0.5, dt * 0.9);
@@ -711,9 +724,18 @@ export class Effects {
 
   /** Remove everything (new run). */
   clear() {
-    this.life.fill(0);
-    this.sizes.fill(0);
-    this.sparkLife.fill(0);
+    if (this.particlesAlive > 0) {
+      this.life.fill(0);
+      this.sizes.fill(0);
+      this.particles.geometry.attributes.aSize.needsUpdate = true;
+      this.particlesAlive = 0;
+    }
+    if (this.sparksAlive > 0) {
+      this.sparkLife.fill(0);
+      this.sparkHeat.fill(0);
+      this.sparks.geometry.attributes.aHeat.needsUpdate = true;
+      this.sparksAlive = 0;
+    }
     this.skidBirth.fill(-1000);
     this.skidDirty = true;
     this.sparkClock = 0;

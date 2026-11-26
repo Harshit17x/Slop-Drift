@@ -430,8 +430,17 @@ export class HollowCreekTown {
     scene.position.set(x,world.heightAt(x,z)+.04,z);scene.rotation.y=.28+Math.atan2(p.tx,p.tz);
     this.group.add(scene);this.coupe=scene;
   }
-  setQuality(q){this.range=170+45*(q?.terrainLod||1);this.effectScale=q?.effects??1;}
+  setQuality(q){
+    this.range=170+45*(q?.terrainLod||1);
+    this.effectScale=q?.effects??1;
+    const shadows=!q||q.shadowMapSize>0;
+    for(const group of this.chunks){
+      for(const mesh of group.children)mesh.receiveShadow=shadows;
+    }
+    this.weather?.setQuality?.(q);
+  }
   update(position,dt=0,night=this.weather.night){
+    for(const group of this.chunks) group.visible=Math.abs(position.x-group.userData.cx)<this.range && Math.abs(position.z-group.userData.cz)<this.range;
     this.weather.update(position,dt,night,(this.weatherStrength??1)*this.effectScale);
     this.clock+=dt;this.windTime.value=this.clock;
     this.gate.position.y=this.gateBase+(this.exitKnown?4.25:0);
@@ -447,7 +456,6 @@ export class HollowCreekTown {
       if(light.kind==='tunnelLamp')level*=.72+.27*Math.sin(this.clock*(1+(this.tunnelPhase||0)%3));
       light.mesh.material.color.setHex(windowLight||light.kind==='exitLamp'?0x87c6ad:0xffdb91).multiplyScalar(level);
     }
-    for(const group of this.chunks) group.visible=Math.abs(position.x-group.userData.cx)<this.range && Math.abs(position.z-group.userData.cz)<this.range;
   }
   dispose(){
     this.weather.dispose();

@@ -406,11 +406,19 @@ export class JungleCanopy {
     this.setQuality(quality);
   }
 
-  setQuality(quality) { this.range = 170 + 95 * (quality?.terrainLod ?? 1); }
+  setQuality(quality) {
+    this.range = 170 + 95 * (quality?.terrainLod ?? 1);
+    this.wildlifeEnabled = quality?.wildlife !== false;
+    this.tapirs.group.visible = this.wildlifeEnabled;
+    this.animals.group.visible = this.wildlifeEnabled;
+    this.weather?.setQuality?.(quality);
+  }
 
   update(camera, dt = 0, night = false, car = camera) {
-    this.tapirs.update(dt,camera,car);
-    this.animals.update(dt,camera,car,night);
+    if (this.wildlifeEnabled) {
+      this.tapirs.update(dt, camera, car);
+      this.animals.update(dt, camera, car, night);
+    }
     this.weather.update(dt,camera,night);
     this.setPieces.update(dt);
     this.beams.visible = !night;
@@ -421,11 +429,16 @@ export class JungleCanopy {
       group.visible = (camera.x-centre.x)**2 + (camera.z-centre.z)**2 < this.range**2;
     }
     this.clock += dt;
-    const t = this.clock * 0.24;
-    this.flock.position.x = this.bridge.centre.x + 17*Math.cos(t);
-    this.flock.position.z = this.bridge.centre.z + 17*Math.sin(t);
-    this.flock.rotation.y = -t;
-    for (const {wing,side,i} of this.wings) wing.rotation.z = side*Math.sin(8*this.clock+i)*0.48;
+    const dx = camera.x - this.bridge.centre.x;
+    const dz = camera.z - this.bridge.centre.z;
+    this.flock.visible = !night && (dx * dx + dz * dz) < 28900;
+    if (this.flock.visible) {
+      const t = this.clock * 0.24;
+      this.flock.position.x = this.bridge.centre.x + 17*Math.cos(t);
+      this.flock.position.z = this.bridge.centre.z + 17*Math.sin(t);
+      this.flock.rotation.y = -t;
+      for (const {wing,side,i} of this.wings) wing.rotation.z = side*Math.sin(8*this.clock+i)*0.48;
+    }
   }
 
   dispose() {

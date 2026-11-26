@@ -88,11 +88,51 @@ export function getSkin(id) { return getPaint(id); }
  * terrainLod: multiplier on terrain LOD switch distances. trees: fraction of the full tree count.
  */
 export const QUALITY_PRESETS = Object.freeze({
-  Low: Object.freeze({ pixelRatio: 1, shadowMapSize: 0, terrainLod: 0.6, trees: 0.35, effects: 0.5, bloom: false, clouds: false }),
-  Medium: Object.freeze({ pixelRatio: 1.25, shadowMapSize: 1024, terrainLod: 0.8, trees: 0.6, effects: 0.75, bloom: false, clouds: true }),
-  High: Object.freeze({ pixelRatio: 1.5, shadowMapSize: 2048, terrainLod: 1, trees: 1, effects: 1, bloom: true, clouds: true }),
-  Ultra: Object.freeze({ pixelRatio: 2, shadowMapSize: 4096, terrainLod: 1.3, trees: 1.4, effects: 1.3, bloom: true, clouds: true }),
+  Low: Object.freeze({ pixelRatio: 1, shadowMapSize: 0, terrainLod: 0.6, trees: 0.35, effects: 0.45, bloom: false, clouds: false, anisotropy: 1, underglowCars: 0, wildlife: false, farClip: 3800, antialias: false }),
+  Medium: Object.freeze({ pixelRatio: 1.25, shadowMapSize: 1024, terrainLod: 0.85, trees: 0.65, effects: 0.75, bloom: false, clouds: true, anisotropy: 4, underglowCars: 2, wildlife: true, farClip: 5200, antialias: true }),
+  High: Object.freeze({ pixelRatio: 1.5, shadowMapSize: 2048, terrainLod: 1, trees: 1, effects: 1, bloom: true, clouds: true, anisotropy: 8, underglowCars: 6, wildlife: true, farClip: 7200, antialias: true }),
+  Ultra: Object.freeze({ pixelRatio: 2, shadowMapSize: 4096, terrainLod: 1.3, trees: 1.4, effects: 1.3, bloom: true, clouds: true, anisotropy: 8, underglowCars: 6, wildlife: true, farClip: 9000, antialias: true }),
 });
+
+const SOFTWARE_GPU_RE = /swiftshader|llvmpipe|softpipe|basic render|mali-4|adreno[^\d]*(3\d\d|4\d\d|50\d)|powervr[^\w]*sgx/i;
+
+/**
+ * Pick a starting Auto quality tier from hardware and WebGL capabilities so mobile phones,
+ * low-RAM laptops and software renderers stay smooth without stutters or OOM crashes.
+ */
+export function detectInitialQuality(renderer = null) {
+  const coarse = Boolean(globalThis.matchMedia?.('(pointer: coarse)')?.matches);
+  const nav = globalThis.navigator;
+  const mem = Number(nav?.deviceMemory) || 0;
+  const cores = Number(nav?.hardwareConcurrency) || 0;
+  let maxTex = 0;
+  let gpuName = '';
+  try {
+    maxTex = Number(renderer?.capabilities?.maxTextureSize) || 0;
+    const gl = renderer?.getContext?.();
+    if (gl) {
+      if (!maxTex) maxTex = Number(gl.getParameter(gl.MAX_TEXTURE_SIZE)) || 0;
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      if (dbg) gpuName = String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || '');
+    }
+  } catch {
+    // Ignore restricted WebGL capability probes.
+  }
+
+  if (
+    (gpuName && SOFTWARE_GPU_RE.test(gpuName))
+    || (maxTex > 0 && maxTex < 4096)
+    || (mem > 0 && mem <= 2)
+    || (cores > 0 && cores <= 2 && mem > 0 && mem <= 4)
+    || (coarse && ((mem > 0 && mem <= 4) || (cores > 0 && cores <= 4)))
+  ) {
+    return 'Low';
+  }
+  if (coarse || (mem > 0 && mem <= 4) || (cores > 0 && cores <= 2)) {
+    return 'Medium';
+  }
+  return 'High';
+}
 
 /** Names only; the tuning each one maps to lives in src/vehicle/tuning.js. */
 export const HANDLING_PRESETS = Object.freeze(['Arcade', 'Balanced', 'Sim']);

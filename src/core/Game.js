@@ -1,13 +1,12 @@
 import * as THREE from 'three';
 import {
-  CONFIG, MODES, SURFACE_PROPS, getMode, getQualityPreset, modesForWorld, neonLevel, nextAutoQuality,
+  CONFIG, MODES, SURFACE_PROPS, detectInitialQuality, getMode, getQualityPreset, modesForWorld, neonLevel, nextAutoQuality,
   loadRecords, loadSettings, normalizeSettings, saveRecords, saveSettings,
 } from '../config.js';
 import { clamp } from './math.js';
 import { nextFrame } from './yield.js';
 import { World } from '../world/World.js';
 import { getMap, loadMapData, MAPS } from '../world/maps.js';
-import { Landmarks } from '../render/Landmarks.js';
 import { Vehicle } from '../vehicle/Vehicle.js';
 import { DriftScorer } from '../vehicle/DriftScorer.js';
 import { RaceSession } from '../game/RaceSession.js';
@@ -15,12 +14,8 @@ import { AudioEngine } from '../audio/AudioEngine.js';
 import { Input } from '../input/Input.js';
 import { Hud, formatDelta, formatTime } from '../ui/Hud.js';
 import { TerrainView } from '../render/TerrainView.js';
-import { WaterView } from '../render/WaterView.js';
 import { WASHOUT, inWashout } from '../world/jungleStage.js';
 import { BRIDGE } from '../world/Jungle.js';
-import { HollowAdventure } from '../game/HollowAdventure.js';
-import { HollowCreekTown } from '../render/HollowCreekTown.js';
-import { JungleCanopy } from '../render/JungleCanopy.js';
 import { RoadView } from '../render/RoadView.js';
 import { Scenery } from '../render/Scenery.js';
 import { Atmosphere } from '../render/Atmosphere.js';
@@ -34,7 +29,7 @@ import { NetClient } from '../net/NetClient.js';
 import { Leaderboard } from '../net/Leaderboard.js';
 import { RemotePlayers } from '../render/RemotePlayers.js';
 import { patchUnderglowTree, underglowFrame } from '../render/underglowLight.js';
-import { loadCarModels, hasCarModel } from '../render/ModelCar.js';
+import { loadCarModels, hasCarModel, trimCarModels } from '../render/ModelCar.js';
 import { getCar } from '../vehicle/cars.js';
 import { PartyRace } from '../game/PartyRace.js';
 import { CrazyGamesPlatform } from '../platform/CrazyGames.js';
@@ -116,9 +111,10 @@ export class Game {
       }
     };
 
-    // Where Auto quality starts: phones and tablets one step lower. sampleAutoQuality steps it down further if needed.
-    this.autoQuality = globalThis.matchMedia?.('(pointer: coarse)').matches ? 'Medium' : 'High';
+    // Pick starting Auto quality from hardware capabilities; refined further once WebGL initializes & samples FPS.
+    this.autoQuality = detectInitialQuality(null);
     this.autoSample = { time: 0, frames: 0 };
+    this.contextLost = false;
     const quality = getQualityPreset(this.settings.quality, this.autoQuality);
     // The map is chosen once per page load; switching maps from the homepage reloads the page.
     this.map = getMap(this.settings.map);
@@ -144,13 +140,19 @@ export class Game {
     this.hud.setModes(this.modes);
 
     // Views are built one per frame so the progress bar keeps moving.
+    const activeQuality = getQualityPreset(this.settings.quality, this.autoQuality);
     const stages = [
-      ['Shaping the terrain', () => { this.terrain = new TerrainView({ world: this.world, quality }); this.scene.add(this.terrain.group); }],
-      ['Filling the lake', () => { this.water = new WaterView({ world: this.world }); this.scene.add(this.water.group); }],
-      ['Paving the roads', () => { this.roads = new RoadView({ world: this.world, quality }); this.scene.add(this.roads.group); }],
+      ['Shaping the terrain', () => { this.terrain = new TerrainView({ world: this.world, quality: activeQuality }); this.scene.add(this.terrain.group); }],
+      ['Filling the lake', async () => {
+        const { WaterView } = await import('../render/WaterView.js');
+        this.water = new WaterView({ world: this.world });
+        this.scene.add(this.water.group);
+      }],
+      ['Paving the roads', () => { this.roads = new RoadView({ world: this.world, quality: activeQuality, anisotropy: activeQuality.anisotropy ?? 8 }); this.scene.add(this.roads.group); }],
       ['Building the town', async () => {
         if (!this.map.assets) return;
-        this.landmarks = new Landmarks({ world: this.world, quality });
+        const { Landmarks } = await import('../render/Landmarks.js');
+        this.landmarks = new Landmarks({ world: this.world, quality: activeQuality });
         try {
           await this.landmarks.load(this.map.assets.props);
           this.scene.add(this.landmarks.group);
@@ -159,9 +161,17 @@ export class Game {
           this.landmarks = null;
         }
       }],
-      ['Building roadside scenery', async () => { const Forest = this.map.id === 'hollow' ? HollowCreekTown : this.world.bridge ? JungleCanopy : Scenery; this.scenery = new Forest({ world: this.world, quality }); this.scene.add(this.scenery.group); if(this.map.id==='hollow') await this.scenery.loadCoupe(this.world); }],
-      ['Lighting the sky', () => { this.atmosphere = new Atmosphere({ scene: this.scene, renderer: this.renderer, world: this.world, quality }); }],
-      // Only the equipped car's model (they are megabytes each); the rest download after the loading screen.
+      ['Building roadside scenery', async () => {
+        let Forest;
+        if (this.map.id === 'hollow') ({ HollowCreekTown: Forest } = await import('../render/HollowCreekTown.js'));
+        else if (this.world.bridge) ({ JungleCanopy: Forest } = await import('../render/JungleCanopy.js'));
+        else Forest = Scenery;
+        this.scenery = new Forest({ world: this.world, quality: activeQuality });
+        this.scene.add(this.scenery.group);
+        if (this.map.id === 'hollow') await this.scenery.loadCoupe(this.world);
+      }],
+      ['Lighting the sky', () => { this.atmosphere = new Atmosphere({ scene: this.scene, renderer: this.renderer, world: this.world, quality: activeQuality }); }],
+      // Only the equipped car's model (they are megabytes each); other cars load on demand when selected or seen online.
       ['Warming the engine', async () => { await loadCarModels([this.career.profile.cosmetics.car]); this.createVehicle(); }],
     ];
     for (let i = 0; i < stages.length; i += 1) {
@@ -175,7 +185,10 @@ export class Game {
     this.hud.setMap(this.map.id);
     this.hud.setTrack(this.world.getMapData());
     this.meta = new MetaLayer({ career: this.career, hud: this.hud, scene: this.scene, wheelLayout: this.vehicle.wheelLayout, game: this, mapId: this.map.id });
-    if(this.map.id==='hollow')this.adventure=new HollowAdventure(this);
+    if (this.map.id === 'hollow') {
+      const { HollowAdventure } = await import('../game/HollowAdventure.js');
+      this.adventure = new HollowAdventure(this);
+    }
     this.createNetwork();
     this.applySettings(this.settings, { save: false });
     this.meta.refreshAll();
@@ -196,7 +209,6 @@ export class Game {
       this.meta.welcome();
     }
     this.prewarmShaders();
-    loadCarModels();
     this.lastTime = performance.now();
     this.frameHandle = requestAnimationFrame(this.onFrame);
     return this;
@@ -206,11 +218,34 @@ export class Game {
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'game-canvas';
     this.root.prepend(this.canvas);
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, powerPreference: 'high-performance' });
+    const earlyPreset = getQualityPreset(this.settings.quality, this.autoQuality);
+    this.renderer = new THREE.WebGLRenderer({
+      canvas: this.canvas,
+      antialias: earlyPreset.antialias !== false,
+      powerPreference: this.autoQuality === 'Low' ? 'default' : 'high-performance',
+    });
+    this.autoQuality = detectInitialQuality(this.renderer);
+    const activeQuality = getQualityPreset(this.settings.quality, this.autoQuality);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.enabled = activeQuality.shadowMapSize > 0;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.onContextLost = (event) => {
+      event.preventDefault();
+      this.contextLost = true;
+      cancelAnimationFrame(this.frameHandle);
+      this.audio?.silence();
+      this.hud?.toast('Graphics context paused — restoring…', 'info');
+    };
+    this.onContextRestored = () => {
+      this.contextLost = false;
+      this.applyQuality();
+      this.prewarmShaders();
+      this.lastTime = performance.now();
+      this.frameHandle = requestAnimationFrame(this.onFrame);
+    };
+    this.canvas.addEventListener('webglcontextlost', this.onContextLost);
+    this.canvas.addEventListener('webglcontextrestored', this.onContextRestored);
     this.scene = new THREE.Scene();
   }
 
@@ -853,6 +888,7 @@ export class Game {
   }
 
   onFrame(now) {
+    if (this.contextLost) return;
     this.frameHandle = requestAnimationFrame(this.onFrame);
     const dt = clamp((now - this.lastTime) / 1000, 0, 0.1);
     this.lastTime = now;
@@ -943,24 +979,42 @@ export class Game {
   /** The graphics preset (settings.quality, or the level Auto resolved to) applied to every view. */
   applyQuality() {
     const quality = getQualityPreset(this.settings.quality, this.autoQuality);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, quality.pixelRatio));
-    this.terrain.setQuality(quality);
-    this.scenery.setQuality(quality);
-    this.atmosphere.setQuality(quality);
-    this.effects.setQuality(quality);
+    const dpr = Math.min(window.devicePixelRatio || 1, quality.pixelRatio);
+    this.renderer.setPixelRatio(dpr);
+    const shadows = quality.shadowMapSize > 0;
+    if (this.renderer.shadowMap.enabled !== shadows) {
+      this.renderer.shadowMap.enabled = shadows;
+    }
+    underglowFrame.setMaxCars(quality.underglowCars ?? 6);
+    this.terrain?.setQuality?.(quality);
+    this.scenery?.setQuality?.(quality);
+    this.roads?.setQuality?.(quality);
+    this.landmarks?.setQuality?.(quality);
+    this.atmosphere?.setQuality?.(quality);
+    this.effects?.setQuality?.(quality);
+    this.car?.setQuality?.(quality);
+    this.remotePlayers?.setQuality?.(quality);
+    this.cameraRig?.setQuality?.(quality);
+    if (!shadows || this.autoQuality === 'Low' || this.settings.quality === 'Low') {
+      const keep = new Set([this.carId, ...(this.remotePlayers?.cars ? Array.from(this.remotePlayers.cars.values(), (e) => e.carId) : [])]);
+      trimCarModels(keep);
+    }
   }
 
   /**
-   * Auto quality: average the frame rate over 4 s windows of driving and drop one level when it is
-   * under 40 fps. Stalls over 0.25 s (tab switches, loading hitches) are not counted.
+   * Auto quality: average the frame rate over sampling windows of driving and step down smoothly
+   * when sustained FPS drops under 40 fps (or two steps if critically slow < 22 fps). Stalls
+   * over 0.25 s (tab switches, loading hitches) are ignored.
    */
   sampleAutoQuality(dt) {
     if (this.settings.quality !== 'Auto' || dt > 0.25 || dt <= 0) return;
     const sample = this.autoSample;
     sample.time += dt;
     sample.frames += 1;
-    if (sample.time < 4) return;
-    const next = nextAutoQuality(this.autoQuality, sample.frames / sample.time);
+    if (sample.time < 3.5) return;
+    const avgFps = sample.frames / sample.time;
+    let next = nextAutoQuality(this.autoQuality, avgFps);
+    if (avgFps < 22) next = nextAutoQuality(next, avgFps);
     sample.time = 0;
     sample.frames = 0;
     if (next === this.autoQuality) return;
@@ -983,6 +1037,8 @@ export class Game {
     window.removeEventListener('orientationchange', this.onResize);
     window.visualViewport?.removeEventListener('resize', this.onResize);
     document.removeEventListener('visibilitychange', this.onVisibility);
+    if (this.onContextLost) this.canvas?.removeEventListener('webglcontextlost', this.onContextLost);
+    if (this.onContextRestored) this.canvas?.removeEventListener('webglcontextrestored', this.onContextRestored);
     this.input?.destroy();
     this.meta?.dispose();
     this.partyRace?.dispose();

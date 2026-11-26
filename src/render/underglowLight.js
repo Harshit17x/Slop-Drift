@@ -133,12 +133,16 @@ const scratchUp = new THREE.Vector3();
 /** Collects this frame's glowing cars into the shared uniforms. */
 export const underglowFrame = {
   count: 0,
+  maxCars: UNDERGLOW_CARS,
+  setMaxCars(limit) {
+    this.maxCars = Math.max(0, Math.min(UNDERGLOW_CARS, Math.round(limit ?? UNDERGLOW_CARS)));
+  },
   begin() {
     this.count = 0;
   },
   /** @returns {boolean} false when every slot is taken. */
   push(car) {
-    if (this.count >= UNDERGLOW_CARS) return false;
+    if (this.count >= this.maxCars) return false;
     const i = this.count;
     if (!car.writeUnderglow(uniforms.uGlowSphere.value[i], scratchUp, uniforms.uGlowColor.value[i], uniforms.uGlowA.value, uniforms.uGlowB.value, i * UNDERGLOW_STRIPS)) return true;
     uniforms.uGlowUp.value[i].copy(scratchUp);
@@ -146,9 +150,9 @@ export const underglowFrame = {
     return true;
   },
   get full() {
-    return this.count >= UNDERGLOW_CARS;
+    return this.count >= this.maxCars;
   },
   end() {
-    uniforms.uGlowCount.value = this.count;
+    uniforms.uGlowCount.value = Math.min(this.count, this.maxCars);
   },
 };

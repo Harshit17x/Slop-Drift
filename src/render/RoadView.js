@@ -75,6 +75,7 @@ export class RoadView {
     this.gates.name = 'RouteGates';
     this.group.add(this.gates);
     this.castSmallShadows = !quality || quality.shadowMapSize > 0;
+    const texAniso = Math.max(1, Math.min(anisotropy, quality?.anisotropy ?? anisotropy));
     this.night = false;
     const mapId = world.config?.map || 'alpine';
     this.isAlpine = !world.config?.map || world.config.map === 'alpine';
@@ -88,13 +89,13 @@ export class RoadView {
 
     this.textures = {
       asphalt: roadTexUrl
-        ? this.track(loadTileTexture(roadTexUrl, anisotropy))
-        : this.track(createAsphaltTexture(anisotropy)),
-      asphaltRelief: this.track(createAsphaltReliefTexture(anisotropy)),
+        ? this.track(loadTileTexture(roadTexUrl, texAniso))
+        : this.track(createAsphaltTexture(texAniso)),
+      asphaltRelief: this.track(createAsphaltReliefTexture(texAniso)),
       grain: shoulderTexUrl
-        ? this.track(loadTileTexture(shoulderTexUrl, anisotropy))
-        : this.track(createGrainTexture(anisotropy)),
-      chevron: this.track(createChevronTexture(anisotropy)),
+        ? this.track(loadTileTexture(shoulderTexUrl, texAniso))
+        : this.track(createGrainTexture(texAniso)),
+      chevron: this.track(createChevronTexture(texAniso)),
       checker: this.track(createCheckerTexture()),
     };
     this.reflectorMaterial = this.track(new THREE.MeshStandardMaterial({ color: 0xffa51f, emissive: 0xff8a10, emissiveIntensity: 0.25, roughness: 0.35 }));
@@ -140,8 +141,10 @@ export class RoadView {
   addMesh(geometry, material, name, { cast = false, receive = true, parent = this.group } = {}) {
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = name;
-    mesh.castShadow = cast;
-    mesh.receiveShadow = receive;
+    mesh.userData.baseCastShadow = cast;
+    mesh.userData.baseReceiveShadow = receive;
+    mesh.castShadow = cast && this.castSmallShadows;
+    mesh.receiveShadow = receive && this.castSmallShadows;
     mesh.matrixAutoUpdate = false;
     parent.add(mesh);
     return mesh;
@@ -612,8 +615,10 @@ export class RoadView {
 
   finishInstances(mesh, name, cast = false) {
     mesh.name = name;
-    mesh.castShadow = cast;
-    mesh.receiveShadow = true;
+    mesh.userData.baseCastShadow = cast;
+    mesh.userData.baseReceiveShadow = true;
+    mesh.castShadow = cast && this.castSmallShadows;
+    mesh.receiveShadow = this.castSmallShadows;
     mesh.instanceMatrix.needsUpdate = true;
     mesh.computeBoundingSphere();
     mesh.computeBoundingBox();
@@ -793,8 +798,10 @@ export class RoadView {
     for (const mesh of [pylons, caps]) {
       mesh.instanceMatrix.needsUpdate = true;
       mesh.computeBoundingSphere();
+      mesh.userData.baseCastShadow = mesh === pylons;
+      mesh.userData.baseReceiveShadow = true;
       mesh.castShadow = mesh === pylons && this.castSmallShadows;
-      mesh.receiveShadow = true;
+      mesh.receiveShadow = this.castSmallShadows;
       this.gates.add(mesh);
     }
   }
@@ -851,6 +858,23 @@ export class RoadView {
       polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -10,
     }));
     this.addMesh(this.trackGate(line.build()), lineMaterial, 'StartLine', { parent: this.gates });
+  }
+
+  setQuality(quality) {
+    const shadows = !quality || quality.shadowMapSize > 0;
+    this.castSmallShadows = shadows;
+    this.group.traverse((node) => {
+      if (!node.isMesh) return;
+      if (node.userData.baseCastShadow !== undefined) node.castShadow = shadows && node.userData.baseCastShadow;
+      if (node.userData.baseReceiveShadow !== undefined) node.receiveShadow = shadows && node.userData.baseReceiveShadow;
+    });
+    const aniso = Math.min(8, Math.max(1, Number(quality?.anisotropy ?? 8)));
+    for (const tex of Object.values(this.textures)) {
+      if (tex && tex !== this.textures.checker && tex.anisotropy !== aniso) {
+        tex.anisotropy = aniso;
+        tex.needsUpdate = true;
+      }
+    }
   }
 
   clearGates() {

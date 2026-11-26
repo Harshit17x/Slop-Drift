@@ -7,7 +7,10 @@ import { formatTime, formatDelta, formatInt, recordKind, formatTarget, medalFor,
 import { applyDeadzone, isFormField, KEY_BINDINGS, PAD_BUTTONS } from '../src/input/Input.js';
 import { normalizeTrack } from '../src/ui/Minimap.js';
 import * as THREE from 'three';
-import { MODES, DEFAULT_SETTINGS, PAINT_OPTIONS, SKIN_OPTIONS, getSkin, normalizeSettings, getQualityPreset, nextAutoQuality, QUALITY_PRESETS } from '../src/config.js';
+import { MODES, DEFAULT_SETTINGS, PAINT_OPTIONS, SKIN_OPTIONS, getSkin, normalizeSettings, detectInitialQuality, getQualityPreset, nextAutoQuality, QUALITY_PRESETS } from '../src/config.js';
+import { Effects } from '../src/render/Effects.js';
+import { underglowFrame } from '../src/render/underglowLight.js';
+import { trimCarModels } from '../src/render/ModelCar.js';
 import { patchCarPaint, setCarPaintUniforms, loadSkinTexture, PAINT_MODES } from '../src/render/carPaintShader.js';
 import { CARS } from '../src/vehicle/cars.js';
 import {
@@ -267,6 +270,48 @@ test('hud.css keeps map chooser, tabs, and garage responsive on phone portrait, 
   assert.ok(hudCss.includes('@media (max-height: 540px)'), 'phone landscape and short-tab breakpoint present');
   assert.ok(hudCss.includes('touch-action: none'), '3D garage stage handles touch orbit without page scroll');
   assert.ok(hudCss.includes('.sdh-forza-drone .sdh-map-shot { width: 100%; height: 100%;'), 'drone preview fits container');
+});
+
+test('adaptive hardware quality detection, underglow slot caps, and idle Effects fast path', () => {
+  assert.equal(detectInitialQuality({ capabilities: { maxTextureSize: 2048 } }), 'Low');
+  assert.equal(
+    detectInitialQuality({
+      capabilities: { maxTextureSize: 8192 },
+      getContext: () => ({
+        getExtension: () => ({ UNMASKED_RENDERER_WEBGL: 1 }),
+        getParameter: () => 'Google SwiftShader Subzero',
+      }),
+    }),
+    'Low',
+  );
+  assert.equal(QUALITY_PRESETS.Low.underglowCars, 0);
+  assert.equal(QUALITY_PRESETS.Low.wildlife, false);
+  assert.equal(QUALITY_PRESETS.High.underglowCars, 6);
+
+  underglowFrame.setMaxCars(0);
+  underglowFrame.begin();
+  assert.equal(underglowFrame.full, true);
+  assert.equal(underglowFrame.push({ writeUnderglow: () => true }), false);
+  underglowFrame.end();
+  underglowFrame.setMaxCars(6);
+
+  const fx = new Effects(new THREE.Scene());
+  fx.setQuality(QUALITY_PRESETS.Low);
+  const posAttr = fx.particles.geometry.attributes.position;
+  const ver0 = posAttr.version;
+  fx.update(1 / 60);
+  assert.equal(posAttr.version, ver0, 'idle Effects.update skips GPU buffer uploads');
+  fx.spawn('smoke', 0, 1, 0, 0, 0, 0);
+  assert.equal(fx.particlesAlive, 1);
+  fx.update(1 / 60);
+  assert.equal(posAttr.version, ver0 + 1, 'active particle updates upload once');
+  fx.update(10);
+  assert.equal(fx.particlesAlive, 0);
+  const verDone = posAttr.version;
+  fx.update(1 / 60);
+  assert.equal(posAttr.version, verDone, 'settled Effects returns to zero GPU uploads');
+  fx.dispose();
+  trimCarModels(['hatch']);
 });
 
 console.log(`\n${passed} passed`);

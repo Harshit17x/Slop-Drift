@@ -46,7 +46,13 @@ export class RemotePlayers {
     this.scratch = new THREE.Vector3();
     this.neonLevel = 0.2;
     this.night = false;
+    this.shadowsEnabled = true;
     this.requestedModels = new Set();
+  }
+
+  setQuality(quality) {
+    this.shadowsEnabled = !quality || quality.shadowMapSize > 0;
+    for (const entry of this.cars.values()) entry.car.setQuality?.(quality);
   }
 
   /** Hand the nearest glowing remote cars to the underglow light, until its slots run out. */
@@ -135,7 +141,11 @@ export class RemotePlayers {
     const car = createCarModel(wantedCarId, { color: getPaint(peer.paint).color, name: `Remote_${peer.name}`, wheelLayout: this.wheelLayout });
     car.visible = false;
     car.traverse((node) => {
-      if (node.isMesh) node.castShadow = true;
+      if (node.isMesh) {
+        node.userData.baseCastShadow = true;
+        node.castShadow = this.shadowsEnabled;
+        node.receiveShadow = this.shadowsEnabled;
+      }
     });
     car.setHeadlamps?.(this.night);
     const tag = new NameTag({ text: peer.name, detail: `LV ${peer.level}` });

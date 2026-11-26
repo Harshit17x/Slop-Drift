@@ -16,7 +16,6 @@ import {
   driveUnitSvg, eventCategoryBadge, forzaMapHubMarkup, garageHubMarkup, hubHeaderMarkup,
   mapSubtitleMarkup, sortCars,
 } from './GarageUi.js';
-import { TitleFx } from './TitleFx.js';
 import { DriftBackground } from './driftBackground.js';
 
 const KMH_TO_MPH = 0.621371;
@@ -348,7 +347,6 @@ export class Hud {
 
     if (injectStyles) this.injectStyles();
     this.build();
-    this.initTitleFx();
     this.bind();
     this.setRecords(this.records);
     this.setSettings(this.settings);
@@ -1875,19 +1873,11 @@ export class Hud {
   }
 
   initTitleFx() {
-    this.titleFx = new TitleFx({
-      canvas: this.q('.sdh-loading-canvas'),
-      timerEl: this.q('[data-title="recTime"]'),
-      mapId: this.mapId,
-      carId: this.selectedCarId(),
-    });
+    this.titleFx = null;
   }
 
   startTitleMedia() {
     if (this.reducedMotion?.matches) return;
-    this.titleFx?.setMap?.(this.mapId);
-    this.titleFx?.setCar?.(this.selectedCarId(), this.resolveTitleCosmetics());
-    this.titleFx?.start();
   }
 
   resolveTitleCosmetics() {
@@ -1906,10 +1896,7 @@ export class Hud {
     };
   }
 
-  stopTitleMedia(dispose = false) {
-    if (dispose) this.titleFx?.destroy();
-    else this.titleFx?.stop();
-  }
+  stopTitleMedia() {}
 
   syncStartGateUi() {
     const btn = this.q('[data-act="toggle-start-gate"]');
@@ -1921,7 +1908,6 @@ export class Hud {
 
   syncTitleBadges() {
     const map = MAPS[this.mapId];
-    this.titleFx?.setMap?.(this.mapId);
     const mapBadge = this.q('[data-title="mapBadge"]');
     if (mapBadge && map) mapBadge.textContent = `${map.label.toUpperCase()} · ${this.eventCount(map)} EVENTS`;
     const mapSub = this.q('[data-title="mapSub"]');
@@ -1929,7 +1915,6 @@ export class Hud {
     const teleLoc = this.q('[data-title="teleLoc"]');
     if (teleLoc && map) teleLoc.textContent = `${map.label.toUpperCase()} PASS`;
     const car = getCar(this.selectedCarId());
-    this.titleFx?.setCar?.(this.selectedCarId(), this.resolveTitleCosmetics());
     const carBadge = this.q('[data-title="carBadge"]');
     if (carBadge && car) carBadge.textContent = car.label.toUpperCase();
     const teleDrive = this.q('[data-title="teleDrive"]');
@@ -2229,17 +2214,11 @@ export class Hud {
     if (clip) {
       if (map.preview) clip.setAttribute('poster', map.preview);
       else clip.removeAttribute('poster');
-      if (map.clip && !this.reducedMotion?.matches) {
-        if (clip.getAttribute('src') !== map.clip) {
-          clip.classList.remove('is-on');
-          clip.src = map.clip;
-        }
-        if (this.screen === 'menu' && !this.sub && this.hubTab === 'map' && (this.forzaView === 'drone' || !here)) {
-          this.playMapClip();
-        }
+      if (map.clip && !this.reducedMotion?.matches && this.screen === 'menu' && !this.sub && this.hubTab === 'map' && (this.forzaView === 'drone' || !here)) {
+        this.playMapClip();
       } else {
+        this.pauseMapClip();
         clip.classList.remove('is-on');
-        clip.pause();
       }
     }
     const status = this.q('.sdh-map-stage-status');
@@ -3115,7 +3094,8 @@ export class Hud {
     this.touchRoot.removeEventListener('touchmodechange', this.onTouchMode);
     this.el.removeEventListener('click', this.onClick);
     this.overviewObserver?.disconnect();
-    this.titleFx?.destroy();
+    this.driftBg?.destroy();
+    this.driftBg = null;
     for (const id of this.timers) clearTimeout(id);
     clearInterval(this.loadingSloganTimer);
     this.timers.clear();

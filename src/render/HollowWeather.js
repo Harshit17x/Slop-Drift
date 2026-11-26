@@ -40,6 +40,10 @@ export class HollowWeather {
     this.rain=new T.LineSegments(geo,new T.LineBasicMaterial({color:0xb0cbce,transparent:true,opacity:.19,depthWrite:false}));
     this.group.add(this.rain);
   }
+  setQuality(q){
+    const scale=Math.max(0.25,Math.min(1,Number(q?.effects??1)));
+    this.rain.geometry.setDrawRange(0,Math.round(180*scale)*2);
+  }
   update(pos,dt,night=this.night,weather=1){
     this.night=night;
     this.t+=dt;

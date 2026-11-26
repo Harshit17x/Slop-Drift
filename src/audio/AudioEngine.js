@@ -483,8 +483,20 @@ export class AudioEngine {
   _watchVisibility() {
     const doc = globalThis.document;
     if (!doc || typeof doc.addEventListener !== 'function') return;
+    this._hiddenSuspended = false;
     this._onVisibility = () => {
-      if (doc.visibilityState === 'hidden') this.silence();
+      if (doc.visibilityState === 'hidden') {
+        this.silence();
+        if (this.ctx?.state === 'running' && typeof this.ctx.suspend === 'function') {
+          this._hiddenSuspended = true;
+          this.ctx.suspend().catch(() => {});
+        }
+      } else if (doc.visibilityState === 'visible' && this._hiddenSuspended) {
+        this._hiddenSuspended = false;
+        if (this.ctx?.state === 'suspended' && typeof this.ctx.resume === 'function') {
+          this.ctx.resume().catch(() => {});
+        }
+      }
     };
     doc.addEventListener('visibilitychange', this._onVisibility);
   }

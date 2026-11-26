@@ -199,7 +199,7 @@ export class Landmarks {
   /** Load the prototypes and build the instances. Resolves once they are in the scene graph. */
   async load(url) {
     if (BUILDING_ATLAS_URL && !this.atlasTexture) {
-      const aniso = Math.min(8, Math.max(2, Number(this.quality?.anisotropy || 4)));
+      const aniso = Math.min(8, Math.max(1, Number(this.quality?.anisotropy || 4)));
       this.atlasTexture = loadAtlasTexture(BUILDING_ATLAS_URL, aniso);
     }
 
@@ -237,8 +237,9 @@ export class Landmarks {
         transforms.forEach((transform, i) => mesh.setMatrixAt(i, transform));
         mesh.instanceMatrix.needsUpdate = true;
         mesh.computeBoundingSphere();
-        const allowShadow = shadows && !NO_SHADOW_MATERIALS.has(child.material.name);
-        mesh.castShadow = allowShadow;
+        const allowShadow = !NO_SHADOW_MATERIALS.has(child.material.name);
+        mesh.userData.allowShadow = allowShadow;
+        mesh.castShadow = shadows && allowShadow;
         mesh.receiveShadow = shadows;
         mesh.name = `${node.name}:${child.material.name}`;
         this.group.add(mesh);
@@ -273,9 +274,25 @@ export class Landmarks {
     return low + Math.min(1.5, (high - low) * 0.25) - 0.15;
   }
 
+  setQuality(quality) {
+    this.quality = quality;
+    const shadows = Boolean(quality?.shadowMapSize);
+    if (this.atlasTexture) {
+      const aniso = Math.min(8, Math.max(1, Number(quality?.anisotropy || 4)));
+      if (this.atlasTexture.anisotropy !== aniso) {
+        this.atlasTexture.anisotropy = aniso;
+        this.atlasTexture.needsUpdate = true;
+      }
+    }
+    for (const mesh of this.meshes) {
+      mesh.castShadow = shadows && Boolean(mesh.userData.allowShadow);
+      mesh.receiveShadow = shadows;
+    }
+  }
+
   /** Disable shadow casting on distant hero landmarks beyond shadow range. */
   update(camera) {
-    if (!camera || !this.heroShadowMeshes.length) return;
+    if (!camera || !this.heroShadowMeshes.length || !this.quality?.shadowMapSize) return;
     const camPos = camera.position;
     for (const mesh of this.heroShadowMeshes) {
       const sphere = mesh.boundingSphere;

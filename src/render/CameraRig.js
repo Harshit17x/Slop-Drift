@@ -145,6 +145,14 @@ export class CameraRig {
     this.camera.updateProjectionMatrix();
   }
 
+  setQuality(quality) {
+    const farClip = THREE.MathUtils.clamp(Number(quality?.farClip ?? 9000), 3200, 9000);
+    if (this.camera.far !== farClip) {
+      this.camera.far = farClip;
+      this.camera.updateProjectionMatrix();
+    }
+  }
+
   /**
    * @param {number} dt
    * @param {import('../core/contracts.js').VehicleState} state

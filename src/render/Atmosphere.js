@@ -128,6 +128,10 @@ const scratchUp = new THREE.Vector3();
 const scratchFocus = new THREE.Vector3();
 const worldUp = new THREE.Vector3(0, 1, 0);
 
+const scratchSunBlend = new THREE.Color(0xffe2a8);
+const scratchFloorColor = new THREE.Color();
+const scratchTintColor = new THREE.Color();
+
 function directionFrom(azimuth, elevation, target) {
   const a = azimuth * DEG2RAD;
   const e = elevation * DEG2RAD;
@@ -281,13 +285,19 @@ export class Atmosphere {
   }
 
   setQuality(quality) {
-    const size = quality?.shadowMapSize ?? 2048;
+    const requested = quality?.shadowMapSize ?? 2048;
+    const maxTex = Number(this.renderer?.capabilities?.maxTextureSize) || 0;
+    const size = requested > 0 && maxTex > 0 && maxTex <= 4096 ? Math.min(requested, 2048) : requested;
     this.cloudsEnabled = quality?.clouds !== false;
     const shadow = this.sun.shadow;
     this.sun.castShadow = size > 0;
+    shadow.autoUpdate = size > 0;
     if (size > 0 && (shadow.mapSize.x !== size || !this.shadowMapSize)) {
       shadow.mapSize.set(size, size);
       shadow.map?.dispose();
+      shadow.map = null;
+    } else if (size === 0 && shadow.map) {
+      shadow.map.dispose();
       shadow.map = null;
     }
     this.shadowMapSize = size;
@@ -353,7 +363,7 @@ export class Atmosphere {
     }
     if (this.world?.bridge) {
       // A little extra leaf-green bounce; the presets already carry the haze.
-      this.sun.color.lerp(new THREE.Color(0xffe2a8), preset.moon ? 0 : 0.22);
+      this.sun.color.lerp(scratchSunBlend, preset.moon ? 0 : 0.22);
       this.hemisphere.groundColor.setHex(0x3c4327);
       this.hemisphere.intensity *= 0.86;
     }
@@ -363,7 +373,7 @@ export class Atmosphere {
   /** Average sky colour just above the horizon, ignoring the glare around the sun. */
   measureHorizon() {
     const preset = this.preset;
-    const floor = new THREE.Color(preset.fogFloor);
+    const floor = scratchFloorColor.setHex(preset.fogFloor);
     const renderer = this.renderer;
     const previousTarget = renderer.getRenderTarget();
     const samples = [];
@@ -408,7 +418,7 @@ export class Atmosphere {
       // Reading float targets is unsupported here: fall back to the ambient sky tint.
       this.fogColor.setHex(preset.hemiSky).multiplyScalar(0.9);
     }
-    const tint = new THREE.Color(preset.fogTint);
+    const tint = scratchTintColor.setHex(preset.fogTint);
     this.fogColor.multiply(tint).multiplyScalar(preset.fogGain);
     this.fogColor.r = Math.max(this.fogColor.r, floor.r);
     this.fogColor.g = Math.max(this.fogColor.g, floor.g);

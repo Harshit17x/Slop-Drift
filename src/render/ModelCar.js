@@ -47,6 +47,40 @@ export function loadCarModels(ids) {
   return Promise.all(tasks);
 }
 
+/**
+ * Release cached GLB templates not in `keepIds` to reclaim GPU/CPU memory on low-memory devices.
+ * @param {Iterable<string>} [keepIds]
+ */
+export function trimCarModels(keepIds = []) {
+  const keep = new Set(keepIds);
+  for (const [id, scene] of templates) {
+    if (keep.has(id)) continue;
+    templates.delete(id);
+    loading.delete(id);
+    const disposed = new Set();
+    scene.traverse((node) => {
+      if (node.geometry && !disposed.has(node.geometry)) {
+        disposed.add(node.geometry);
+        node.geometry.dispose?.();
+      }
+      const mats = Array.isArray(node.material) ? node.material : (node.material ? [node.material] : []);
+      for (const mat of mats) {
+        for (const key of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap']) {
+          const tex = mat?.[key];
+          if (tex && !disposed.has(tex)) {
+            disposed.add(tex);
+            tex.dispose?.();
+          }
+        }
+        if (mat && !disposed.has(mat)) {
+          disposed.add(mat);
+          mat.dispose?.();
+        }
+      }
+    });
+  }
+}
+
 /** True once this car's model is loaded and createCarModel will build its final visual. */
 export function hasCarModel(carId) {
   const car = getCar(carId);
@@ -88,7 +122,9 @@ function makeFinish(material, car, hasVertexColors) {
   if (finish) {
     const mode = finishMode(finish.paintMode);
     const useAo = Boolean(hasVertexColors && finish.vertexAoStrength > 0);
-    copy = new THREE.MeshPhysicalMaterial({
+    const clearcoat = finish.clearcoat ?? 0;
+    const MaterialCtor = clearcoat > 0 ? THREE.MeshPhysicalMaterial : THREE.MeshStandardMaterial;
+    const params = {
       name: material.name,
       map: car.bakedTexture ? material.emissiveMap || material.map : material.map,
       aoMap: finish.aoMapIntensity ? material.aoMap || material.roughnessMap : null,
@@ -99,8 +135,6 @@ function makeFinish(material, car, hasVertexColors) {
       color: finish.color ?? material.color,
       metalness: finish.metalness ?? 0,
       roughness: finish.roughness ?? 0.6,
-      clearcoat: finish.clearcoat ?? 0,
-      clearcoatRoughness: finish.clearcoatRoughness ?? 0.1,
       emissive: finish.emissive ?? 0x000000,
       emissiveIntensity: finish.emissiveIntensity ?? 1,
       envMapIntensity: finish.envMapIntensity ?? 1,
@@ -108,7 +142,12 @@ function makeFinish(material, car, hasVertexColors) {
       opacity: finish.opacity ?? 1,
       depthWrite: !finish.transparent,
       vertexColors: useAo,
-    });
+    };
+    if (clearcoat > 0) {
+      params.clearcoat = clearcoat;
+      params.clearcoatRoughness = finish.clearcoatRoughness ?? 0.1;
+    }
+    copy = new MaterialCtor(params);
     copy.userData.role = finish.role || null;
     copy.userData.lens = Boolean(finish.lens || finish.role === 'lens');
     copy.userData.paintMode = mode;
