@@ -16,6 +16,9 @@ function crazygamesHtmlPlugin() {
 
 export default defineConfig({
   base: './',
+  define: {
+    __CRAZYGAMES_BUILD__: JSON.stringify(isCrazyGames),
+  },
   plugins: [crazygamesHtmlPlugin()],
   server: {
     host: true,

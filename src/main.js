@@ -1,9 +1,9 @@
-import { inject } from '@vercel/analytics';
 import { Game } from './core/Game.js';
 
 const host = typeof window !== 'undefined' ? window.location.hostname : '';
-if (typeof window !== 'undefined' && !window.CrazyGames && /(^|\.)slopdrift\.xyz$|\.vercel\.app$/i.test(host)) {
-  inject();
+const isCrazyBuild = typeof __CRAZYGAMES_BUILD__ !== 'undefined' && __CRAZYGAMES_BUILD__;
+if (!isCrazyBuild && typeof window !== 'undefined' && !window.CrazyGames && /(^|\.)slopdrift\.xyz$|\.vercel\.app$/i.test(host)) {
+  import('@vercel/analytics').then(({ inject }) => inject()).catch(() => {});
 }
 
 const root = document.querySelector('#app');
