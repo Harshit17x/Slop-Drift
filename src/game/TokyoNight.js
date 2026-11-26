@@ -7,6 +7,7 @@ import { TokyoSound, stations } from '../audio/TokyoSound.js';
 const weatherOptions=['Clear','Rain','After rain','Passing showers'];
 const key='slop-tokyo-passport-v1';
 const jobs={
+  stamps:['After Hours Stamp Rally','Stop by the signed counters at Shibuya Crossing, Electric Town, Shinjuku and the Midnight Auto Meet. Collect a stamp at each counter.'],
   explorer:['City Explorer','Visit the eight named districts.'],
   photographer:['Midnight Photographer','Stop at a district and frame a photograph. Collect four different districts.'],
   tower:['Tokyo Tower Tour','Use the Tower skyline camera in Minato, on 7F and at the Minato expressway overlook.'],
@@ -29,7 +30,10 @@ export class TokyoNight{
     this.frame={};this.ghostPos=new T.Vector3();this.ghostQuat=new T.Quaternion();
     this.pose={position:new T.Vector3(),quaternion:new T.Quaternion()};
     let raw={};try{raw=JSON.parse(localStorage.getItem(key)||'{}')||{};}catch{}
-    this.log={};for(const k of ['found','photos','views','shops','floors','complete'])this.log[k]=Array.isArray(raw[k])?raw[k]:[];
+    this.log={};for(const k of ['found','photos','views','shops','floors','complete','stamps'])this.log[k]=Array.isArray(raw[k])?raw[k]:[];
+    this.log.sectorRecords={...raw.sectorRecords};
+    this.log.speedBest=Number(raw.speedBest)||0;
+    this.log.courierBest=Number(raw.courierBest)||0;
     this.log.station=stations.includes(raw.station)?raw.station:'Off';
     this.log.weather=weatherOptions.includes(raw.weather)?raw.weather:'After rain';
     this.log.density=[.25,.5,.8].includes(raw.density)?raw.density:.5;
@@ -57,6 +61,31 @@ export class TokyoNight{
     this.lens=this.panel.querySelector('.tn-lens');this.exposure=this.panel.querySelector('.tn-exposure');
     this.cameraTools=this.panel.querySelector('.tn-camera');
     this.panel.querySelector('.tn-photo').onclick=()=>this.photo();
+    this.kiosk=document.createElement('div');this.panel.append(this.kiosk);
+    this.kiosk.hidden=true;
+    this.stamp=document.createElement('button');this.kiosk.append(this.stamp);
+    this.stamp.onclick=()=>{
+      const stop=this.currentStop();
+      if(!stop)return;
+      if(unique(this.log.stamps,stop.name)){
+        stop.litUntil=this.g.scenery.time+4;this.save();
+        this.g.hud.toast(stop.name+' stamp · '+this.log.stamps.length+'/4','good');
+        if(this.log.stamps.length===4)this.complete('stamps');
+      }
+    };
+    this.action=document.createElement('button');this.kiosk.append(this.action);
+    this.action.onclick=()=>{
+      const stop=this.currentStop();
+      if(stop?.name==='Lantern Alley' && this.deliveryStart==null){
+        this.deliveryStart=this.clock;this.g.hud.toast('Deliver the order to the Midnight Auto Meet in 180 s','info');
+      }else if(stop?.name==='Pit Lane'){
+        if(this.deliveryStart==null){this.start('rival');return}
+        const seconds=Math.ceil(this.clock-this.deliveryStart);this.deliveryStart=null;
+        if(seconds>180)return;
+        this.log.courierBest=this.log.courierBest?Math.min(seconds,this.log.courierBest):seconds;
+        this.save();this.g.hud.toast('Order delivered · '+seconds+' s · best '+this.log.courierBest+' s','good');
+      }
+    };
     this.refresh();this.weather();
   }
   save(){try{localStorage.setItem(key,JSON.stringify({...this.log,job:this.job}));}catch{}}
@@ -84,7 +113,64 @@ export class TokyoNight{
       this.g.hud.toast(jobs[id][1],'info');
     }
   }
+  driftSector(dt,state,drift){
+    const zone=this.g.scenery.driftSectors.find(z=>z.road===this.road &&
+      Math.abs(this.loc.s-z.s)<75 && this.loc.distance<this.loc.halfWidth);
+    if(zone!==this.zone){
+      if(this.zone){
+        const points=Math.floor(this.zoneScore);
+        this.zone.lights.color.setHex(0xefab48);
+        if(points>0){
+          const records=this.log.sectorRecords;
+          records[this.zone.name]=Math.max(records[this.zone.name]||0,points);this.save();
+          this.g.hud.toast(this.zone.name+' · '+points+' pts · best '+records[this.zone.name],'good');
+        }
+      }
+      this.zone=zone;this.zoneScore=0;
+      if(zone)this.g.hud.toast(zone.name+' · drift between the amber marks','info');
+    }
+    if(!zone)return;
+    if(state.impact>5)this.zoneScore=0;
+    else if(drift.active&&state.wheelsOnGround>=2){
+      this.zoneScore+=dt*Math.min(65,state.speed)*Math.min(1,Math.abs(drift.angleDeg||0)/35);
+    }
+    zone.lights.color.setHex(drift.active?0x38f0dd:0xefab48);
+    this.out.textContent=zone.name+' · '+Math.floor(this.zoneScore)+' pts';
+  }
+  currentStop(){
+    const g=this.g;
+    if(g.mode?.id!=='roam'||g.state!=='running')return null;
+    const state=g.vehicle.getState();
+    return state.speed<2.3?g.scenery.stops.find(s=>s.point.distanceToSquared(state.position)<10**2):null;
+  }
+  streetEvents(state,loc){
+    const stop=this.currentStop();
+    this.kiosk.hidden=!stop;
+    if(stop){
+      this.stamp.disabled=this.log.stamps.includes(stop.name);
+      this.stamp.textContent=(this.stamp.disabled?'Stamped · ':'Collect stamp · ')+stop.name;
+      this.action.hidden=stop.name!=='Lantern Alley'&&stop.name!=='Pit Lane';
+      this.action.disabled=stop.name==='Lantern Alley'&&this.deliveryStart!=null;
+      this.action.textContent=stop.name==='Lantern Alley'?'Pick up ramen order':this.deliveryStart!=null?'Deliver order':'Challenge Akatsuki';
+    }
+    if(this.deliveryStart!=null){
+      const left=180-Math.floor(this.clock-this.deliveryStart);
+      if(left<=0){this.deliveryStart=null;this.g.hud.toast('Order expired · return to Lantern Alley','info');}
+      else return 'Ramen delivery → Midnight Auto Meet · '+left+' s';
+    }
+    const inTrap=loc.roadId===2&&Math.abs(loc.s-1520)<14&&loc.distance<loc.halfWidth;
+    if(inTrap&&!this.inTrap){
+      const kmh=Math.round(state.speed*3.6);
+      this.log.speedBest=Math.max(this.log.speedBest,kmh);this.save();
+      this.g.hud.toast('Expressway speed camera · '+kmh+' km/h · best '+this.log.speedBest,'info');
+    }
+    this.inTrap=inTrap;
+    if(this.job==='stamps')return this.log.stamps.length+'/4 stamps · '+(this.g.scenery.stops.find(s=>!this.log.stamps.includes(s.name))?.name||'rally complete');
+    return '';
+  }
   runStart(mode){
+    if(this.zone)this.zone.lights.color.setHex(0xefab48);
+    this.zone=null;this.zoneScore=0;this.deliveryStart=null;this.inTrap=false;this.kiosk.hidden=true;
     this.lastRoad=null;this.outside=0;
     this.racing=this.dispatch;this.dispatch=null;this.clock=0;this.nextScan=0;this.tandemTime=0;this.basementDeadline=90;this.basementPoints=0;
     if(this.racing){
@@ -142,8 +228,10 @@ export class TokyoNight{
           if(this.log.shops.length===3)this.complete('hunter');
         }
       }
+      if(g.mode.id==='roam')detail=this.streetEvents(state,loc)||detail;
       this.out.textContent=detail&&detail!==district?district+' · '+detail:district;
     }
+    if(g.mode.id==='roam')this.driftSector(dt,state,drift);
     this.sound.update(dt,this.floor>=0?(this.floor===8?0:this.floor<2?.29:.16):p.y<-2?.34:0,this.log.station,this.nearest?.name);
     if(g.mode.id!=='roam'||drift.event!=='drift_end'||drift.lastDriftScore<35)return;
     if(this.job==='basement'&&this.floor===0&&this.clock<this.basementDeadline){

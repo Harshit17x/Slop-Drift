@@ -314,6 +314,21 @@ export class CameraRig {
 
     this.applyShake(dt, state);
     this.finish(dt, fovTarget);
+    // Shorten the blended chase arm when reversing along a wall or drifting
+    // around a shop corner. Start at cabin height to ignore the road deck.
+    if(this.world.tokyoObstacleHash && (this.mode==='far'||this.mode==='chase')){
+      const focus=state.position,eye=this.camera.position;
+      const dx=eye.x-focus.x,dy=eye.y-focus.y-.9,dz=eye.z-focus.z;
+      const steps=Math.ceil(Math.hypot(dx,dy,dz)/.45);
+      const hit=this.wallContact||={};
+      for(let i=1;i<=steps;i++){
+        const t=i/steps;
+        if(this.world.collideObstacle(focus.x+dx*t,focus.y+.9+dy*t,focus.z+dz*t,.24,hit).hit){
+          const safe=(i-1)/steps;
+          eye.set(focus.x+dx*safe,focus.y+.9+dy*safe,focus.z+dz*safe);break;
+        }
+      }
+    }
   }
 
   /** Slow orbit around a point (menu backdrop, finish screen). */

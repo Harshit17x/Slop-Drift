@@ -759,7 +759,9 @@ export class World {
       }
       // The verge is soft ground: where another road's bed has been cut higher, the ground wins.
       if (surfaceClass === 2 && !this.layered) y = Math.max(y, this.grid.heightAt(x, z));
-      if (surfaceClass < bestClass || (surfaceClass === bestClass && y > bestY)) {
+      // A lower crossing must never take a tyre off the shoulder of an upper deck.
+      const differentDeck = this.layered && bestClass < 9 && Math.abs(y-bestY) > 1.65;
+      if (differentDeck ? y > bestY : surfaceClass < bestClass || (surfaceClass === bestClass && y > bestY)) {
         bestClass = surfaceClass;
         bestY = y;
         bestRoad = r;
@@ -976,7 +978,22 @@ export class World {
       for(let dx=-1;dx<=1;dx++)for(let dz=-1;dz<=1;dz++){
         const bucket=this.tokyoObstacleHash.get((ix+dx)*2048+iz+dz);
         if(!bucket)continue;
-        for(const {p,r,h} of bucket){
+        for(const item of bucket){
+          if(item.box){
+            const {p,h,box}=item;
+            if(y+radius<p.y || y-radius>p.y+h)continue;
+            const dx=x-p.x,dz=z-p.z;
+            const u=dx*box.tx+dz*box.tz,v=-dx*box.tz+dz*box.tx;
+            const du=Math.abs(u)-box.length,dv=Math.abs(v)-box.width;
+            const gap=Math.hypot(Math.max(0,du),Math.max(0,dv));
+            const depth=radius-gap-Math.min(0,Math.max(du,dv));
+            if(depth<=out.depth)continue;
+            const nu=gap>0?Math.sign(u)*Math.max(0,du)/gap:du>=dv?(Math.sign(u)||1):0;
+            const nv=gap>0?Math.sign(v)*Math.max(0,dv)/gap:dv>du?(Math.sign(v)||1):0;
+            out.hit=true;out.depth=depth;out.nx=nu*box.tx-nv*box.tz;out.nz=nu*box.tz+nv*box.tx;
+            continue;
+          }
+          const {p,r,h}=item;
           if(y<p.y-1.8 || y>p.y+h)continue;
           const a=x-p.x,b=z-p.z,d=Math.hypot(a,b),depth=r+radius-d;
           if(depth>out.depth && d>.001){out.hit=true;out.depth=depth;out.nx=a/d;out.nz=b/d;}

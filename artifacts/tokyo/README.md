@@ -14,11 +14,17 @@ The city uses metre-scale Three.js geometry. These distances were measured from 
 | Tokyo Midnight Circuit | 4,998 m | Connects Shibuya, Minato, Electric Town and the auto meet |
 | Metropolitan Expressway | 9,000 m | Branches from the main loop, climbs to 19 m and descends into the tunnel |
 | Tokyo Bay Run | 3,999 m | Connects the main loop to the docks and gymkhana apron |
-| Grand Tokyo Tour | 14,992 m | Pins the long circuit to junctions in the other districts |
+| Grand Tokyo Tour | 14,993 m | Pins the long circuit to junctions in the other districts |
 | Midnight Parkade | 2,263 m | One continuous two-way oval with a street entrance at 1F |
 | Underground Echo | 2,190 m | Timed sector of the expressway |
 
 Four service streets link the circuits. Road queries include vehicle height so two decks can overlap in plan without exchanging wheel contacts, checkpoint progress or recovery positions. Barriers have openings where roads meet at the same height. The garage uses a 110 × 58 m centreline oval. Each turn includes a level landing and a smooth 5.6 m rise. B2 starts 11.2 m below street level and the 7F rooftop is 33.6 m above it. A seeded parking layout is used during competition. Free roam draws a fresh layout from marked bays at the chosen density.
+
+## Street stops and drift sectors
+
+Pull up beside a signed counter in City Explorer. Four stamps complete the After Hours Stamp Rally. At the Shinjuku food stall, pick up a ramen order and deliver it to the Pit Lane counter at the Midnight Auto Meet in 180 seconds. Returning to Pit Lane also lets you challenge Akatsuki. The expressway speed camera records passing speed. Three marked scoring sectors on the Shibuya, bay and downtown circuits score drift angle, speed and time on the ground. Amber lights turn turquoise during a drift. A hard impact clears the current score. Sector records, best delivery time and camera speed save locally.
+
+[Arcade counter](arcade-counter.jpg) · [Lantern Alley](lantern-counter.jpg). Four new original ImageGen textures depict a grill, arcade, workshop and apartments. Sidewalk pedestrians, a second row of buildings, projecting signs, utility pipes, deck markings and soft lamp halos add depth. The food stalls and the roadside meet draw on [GO TOKYO’s yokocho guide](https://www.gotokyo.org/en/story/guide/drink-and-dine-like-a-local-a-guide-to-exploring-yokocho-alleyways/index.html) and [Genki’s description of Tokyo Xtreme Racer](https://store.steampowered.com/app/2634950/).
 
 ## Activities
 
@@ -53,9 +59,10 @@ The new art and audio were authored for this project. The reference photographs,
 
 - [x] Based on owner main `fe27e49`. Map selection, roads, layered wheel contact, camera, checkpoint timing and minimap integrate with the shared game. Tokyo-specific scenery, missions and audio live in separate modules.
 - [x] All eight distinct courses completed with the scripted driver and zero respawns. The ascent and descent each cleared 30 checkpoints. The garage tests sample ground and progress every 2 m and settle the vehicle on all nine levels.
-- [x] Sampled all roads for obstacles at 4 m intervals on the centreline and two parallel lines 2 m to either side. Verified both traffic modes, the three phases of passing showers, seven photo captures, the reward conditions and persistence of all 11 Night Guide activities. Mission checks use controlled location and drift inputs. Course completion uses the vehicle simulation.
+- [x] Regraded three crossings and tested clearance at road edges. Tested rotated shop corners, a 144 km/h sideways vehicle impact, the upper flyover shoulder, and garage terminal stops.
+- [x] Sampled all roads for obstacles at 4 m intervals on the centreline and two parallel lines 2 m to either side. Verified both traffic modes, the three phases of passing showers, seven photo captures, the reward conditions and persistence of all 12 Night Guide activities. Mission checks use controlled location and drift inputs. Course completion uses the vehicle simulation.
 - [x] Production Vite build and full repository test command pass. To reproduce the browser run, set `TOKYO_ACTIVITIES=1` and `TOKYO_DRIVE=1`, then run `node artifacts/tokyo/verify.cjs` from the project. The verifier uses Chrome and accepts a `CHROME_PATH` override.
-- [x] Tested the garage start on Intel UHD Graphics through Chrome/ANGLE D3D11, Low quality, at 942 × 504. Two 90-frame samples after optimization measured 16.4–16.8 ms median and 21.3–21.9 ms at the 95th percentile, with 274 draw calls and 326,306 triangles. These measurements cover one camera position. District geometry batches, nearby-deck visibility and three reused point lights bound the active scene.
+- [x] Tested the garage start on Intel UHD Graphics through Chrome/ANGLE D3D11, Low quality, at 942 × 504. The final 90-frame samples measured 16.6 ms median and 17.7 ms p95 at the garage start (280 draws, 337,514 triangles), and 16.7 ms median and 17.4 ms p95 at the free-roam Shibuya start (484 draws, 445,708 triangles). District geometry batches, nearby-deck visibility and three reused point lights bound the active scene.
 - [ ] Visual and device follow-up. Building modules repeat along long stretches, the far skyline is a panorama, exhibition crowds are static, and service taxis follow fixed routes. Reflected sign light is approximated. The existing racing ghosts and still-photo tools are available. A cut-edited cinematic replay director, extended memory soak, mobile GPU benchmark and live multiplayer validation remain outstanding. The shared production bundles trigger Vite's 500 kB advisory. Intel's shader compiler also emits precision warnings.
 
 Shibuya's sign hierarchy, the expressway's long sightlines and the transition from street races to a quieter car meet informed the layout. The city uses fictional shops and route geography. [GO TOKYO · Shibuya Center-Gai](https://www.gotokyo.org/en/spot/88/index.html) · [Metropolitan Expressway driving guide](https://www.shutoko.jp/ss/shutokodeikou/special/driving_tokyo/en.html) · [Need for Speed Heat manual](https://www.ea.com/able/resources/need-for-speed/need-for-speed-heat/pc/text-manual) · [Genki · Tokyo Xtreme Racer](https://store.steampowered.com/app/2634950/Tokyo_Xtreme_Racer/)

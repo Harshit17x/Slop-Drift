@@ -62,7 +62,7 @@ export const MAPS = Object.freeze({
     preview: HAS_URL ? new URL('../assets/maps/previews/tokyo.jpg', import.meta.url).href : null,
     config:{...WORLD,map:'tokyo',seed:81086,grid:{size:257,cell:40},
       mountain:{...WORLD.mountain,waterLevel:-30,valleyFloor:0,lake:null},
-      road:{...WORLD.road,shoulder:.45,verge:.5,vergeDrop:.12}},
+      road:{...WORLD.road,shoulder:.45,verge:.5,vergeDrop:.12,railHeight:1.4}},
   }),
   hollow: Object.freeze({
     id: 'hollow', label: 'Hollow Creek', tagline: 'Three circuits through a town abandoned to the fog',

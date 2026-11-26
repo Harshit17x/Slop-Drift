@@ -27,8 +27,16 @@ function circuit(vertices, target, anchor, height) {
   });
 }
 
-function makeRoad(world,name,xyz,width,closed=false) {
+function makeRoad(world,name,xyz,width,closed=false,clearances=[]) {
   const sample=world.constructor.resamplePolyline(xyz.flatMap(p=>[p[0],p[2]]),xyz.map(p=>p[1]),closed,3.4);
+  // Ease the deck up or down on both approaches. The flat part spans the
+  // entire intersecting carriageway, including the shoulder and soffit.
+  for(const {x,z,rise} of clearances){
+    for(let i=0;i<sample.points.length;i++){
+      const [px,pz]=sample.points[i];
+      sample.profile[i]+=rise*(1-smooth((Math.hypot(px-x,pz-z)-35)/115));
+    }
+  }
   const r=new Road({id:world.roads.length,name,closed,points:sample.points,heights:sample.profile,
     config:{...world.config.road,halfWidth:width,maxBank:0,hairpinExtraWidth:0}});
   world.roads.push(r);
@@ -102,11 +110,14 @@ export async function buildTokyo(world,stage){
     const length=points.reduce((sum,p,i)=>{const q=points[(i+1)%points.length];return sum+Math.hypot(p[0]-q[0],p[1]-q[1],p[2]-q[2]);},0);
     if(length<15000)lo=m;else hi=m;
   }
-  const tour=makeRoad(world,'Grand Tokyo Tour',tourSurvey((lo+hi)/2),8,true);
+  const tour=makeRoad(world,'Grand Tokyo Tour',tourSurvey((lo+hi)/2),8,true,[
+    {x:-773,z:-355,rise:-4.1},{x:2286,z:-1331,rise:5.3}
+  ]);
   // Through streets give each district multiple approaches.
   for(const [a,as,b,bs] of [[main,1850,shibuya,1690],[main,2200,highway,5400],[main,3620,bay,900],[bay,2300,tour,2300]]){
     const f=a.frameAt(as,{}),g=b.frameAt(bs,{});
-    makeRoad(world,'District link',[[f.x,f.y,f.z],[g.x,g.y,g.z]],6);
+    makeRoad(world,'District link',[[f.x,f.y,f.z],[g.x,g.y,g.z]],6,false,
+      a===bay?[{x:2069,z:1176,rise:1.7}]:[]);
   }
 
   const apron=bay.frameAt(820,{}),yard=[];
@@ -134,7 +145,7 @@ export async function buildTokyo(world,stage){
   // Barriers follow graded segments and open where another street physically meets this deck.
   for(const r of world.roads){
     for(let i=0;i<r.count;i++){
-      if(r.id!==4 && Math.abs(r.py[i])<2.3)continue;
+      if(r.id!==4 && Math.abs(r.py[i])<.65)continue;
       for(const side of [-1,1]){
         const offset=side*(r.halfWidth[i]+1);
         const x=r.px[i]+r.rx[i]*offset,z=r.pz[i]+r.rz[i]*offset,y=r.py[i];
