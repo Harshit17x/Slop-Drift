@@ -1,0 +1,103 @@
+{
+  "stats": {
+    "gpu": "ANGLE (Intel, Intel(R) UHD Graphics (0x0000A7A8) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "viewport": [
+      1262,
+      704
+    ],
+    "quality": "Medium",
+    "rendererOnlyMs": {
+      "median": 7.4000000059604645,
+      "p95": 98.39999999850988
+    },
+    "draw": {
+      "frame": 809,
+      "calls": 352,
+      "triangles": 538344,
+      "points": 3300,
+      "lines": 0
+    },
+    "memory": {
+      "geometries": 348,
+      "textures": 43
+    },
+    "loadStagesMs": [
+      [
+        "Starting up",
+        1192
+      ],
+      [
+        "Surveying Apex International Motorsport Park",
+        193
+      ],
+      [
+        "Cutting the ridge and grading the circuit",
+        808
+      ],
+      [
+        "Opening the pit lane",
+        139
+      ],
+      [
+        "Shaping the terrain",
+        616
+      ],
+      [
+        "Filling the lake",
+        598
+      ],
+      [
+        "Paving the roads",
+        1435
+      ],
+      [
+        "Building the town",
+        4
+      ],
+      [
+        "Building roadside scenery",
+        1770
+      ],
+      [
+        "Lighting the sky",
+        3809
+      ],
+      [
+        "Warming the engine",
+        1498
+      ]
+    ]
+  },
+  "weekend": {
+    "wetness": 0.5730000927712559,
+    "aiMetres": 27.267499999999963,
+    "serviceStops": 1,
+    "fuel": 90,
+    "layout": "gp",
+    "opponents": 3,
+    "gridTimings": [
+      {
+        "n": 0,
+        "median": 7.700000002980232,
+        "p95": 57.100000001490116,
+        "triangles": 633118,
+        "calls": 291
+      },
+      {
+        "n": 3,
+        "median": 6.700000002980232,
+        "p95": 53.20000000298023,
+        "triangles": 641407,
+        "calls": 306
+      },
+      {
+        "n": 7,
+        "median": 7.899999998509884,
+        "p95": 64.19999999552965,
+        "triangles": 652459,
+        "calls": 326
+      }
+    ]
+  },
+  "errors": []
+}

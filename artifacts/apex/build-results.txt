@@ -1,0 +1,106 @@
+
+> slop-drift@1.0.0 build
+> vite build
+
+vite v8.3.5 building client environment for production...
+transforming...
+✓ 129 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                    1.80 kB │ gzip:   0.92 kB
+dist/assets/driftWorker-C1zB8JH6.js                7.50 kB
+dist/assets/hollow-roof-B3adqomE.webp              7.53 kB
+dist/assets/car-gt-BH0VMUl7.webp                  18.67 kB
+dist/assets/hollow-setts-Dmq7TR-p.webp            26.16 kB
+dist/assets/sunburst-rising-BcHUehHj.webp         36.31 kB
+dist/assets/car-thar-DUj2B5dl.webp                37.42 kB
+dist/assets/mussoorie-road-BwR9rhuK.webp          40.78 kB
+dist/assets/acid-splinter-TOYyJS9_.webp           46.95 kB
+dist/assets/obsidian-oni-Dk23fD18.webp            47.61 kB
+dist/assets/tokyo-touge-Dwh5t1fj.webp             48.03 kB
+dist/assets/summit-chrome-DS4-m2fd.webp           51.32 kB
+dist/assets/car-tokyo-BvrKumT0.webp               52.59 kB
+dist/assets/map-CAufW2P-.json                     52.74 kB │ gzip:  20.54 kB
+dist/assets/monsoon-emerald-CUHxMhq6.webp         52.80 kB
+dist/assets/tokyo-ad3-LXC42g5J.webp               53.51 kB
+dist/assets/alpine-road-CHVff0HW.webp             54.82 kB
+dist/assets/rally-livery-BACVVkIz.png             57.23 kB
+dist/assets/apex-pylon-CbY1eg9L.glb               59.89 kB
+dist/assets/tokyo-office-DPv62M3a.webp            60.49 kB
+dist/assets/alpine-glacier-BImXSBEN.webp          60.57 kB
+dist/assets/tokyo-ad1-qAA5JAgy.webp               60.79 kB
+dist/assets/himalayan-topo-9lD8RuFz.webp          61.58 kB
+dist/assets/apex-DjljGla-.jpg                     65.74 kB
+dist/assets/forged-carbon-D0v-aGL0.webp           70.34 kB
+dist/assets/tokyo-gamehall-BVZYNNu9.webp          70.98 kB
+dist/assets/tokyo-market-BosmlRsm.webp            74.70 kB
+dist/assets/car-hatch-5DvBLRIN.webp               76.93 kB
+dist/assets/tokyo-workshop-X1MxueNY.webp          79.85 kB
+dist/assets/hollow-CuWvw9Qs.jpg                   79.96 kB
+dist/assets/tokyo-flats-B0J1y6kJ.webp             81.26 kB
+dist/assets/midnight-sakura-CmPd-M5E.webp         86.78 kB
+dist/assets/tokyo-grill-DjSMLRWn.webp             88.01 kB
+dist/assets/tokyo-ramen-5-Ysj5dN.webp             89.76 kB
+dist/assets/tokyo-ad0-DrPuP2IP.webp               91.98 kB
+dist/assets/rally-tyre-normal-9s5rNjLL.png        93.37 kB
+dist/assets/sfx-CkGYJZ1a.m4a                      97.48 kB
+dist/assets/tokyo-shops-DB7xfo1u.webp             99.39 kB
+dist/assets/tokyo-ad2-DrxKF21j.webp              101.28 kB
+dist/assets/rally-tyre-4SHFzqar.png              101.48 kB
+dist/assets/title-backdrop-D7dtLS8P.webp         104.51 kB
+dist/assets/alpine-shoulder-Uk2eAYm6.webp        106.82 kB
+dist/assets/mussoorie-buildings-BWOx6YsP.webp    122.02 kB
+dist/assets/mussoorie-shoulder-DMhn4OyR.webp     122.48 kB
+dist/assets/alpine-C_YPQl4e.mp4                  134.98 kB
+dist/assets/hollow-coupe-DWYtOtnz.glb            137.49 kB
+dist/assets/mussoorie-BJQHOCxC.mp4               146.08 kB
+dist/assets/apex-garages-nPQmNfGQ.webp           154.84 kB
+dist/assets/jungle-DXuwuyp-.jpg                  160.87 kB
+dist/assets/tokyo-DeG-Hffo.jpg                   166.97 kB
+dist/assets/tokyo-skyline-DYLXrS0r.webp          170.92 kB
+dist/assets/props-D8MoR3EU.glb                   178.19 kB
+dist/assets/apex-grid-gt-CJh6rZ5t.glb            186.03 kB
+dist/assets/tokyo-tower-4C7vvtVf.glb             186.19 kB
+dist/assets/alpine-foliage-WdBGgGnI.webp         239.89 kB
+dist/assets/alpine-CquTeAYR.jpg                  262.78 kB
+dist/assets/loops-BebtxBxa.m4a                   280.05 kB
+dist/assets/mussoorie-BuFqh9of.jpg               287.24 kB
+dist/assets/apex-woodland-BVDR--1T.webp          315.08 kB
+dist/assets/hollow-winter-trees-DHAzmanA.webp    367.82 kB
+dist/assets/hollow-facades-TIkXPa70.webp         417.11 kB
+dist/assets/hollow-trade-atlas-5dAHiF0k.webp     430.19 kB
+dist/assets/jungle-soil-gqOz6IMo.webp            454.55 kB
+dist/assets/hollow-road-wBvbO0t7.webp            454.83 kB
+dist/assets/engine-DXeW3CK4.m4a                  658.89 kB
+dist/assets/terrain-fu_QToZP.bin                 821.76 kB
+dist/assets/jungle-foliage-Hy_6JOak.webp         848.16 kB
+dist/assets/tokyo-Din2leMs.glb                   955.67 kB
+dist/assets/rally-kit-CHrHqZli.glb             1,126.92 kB
+dist/assets/thar-ClQtvK9Q.glb                  3,396.84 kB
+dist/assets/gt3r-BjjeXsxe.glb                  5,778.49 kB
+dist/assets/HollowAdventure-D5kbr9tt.css           1.43 kB │ gzip:   0.65 kB
+dist/assets/ApexMeeting-CnTVeVTt.css               1.58 kB │ gzip:   0.78 kB
+dist/assets/theme-Ce56_0sW.css                     7.82 kB │ gzip:   1.48 kB
+dist/assets/hud-zF_BOJ5O.css                     141.30 kB │ gzip:  26.11 kB
+dist/assets/dist-BmAaLLsf.js                       1.89 kB │ gzip:   0.95 kB │ map:     8.86 kB
+dist/assets/WaterView-Brlh_r7M.js                  3.95 kB │ gzip:   1.69 kB │ map:     8.99 kB
+dist/assets/ApexCircuitSurface-YgEGn7ri.js         4.34 kB │ gzip:   2.17 kB │ map:    14.62 kB
+dist/assets/Tokyo-DY7kVFg5.js                      5.13 kB │ gzip:   2.85 kB │ map:    18.50 kB
+dist/assets/Apex-B5n65obw.js                       7.63 kB │ gzip:   3.95 kB │ map:    26.12 kB
+dist/assets/Landmarks-BxX-cg1V.js                  8.95 kB │ gzip:   3.12 kB │ map:    24.19 kB
+dist/assets/ApexPark-DvU7HPXK.js                  18.37 kB │ gzip:   8.19 kB │ map:    54.38 kB
+dist/assets/TokyoNight-C20Dj3O_.js                19.62 kB │ gzip:   7.71 kB │ map:    40.36 kB
+dist/assets/HollowAdventure-BcyLto66.js           20.09 kB │ gzip:   8.32 kB │ map:    50.66 kB
+dist/assets/ApexMeeting-CDyuE7HS.js               20.14 kB │ gzip:   8.24 kB │ map:    51.91 kB
+dist/assets/HollowCreekTown-CiqQf7hW.js           26.22 kB │ gzip:  10.98 kB │ map:    87.06 kB
+dist/assets/TokyoCity-BQAHRwCP.js                 58.45 kB │ gzip:  22.62 kB │ map:   186.43 kB
+dist/assets/JungleCanopy-x-uWZV-3.js              64.32 kB │ gzip:  22.30 kB │ map:   249.04 kB
+dist/assets/index-Bz279YsK.js                    648.51 kB │ gzip: 213.87 kB │ map: 2,098.28 kB
+dist/assets/vendor-three-DBidr0FZ.js             669.60 kB │ gzip: 171.30 kB │ map: 3,225.07 kB
+
+✓ built in 2.15s
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.

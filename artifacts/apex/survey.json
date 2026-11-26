@@ -1,0 +1,179 @@
+{
+  "layouts": [
+    {
+      "id": "loop",
+      "name": "Endurance Circuit",
+      "physicalMetres": 8192.306,
+      "planMetres": 8182.387,
+      "startStation": 0,
+      "checkpoints": [
+        681.866,
+        1363.731,
+        2045.597,
+        2727.462,
+        3409.328,
+        4091.194,
+        4773.059,
+        5454.925,
+        6136.79,
+        6818.656,
+        7500.522
+      ]
+    },
+    {
+      "id": "gp",
+      "name": "Grand Prix Circuit",
+      "physicalMetres": 5965.361,
+      "planMetres": 5962.1,
+      "startStation": 3002.651,
+      "checkpoints": [
+        3499.493,
+        3996.335,
+        4493.176,
+        4990.018,
+        5486.86,
+        21.601,
+        518.443,
+        1015.285,
+        1512.126,
+        2008.968,
+        2505.81
+      ]
+    },
+    {
+      "id": "ridge",
+      "name": "Mountain Circuit",
+      "physicalMetres": 4075.069,
+      "planMetres": 4067.642,
+      "startStation": 0,
+      "checkpoints": [
+        338.97,
+        677.94,
+        1016.911,
+        1355.881,
+        1694.851,
+        2033.821,
+        2372.791,
+        2711.761,
+        3050.732,
+        3389.702,
+        3728.672
+      ]
+    },
+    {
+      "id": "international",
+      "name": "International Sprint",
+      "physicalMetres": 3476.418,
+      "planMetres": 3476.063,
+      "startStation": 844.68,
+      "checkpoints": [
+        1134.352,
+        1424.024,
+        1713.696,
+        2003.368,
+        2293.04,
+        2582.712,
+        2872.384,
+        3162.056,
+        3451.728,
+        265.336,
+        555.008
+      ]
+    },
+    {
+      "id": "bowl",
+      "name": "Stadium Circuit",
+      "physicalMetres": 2605.548,
+      "planMetres": 2605.454,
+      "startStation": 693.958,
+      "checkpoints": [
+        911.079,
+        1128.2,
+        1345.321,
+        1562.442,
+        1779.564,
+        1996.685,
+        2213.806,
+        2430.927,
+        42.594,
+        259.715,
+        476.836
+      ]
+    },
+    {
+      "id": "academy",
+      "name": "Motorsport Academy",
+      "physicalMetres": 1557.091,
+      "planMetres": 1557.091,
+      "startStation": 0,
+      "checkpoints": [
+        129.758,
+        259.515,
+        389.273,
+        519.03,
+        648.788,
+        778.546,
+        908.303,
+        1038.061,
+        1167.818,
+        1297.576,
+        1427.334
+      ]
+    }
+  ],
+  "elevationRange": 145.545,
+  "maxBankDegrees": 23.989,
+  "gradePercent": [
+    -14.828,
+    10.4
+  ],
+  "crossoverMetres": 9.997,
+  "sections": [
+    {
+      "name": "The Serpent",
+      "start": 1416.4505774214103,
+      "end": 2224.3879169922507
+    },
+    {
+      "name": "Summit Ascension",
+      "start": 2224.3879169922507,
+      "end": 3255.6393090956044
+    },
+    {
+      "name": "Skyline Ridge",
+      "start": 3255.6393090956044,
+      "end": 3819.451242878409
+    },
+    {
+      "name": "The Carousel",
+      "start": 3819.451242878409,
+      "end": 4174.434599465212
+    },
+    {
+      "name": "The Vortex",
+      "start": 4407.296593735416,
+      "end": 4924.916830829215
+    },
+    {
+      "name": "Heritage Sector",
+      "start": 5177.805748932402,
+      "end": 6174.307709167903
+    },
+    {
+      "name": "Velocity Straight",
+      "start": 6629.05234452201,
+      "end": 7486.559502630234
+    },
+    {
+      "name": "Thunder Bowl",
+      "start": 7486.559502630234,
+      "end": 7822.888222225386
+    },
+    {
+      "name": "Victory Bend",
+      "start": 7822.888222225386,
+      "end": 7978.480344414573
+    }
+  ],
+  "pitLength": 684.788
+}
