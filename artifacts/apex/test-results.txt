@@ -2,27 +2,34 @@
 > slop-drift@1.0.0 test
 > node tests/apex.test.mjs && node tests/world.test.mjs && node tests/map.test.mjs && node tests/roads.test.mjs && node tests/vehicle.test.mjs && node tests/vehicle-impacts.test.mjs && node tests/vehicle-suspension.test.mjs && node tests/damage.test.mjs && node tests/session.test.mjs && node tests/career.test.mjs && node tests/ghost.test.mjs && node tests/net.test.mjs && node tests/party.test.mjs && node tests/camera.test.mjs && node tests/jungle.test.mjs && node tests/hollow.test.mjs && node tests/tokyo.test.mjs && node tests/ui.test.mjs
 
-World build 472 ms
+World build 413 ms
 loop 8192.3 m, worst contact error 0.003 m
 gp 5965.4 m, worst contact error 0.182 m
 ridge 4075.1 m, worst contact error 0.191 m
 international 3476.4 m, worst contact error 0.170 m
 bowl 2605.5 m, worst contact error 0.170 m
 academy 1557.1 m, worst contact error 0.000 m
-loop GT3 physics lap 332.89 s, max lateral 0.91 m, airborne frames 9
-gp GT3 physics lap 247.92 s, max lateral 1.02 m, airborne frames 0
-ridge GT3 physics lap 182.75 s, max lateral 1.47 m, airborne frames 0
-international GT3 physics lap 143.83 s, max lateral 1.51 m, airborne frames 0
-bowl GT3 physics lap 107.38 s, max lateral 1.44 m, airborne frames 0
-academy GT3 physics lap 69.73 s, max lateral 0.68 m, airborne frames 0
+Track-limit recovery, invalid lap, missed gate, penalties, flag states and rubber-dependent grip passed
+loop three AI finished two laps; pit stops 3
+gp three AI finished two laps; pit stops 3
+ridge three AI finished two laps; pit stops 0
+international three AI finished two laps; pit stops 3
+bowl three AI finished two laps; pit stops 3
+academy three AI finished two laps; pit stops 0
+loop GT3 physics lap 332.94 s, max lateral 0.91 m, airborne frames 10
+gp GT3 physics lap 247.94 s, max lateral 1.02 m, airborne frames 0
+ridge GT3 physics lap 182.72 s, max lateral 1.48 m, airborne frames 0
+international GT3 physics lap 143.80 s, max lateral 1.51 m, airborne frames 0
+bowl GT3 physics lap 107.40 s, max lateral 1.44 m, airborne frames 0
+academy GT3 physics lap 69.72 s, max lateral 0.69 m, airborne frames 0
 
-Build 4643 ms
+Build 3282 ms
   start                          1 ms
-  Surveying the mountain         126 ms
-  Raising the terrain            1824 ms
-  Eroding ridges and gullies     706 ms
-  Grading the roads              45 ms
-  Cutting the roadbed            1926 ms
+  Surveying the mountain         79 ms
+  Raising the terrain            1748 ms
+  Eroding ridges and gullies     613 ms
+  Grading the roads              62 ms
+  Cutting the roadbed            770 ms
 
 Roads
   loop: 5.70 km, 2848 samples, altitude 76-280 m, max grade 9.9%, min radius 16.3 m, tight corners 4, max bank 5.0 deg
@@ -56,11 +63,11 @@ Guardrails  loop 86% left, 10% right  |  spur 28% left, 61% right
 
 Terrain  1281x1281 nodes, height 24 to 518 m, plaza at 512 m
   ok    all heights finite  (0 bad)
-  ok    ground query is cheap  (3.69 us per query)
+  ok    ground query is cheap  (3.57 us per query)
 
 All world checks passed
 
-Mussoorie build 1573 ms
+Mussoorie build 1050 ms
   ok    loop is a closed circuit of useful length  (2932 m)
   ok    spur climbs to Lal Tibba  (1750 m, +111 m)
   ok    loop grade within limit  (9.9 %)
@@ -268,7 +275,7 @@ Measured figures (Balanced)
   1.5 m drop: min underbody clearance             0.01  m       > 0
   Barrier hit: reported impact                   12.48  m/s     ~12.5
 
-86 passed, 0 failed in 9.4 s
+86 passed, 0 failed in 7.9 s
 
 Running off the road into a mountainside
   ok   45 deg plane face at 60 km/h stops the car without launching it  (rise 0.20 m, peak vy 1.6 m/s, rising airtime 0.00 s, min up.y 1.00)
@@ -599,7 +606,7 @@ Store
   ok   no storage at all returns false/null
 
 Real vehicle on the real world
-  ok   3-minute real drive encodes under 30 KB  (1801 samples, 19.4 KB base64 (19876 chars), 2.343 s to simulate)
+  ok   3-minute real drive encodes under 30 KB  (1801 samples, 19.4 KB base64 (19876 chars), 2.578 s to simulate)
   ok   vehicle wheel spin is positive driving forward (GhostCar uses the same sign)
   ok   replayed run stays on the road the whole way  (1543 poses, 3911 m, closest 3.34 m inside the edge)
   ok   replay matches the live car between samples  (max 0.4 cm)
