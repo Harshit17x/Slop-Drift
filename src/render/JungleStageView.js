@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { WASHOUT, RIDGE, TAPIR_BEND } from '../world/jungleStage.js';
+import { WASHOUT, RIDGE, TAPIR_BEND, STAGE } from '../world/jungleStage.js';
 import { createLabelTexture } from './road/textures.js';
 import { MeshBuffer } from './road/MeshBuffer.js';
 import { createRandom } from '../world/noise.js';
@@ -22,8 +22,14 @@ export function buildStageFurniture(view, soilTexture) {
   }
   board(WASHOUT.lip-197,'FLOOD CUT','200 m   /   BUILD SPEED','#f3aa39');
   board(WASHOUT.lip-78,`JUMP   ${WASHOUT.targetKmh}+`,'STRAIGHT OVER CREST','#ffbf48');
+  board(STAGE.timberCamp-88,'TIMBER CAMP','LOGGING ROAD  /  KEEP LEFT','#d59a4c');
+  board(STAGE.shrine-62,'FOREST SHRINE','SPIRITS CROSSING','#9fce7c');
+  board(STAGE.bamboo.start-74,'BAMBOO TUNNEL','NARROW  /  LOW LIGHT','#b7d16b');
+  board(STAGE.watchtower-58,'WATCHTOWER','ANTI-POACHING POST','#c8b071');
   board(TAPIR_BEND-48,'TAPIR BEND','WILDLIFE REFUGE','#91ce95');
+  board(STAGE.elephants-92,'ELEPHANT CROSSING','SLOW  /  HERD ON ROAD','#c9b27a');
   board(RIDGE-140,'CLOUD RIDGE','CREST   /   FALLING ROAD','#efb640');
+  board(STAGE.deerGlade-64,'SAMBAR GLADE','DAWN HERD','#a7ca88');
   board(4460,'DOUBLE CAUTION','TIGHTENS IN 75 m','#ff9435');
   for (const side of [-1,1]) {
     for (const [start,count,step] of [[WASHOUT.lip-38,7,6],[WASHOUT.bank+1,5,6]]) {

@@ -71,12 +71,52 @@ const MUSSOORIE_OVERRIDES = Object.freeze({
   }),
 });
 
+// Monsoon Run sits under a closed canopy: a high, humid sun, dense wet haze
+// and a leaf-filtered hemisphere. Values stay close to the sky probe result so
+// the fog reads as depth rather than a green wash over everything.
+const JUNGLE_OVERRIDES = Object.freeze({
+  day: Object.freeze({
+    skyElevation: 54, lightElevation: 51, azimuth: 128,
+    turbidity: 4.4, rayleigh: 1.7, mie: 0.0062, mieG: 0.84,
+    exposure: 0.52, sun: 0xffe6b8, sunIntensity: 5.0,
+    hemiSky: 0xb2cdb4, hemiGround: 0x3d452f, hemiIntensity: 0.9, envIntensity: 0.5,
+    fogDensity: 0.004, fogTint: 0xc2d2b8, fogGain: 0.8,
+    clouds: 0.5, cloudDensity: 0.52,
+  }),
+  dawn: Object.freeze({
+    skyElevation: 7, lightElevation: 10, azimuth: 92,
+    turbidity: 5.2, rayleigh: 2.4, mie: 0.007, mieG: 0.84,
+    exposure: 0.55, sun: 0xffc78a, sunIntensity: 4.4,
+    hemiSky: 0xafc3b8, hemiGround: 0x30382a, hemiIntensity: 0.92, envIntensity: 0.6,
+    fogDensity: 0.005, fogTint: 0xd8d4b8, fogGain: 0.84,
+    clouds: 0.52, cloudDensity: 0.48,
+  }),
+  sunset: Object.freeze({
+    skyElevation: 5, lightElevation: 8, azimuth: 258,
+    turbidity: 5.8, rayleigh: 3.0, mie: 0.0072, mieG: 0.85,
+    exposure: 0.56, sun: 0xff9a5e, sunIntensity: 4.5,
+    hemiSky: 0xc0a8b0, hemiGround: 0x3a2e2a, hemiIntensity: 0.9, envIntensity: 0.7,
+    fogDensity: 0.0046, fogTint: 0xe6cdb4, fogGain: 0.84,
+    clouds: 0.54, cloudDensity: 0.5,
+  }),
+  night: Object.freeze({
+    lightElevation: 30, azimuth: 206,
+    sunIntensity: 1.25,
+    hemiSky: 0x5f7d8c, hemiGround: 0x1e2622, hemiIntensity: 0.78, envIntensity: 0.85,
+    fogDensity: 0.0042, fogTint: 0x9fb3a8, fogGain: 0.9,
+    clouds: 0.36, cloudDensity: 0.38,
+  }),
+});
+
 /** Resolve sky and lighting preset for a time of day and map id (Mussoorie gets Himalayan Winterline lighting). */
 export function resolveAtmospherePreset(name, mapId = null) {
   const key = PRESETS[name] ? name : 'day';
   const base = PRESETS[key];
-  if (mapId !== 'mussoorie') return base;
-  return Object.freeze({ ...base, ...(MUSSOORIE_OVERRIDES[key] || {}) });
+  const overrides = mapId === 'mussoorie' ? MUSSOORIE_OVERRIDES
+    : mapId === 'jungle' ? JUNGLE_OVERRIDES
+    : null;
+  if (!overrides) return base;
+  return Object.freeze({ ...base, ...(overrides[key] || {}) });
 }
 
 const SHADOW_EXTENT = 72; // half-size of the shadow frustum around the focus, metres
@@ -299,11 +339,10 @@ export class Atmosphere {
     this.fog.color.copy(this.fogColor);
     this.fog.density = preset.fogDensity;
     if (this.world?.bridge) {
-      this.fog.density = preset.moon ? 0.008 : 0.0062;
-      this.fog.color.lerp(new THREE.Color(preset.moon ? 0x263d42 : 0x99b1a1), 0.78);
-      this.sun.color.lerp(new THREE.Color(0xffdf95), preset.moon ? 0 : 0.32);
-      this.hemisphere.groundColor.setHex(0x48432e);
-      this.hemisphere.intensity *= 0.73;
+      // A little extra leaf-green bounce; the presets already carry the haze.
+      this.sun.color.lerp(new THREE.Color(0xffe2a8), preset.moon ? 0 : 0.22);
+      this.hemisphere.groundColor.setHex(0x3c4327);
+      this.hemisphere.intensity *= 0.86;
     }
     this.buildEnvironment();
   }

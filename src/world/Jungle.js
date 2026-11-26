@@ -1,4 +1,4 @@
-import { WASHOUT, RIDGE, TAPIR_BEND, shapeStage, cutWashout, Washout } from './jungleStage.js';
+import { WASHOUT, RIDGE, TAPIR_BEND, STAGE, shapeStage, cutWashout, Washout } from './jungleStage.js';
 import { clamp, smoothstep } from '../core/math.js';
 
 // Chainage is measured along the centre of the route, in metres.
@@ -63,6 +63,7 @@ export async function buildJungle(world, stage) {
   world.grid.carve(world.roads, [], world.config.road);
   const bridge = new RopeBridge(world.roads[0]);
   world.bridge = bridge;
+  world.adventure = new AdventureNotes(world.roads[0]);
   const { grid } = world;
   const f = bridge.centre;
   world.waterLevel = 4;
@@ -92,13 +93,60 @@ export async function buildJungle(world, stage) {
   grid.updateRange();
   world.buildRoutes();
   world.labels = [{ name: 'Rope crossing', x: f.x, z: f.z }];
-  for (const [name,s] of [['Flood Cut',WASHOUT.lip],['Tapir Bend',TAPIR_BEND],['Cloud Ridge',RIDGE]]) {
+  for (const [name,s] of [
+    ['Flood Cut',WASHOUT.lip], ['Tapir Bend',TAPIR_BEND], ['Cloud Ridge',RIDGE],
+    ['Timber Camp',STAGE.timberCamp], ['Forest Shrine',STAGE.shrine],
+    ['Bamboo Tunnel',(STAGE.bamboo.start+STAGE.bamboo.end)/2],
+    ['Watchtower',STAGE.watchtower], ['Elephant Crossing',STAGE.elephants],
+    ['Sambar Glade',STAGE.deerGlade],
+  ]) {
     const point=world.roads[0].frameAt(s,{});
     world.labels.push({name,x:point.x,z:point.z});
   }
   world.built = true;
   await stage(0.9, 'Growing the canopy');
   return world;
+}
+
+// One-time flavour calls as the car reaches each hand-built beat. Kept in the
+// world layer so the set-piece chainages and the notes can never drift apart.
+const ADVENTURE_BEATS = Object.freeze([
+  Object.freeze({ s: STAGE.timberCamp + 16, title: 'Timber Camp · fresh resin and stacked logs' }),
+  Object.freeze({ s: STAGE.shrine + 12, title: 'Forest shrine · marigolds for a safe crossing' }),
+  Object.freeze({ s: STAGE.bamboo.start + 24, title: 'Bamboo tunnel · hold your line' }),
+  Object.freeze({ s: STAGE.watchtower + 12, title: 'Watchtower · rangers are tracking the herd' }),
+  Object.freeze({ s: STAGE.elephants + 18, title: 'Elephant crossing · give the herd room' }),
+  Object.freeze({ s: STAGE.deerGlade + 14, title: 'Sambar glade · deer in the mist' }),
+]);
+
+export class AdventureNotes {
+  constructor(road) {
+    this.road = road;
+    this.location = {};
+    this.reset();
+  }
+
+  reset() {
+    this.seen = new Set();
+    this.cooldown = 0;
+  }
+
+  update(dt, state) {
+    this.cooldown = Math.max(0, this.cooldown - dt);
+    if (this.cooldown > 0) return null;
+    const p = state.position;
+    if (!this.road.locate(p.x, p.z, this.location)) return null;
+    for (const beat of ADVENTURE_BEATS) {
+      if (this.seen.has(beat.s)) continue;
+      let distance = Math.abs(this.location.s - beat.s);
+      distance = Math.min(distance, 5000 - distance);
+      if (distance > 24) continue;
+      this.seen.add(beat.s);
+      this.cooldown = 5;
+      return beat.title;
+    }
+    return null;
+  }
 }
 
 export class RopeBridge {

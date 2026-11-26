@@ -702,6 +702,10 @@ export class Game {
       if (bridge.broken && !bridge.dropTime) this.hud.toast('The ropes gave way!', 'warn');
     }
     const state = this.vehicle.step(dt, controls);
+    if (this.world.adventure) {
+      const note = this.world.adventure.update(dt, state);
+      if (note) this.hud.toast(note, 'info');
+    }
     if (this.world.washout) {
       const note = this.world.washout.update(dt, state);
       if (note) this.hud.toast(note, 'info');
