@@ -1136,6 +1136,13 @@ export class Hud {
     this.el.querySelectorAll('.sdh-overview').forEach((c) => this.overviewObserver?.observe(c));
     const hubTop = this.q('.sdh-hub-top');
     if (hubTop) this.overviewObserver?.observe(hubTop);
+
+    this.onWindowResize = () => {
+      this.syncHubOffset();
+      this.drawOverviews();
+    };
+    window.addEventListener('resize', this.onWindowResize);
+    window.visualViewport?.addEventListener('resize', this.onWindowResize);
   }
 
   syncHubOffset() {
@@ -1287,6 +1294,7 @@ export class Hud {
       const on = btn.dataset.hubTab === activeTab;
       btn.classList.toggle('is-active', on);
       btn.setAttribute('aria-selected', String(on));
+      if (on && this.screen === 'menu') btn.scrollIntoView?.({ inline: 'nearest', block: 'nearest' });
     }
   }
 
@@ -2254,6 +2262,7 @@ export class Hud {
       const on = tab.dataset.map === map.id;
       tab.setAttribute('aria-pressed', String(on));
       tab.classList.toggle('is-current', on);
+      if (on && this.hubTab === 'map') tab.scrollIntoView?.({ inline: 'nearest', block: 'nearest' });
       const badge = tab.querySelector('[data-fmap-badge]');
       if (badge) {
         const isLoaded = tab.dataset.map === this.mapId;
@@ -2274,6 +2283,11 @@ export class Hud {
       const fview = btn.dataset.fview;
       btn.disabled = !here && fview === 'map';
       btn.classList.toggle('is-on', showDrone ? fview === 'drone' : fview === 'map');
+    }
+    if (!showDrone) {
+      this.syncHubOffset();
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => this.drawOverviews());
+      else this.drawOverviews();
     }
 
     // Active car reminder pill.
@@ -3095,6 +3109,8 @@ export class Hud {
 
   destroy() {
     window.removeEventListener('keydown', this.onKeyDown, true);
+    window.removeEventListener('resize', this.onWindowResize);
+    window.visualViewport?.removeEventListener('resize', this.onWindowResize);
     document.removeEventListener('fullscreenchange', this.onFullscreenChange);
     this.touchRoot.removeEventListener('touchmodechange', this.onTouchMode);
     this.el.removeEventListener('click', this.onClick);

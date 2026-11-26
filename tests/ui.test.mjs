@@ -259,4 +259,14 @@ test('theme.css font urls exist in src/ui/fonts and public/assets/fonts', () => 
   }
 });
 
+test('hud.css keeps map chooser, tabs, and garage responsive on phone portrait, phone landscape, and narrow tabs', () => {
+  const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const hudCss = fs.readFileSync(path.join(rootDir, 'src/ui/hud.css'), 'utf8');
+  assert.ok(hudCss.includes('100dvh'), 'uses dynamic viewport height for mobile browser chrome');
+  assert.ok(hudCss.includes('@media (max-width: 1080px)'), 'tablet and narrow-tab breakpoint present');
+  assert.ok(hudCss.includes('@media (max-height: 540px)'), 'phone landscape and short-tab breakpoint present');
+  assert.ok(hudCss.includes('touch-action: none'), '3D garage stage handles touch orbit without page scroll');
+  assert.ok(hudCss.includes('.sdh-forza-drone .sdh-map-shot { width: 100%; height: 100%;'), 'drone preview fits container');
+});
+
 console.log(`\n${passed} passed`);

@@ -1,8 +1,9 @@
-.hollow-radio{position:absolute;z-index:7;right:1rem;top:21%;max-width:min(21rem,62vw);font:500 .9rem/1.35 system-ui,sans-serif;color:#e1eeed;text-align:right;pointer-events:auto}
+.hollow-radio{position:absolute;z-index:7;right:max(1rem,env(safe-area-inset-right));top:21%;max-width:min(21rem,calc(100vw - 2rem));font:500 .9rem/1.35 system-ui,sans-serif;color:#e1eeed;text-align:right;pointer-events:auto}
 .hollow-radio[hidden],.hollow-radio [hidden]{display:none!important}
 .hollow-radio button,.hollow-radio select{font:inherit;background:#17282ded;color:#dce6dc;border:1px solid #68807f;border-radius:3px;padding:.4rem .65rem}
 .hollow-radio button:hover,.hollow-radio button:focus-visible{background:#355059}
-.hc-nav{display:block;font-size:.83rem;max-width:22rem;background:#13242ad9;padding:.35rem .55rem;margin-top:.2rem;font-variant-numeric:tabular-nums}
-.hc-nav:empty{display:none}.hollow-radio section{margin-top:.25rem;text-align:left;background:#101d22f5;padding:.85rem;max-height:48vh;overflow:auto}
+.hc-nav{display:block;font-size:.83rem;max-width:min(22rem,calc(100vw - 2rem));background:#13242ad9;padding:.35rem .55rem;margin-top:.2rem;font-variant-numeric:tabular-nums}
+.hc-nav:empty{display:none}.hollow-radio section{margin-top:.25rem;text-align:left;background:#101d22f5;padding:.85rem;max-height:48dvh;overflow:auto;-webkit-overflow-scrolling:touch}
 .hollow-radio label{display:flex;align-items:center;justify-content:space-between;gap:.6rem;margin:.35rem 0}.hollow-radio p{margin:.55rem 0}.hollow-radio details{margin:.6rem 0}.hollow-radio input{width:5.2rem;accent-color:#a4c9bd}.hollow-radio small{color:#adc2c1}
-@media(max-height:500px){.hollow-radio{top:10%;right:.65rem}.hollow-radio section{max-height:54vh}}
+@media(max-width:620px){.hollow-radio{top:13%;right:max(.6rem,env(safe-area-inset-right));max-width:calc(100vw - 1.2rem)}.hollow-radio section{max-height:40dvh}}
+@media(max-height:500px){.hollow-radio{top:10%;right:max(.65rem,env(safe-area-inset-right))}.hollow-radio section{max-height:48dvh}}

@@ -17,6 +17,8 @@
 
   position: fixed;
   inset: 0;
+  height: 100%;
+  height: 100dvh;
   z-index: 20;
   visibility: visible !important; /* Hud.js hides the root inline until this sheet has loaded */
   pointer-events: none;
@@ -680,6 +682,7 @@
 .sdh:not([data-screen="race"]) .sdh-veil, .sdh.is-settings .sdh-veil { opacity: 1; }
 
 .sdh-panel {
+  --pad-x: 1.5em;
   position: absolute;
   top: 0;
   bottom: 0;
@@ -690,10 +693,11 @@
   gap: 0.9em;
   padding:
     max(1.4em, env(safe-area-inset-top))
-    1.5em
+    max(var(--pad-x), env(safe-area-inset-right))
     max(1.3em, env(safe-area-inset-bottom))
-    max(1.5em, env(safe-area-inset-left));
+    max(var(--pad-x), env(safe-area-inset-left));
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   border: 0;
   border-right: 2px solid color-mix(in srgb, var(--marigold) 55%, transparent);
@@ -1061,8 +1065,8 @@ span.sdh-icon-sm { width: 2.2em; }
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.5em;
-  margin: auto -1.5em 0;
-  padding: 0.8em 1.5em max(1em, env(safe-area-inset-bottom));
+  margin: auto calc(var(--pad-x, 1.5em) * -1) 0;
+  padding: 0.8em var(--pad-x, 1.5em) max(1em, env(safe-area-inset-bottom));
   border-top: 1px solid rgba(244, 241, 232, 0.16);
   background: var(--board);
 }
@@ -1168,7 +1172,14 @@ span.sdh-icon-sm { width: 2.2em; }
   z-index: 5;
   display: none;
   place-items: center;
-  padding: 2em;
+  padding:
+    max(1.2em, env(safe-area-inset-top))
+    max(1.2em, env(safe-area-inset-right))
+    max(1.2em, env(safe-area-inset-bottom))
+    max(1.2em, env(safe-area-inset-left));
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   background: var(--whitewash);
   pointer-events: auto;
   font-size: max(var(--u), 12px);
@@ -1384,7 +1395,7 @@ span.sdh-icon-sm { width: 2.2em; }
 .sdh-ready .sdh-ico { width: 1em; height: 1em; stroke-width: 3; }
 .sdh-pm-res { font-size: 1.35em; }
 .sdh-pm-res.is-dnf { padding: 0 0.35em; border: 2px solid var(--truck-red); background: var(--chalk); color: var(--truck-red); font: 700 0.9em var(--font-display); transform: rotate(-4deg); }
-.sdh-party-foot { position: sticky; bottom: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5em, 1fr)); gap: 0.5em; margin: auto -1.5em 0; padding: 0.8em 1.5em max(1em, env(safe-area-inset-bottom)); border-top: 1px solid rgba(244, 241, 232, 0.16); background: var(--board); }
+.sdh-party-foot { position: sticky; bottom: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5em, 1fr)); gap: 0.5em; margin: auto calc(var(--pad-x, 1.5em) * -1) 0; padding: 0.8em var(--pad-x, 1.5em) max(1em, env(safe-area-inset-bottom)); border-top: 1px solid rgba(244, 241, 232, 0.16); background: var(--board); }
 
 /* Party results ticket */
 .sdh-pr-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
@@ -1431,11 +1442,11 @@ span.sdh-icon-sm { width: 2.2em; }
   .sdh-speed { font-size: 4em; }
   .sdh-stone-cap { height: 2.4em; }
   .sdh-countdown span { font-size: 6em; }
-  .sdh-panel { padding: max(0.9em, env(safe-area-inset-top)) 1.1em max(0.9em, env(safe-area-inset-bottom)) max(1.1em, env(safe-area-inset-left)); gap: 0.6em; }
+  .sdh-panel { --pad-x: 1.1em; padding: max(0.9em, env(safe-area-inset-top)) max(var(--pad-x), env(safe-area-inset-right)) max(0.9em, env(safe-area-inset-bottom)) max(var(--pad-x), env(safe-area-inset-left)); gap: 0.6em; }
   .sdh-panel-finish, .sdh-panel-party { --panel-w: min(100vw, clamp(330px, 52vw, 480px)); }
   .sdh-brand { font-size: 1.8em; }
   .sdh-hero { font-size: 3.2em; }
-  .sdh-panel-foot { margin: auto -1.1em 0; padding: 0.6em 1.1em max(0.8em, env(safe-area-inset-bottom)); }
+  .sdh-panel-foot, .sdh-party-foot { margin: auto calc(var(--pad-x, 1.1em) * -1) 0; padding: 0.6em var(--pad-x, 1.1em) max(0.8em, env(safe-area-inset-bottom)); }
   .sdh-brand-xl { font-size: 3em; }
   .sdh-daily { padding: 0.4em 0.5em; }
   .sdh-btn-tile { min-height: 2.7em; flex-direction: row; gap: 0.35em; }
@@ -1878,13 +1889,17 @@ span.sdh-icon-sm { width: 2.2em; }
 .sdh-hub-tabs {
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 0.35em;
+  max-width: 100%;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
 }
 .sdh-hub-tabs::-webkit-scrollbar { display: none; }
 .sdh-hub-tab {
   position: relative;
+  flex: none;
   padding: 0.3em 0.8em 0.18em;
   border: 2px solid transparent;
   border-radius: var(--r);
@@ -2065,8 +2080,11 @@ span.sdh-icon-sm { width: 2.2em; }
   display: flex;
   flex-direction: column;
   gap: 0.55em;
+  min-height: 0;
   max-height: 100%;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--mist) transparent;
   padding: 0.9em 1em;
@@ -2170,15 +2188,16 @@ span.sdh-icon-sm { width: 2.2em; }
 .sdh-car-specs dd { margin: 0; font-size: 0.92em; font-weight: 700; color: var(--chalk); }
 .sdh-car-specs dd.sdh-num { font-size: 1.2em; color: var(--marigold); }
 
-.sdh-garage-custom { display: flex; flex-direction: column; gap: 0.5em; max-height: 29em; }
-.sdh-custom-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5em; }
-.sdh-custom-scroll { overflow-y: auto; padding-right: 0.25em; display: flex; flex-direction: column; gap: 0.5em; scrollbar-width: thin; scrollbar-color: var(--mist) transparent; }
+.sdh-garage-custom { display: flex; flex-direction: column; gap: 0.5em; min-height: 0; max-height: min(29em, 100%); }
+.sdh-custom-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5em; flex: none; }
+.sdh-custom-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-right: 0.25em; display: flex; flex-direction: column; gap: 0.5em; scrollbar-width: thin; scrollbar-color: var(--mist) transparent; }
 
 .sdh-garage-stage {
   position: relative;
   align-self: stretch;
   min-height: 12em;
   pointer-events: auto;
+  touch-action: none;
   cursor: grab;
   display: flex;
   align-items: flex-end;
@@ -2388,18 +2407,24 @@ span.sdh-icon-sm { width: 2.2em; }
 
 /* ------------------------------------------------------------------ Forza-style World Map & Route Chooser */
 
-.sdh-forza-view { gap: 0.7em; overflow-y: auto; }
+.sdh-forza-view {
+  gap: 0.65em;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
 .sdh-forza-regions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.65em;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55em;
+  flex: none;
 }
 .sdh-forza-region {
   display: grid;
-  grid-template-columns: 7.5em minmax(0, 1fr);
+  grid-template-columns: 6.4em minmax(0, 1fr);
   align-items: stretch;
-  gap: 0.65em;
-  padding: 0.38em;
+  gap: 0.55em;
+  padding: 0.35em;
   border: var(--line) solid var(--rim);
   border-radius: var(--r);
   background: var(--board);
@@ -2413,13 +2438,13 @@ span.sdh-icon-sm { width: 2.2em; }
 .sdh-forza-region.is-current { border-color: var(--marigold); background: var(--deodar); box-shadow: var(--hard); }
 .sdh-forza-region-img {
   width: 100%;
-  height: 4.5em;
+  height: 4em;
   object-fit: cover;
   border: var(--line) solid var(--rim);
 }
 .sdh-forza-region-body { display: flex; flex-direction: column; justify-content: center; gap: 0.2em; min-width: 0; }
 .sdh-forza-region-top { display: flex; align-items: center; justify-content: space-between; gap: 0.4em; }
-.sdh-forza-region-top b { font: 400 1.25em/1 var(--font-display); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sdh-forza-region-top b { font: 400 1.2em/1 var(--font-display); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sdh-forza-region-badge {
   flex: none;
   padding: 0.08em 0.45em 0.02em;
@@ -2451,16 +2476,16 @@ span.sdh-icon-sm { width: 2.2em; }
   min-height: 0;
 }
 .sdh-forza-stage-head { display: flex; align-items: center; justify-content: space-between; gap: 0.6em; flex-wrap: wrap; }
-.sdh-forza-stage-title { display: flex; align-items: center; gap: 0.6em; }
-.sdh-forza-stage-title .sdh-map-stage-status { position: static; }
+.sdh-forza-stage-title { display: flex; align-items: center; gap: 0.6em; min-width: 0; }
+.sdh-forza-stage-title .sdh-map-stage-status { position: static; flex: none; }
 .sdh-forza-stage-title .sdh-map-stage-name { font-size: 1.75em; }
-.sdh-forza-stage-tools { display: flex; gap: 0.35em; }
+.sdh-forza-stage-tools { display: flex; gap: 0.35em; flex-wrap: wrap; }
 .sdh-forza-stage-tools .sdh-subpill:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .sdh-forza-canvas-wrap {
   position: relative;
   flex: 1 1 auto;
-  min-height: 15em;
+  min-height: 14em;
   display: flex;
   flex-direction: column;
   gap: 0.45em;
@@ -2469,7 +2494,7 @@ span.sdh-icon-sm { width: 2.2em; }
   flex: 1 1 auto;
   width: 100%;
   height: 100%;
-  min-height: 14em;
+  min-height: 13em;
   max-height: none;
   aspect-ratio: auto;
 }
@@ -2477,9 +2502,9 @@ span.sdh-icon-sm { width: 2.2em; }
   flex: 1 1 auto;
   border: var(--line) solid var(--rim);
   overflow: hidden;
-  min-height: 14em;
+  min-height: 13em;
 }
-.sdh-forza-drone .sdh-map-shot { height: 100%; aspect-ratio: auto; }
+.sdh-forza-drone .sdh-map-shot { width: 100%; height: 100%; aspect-ratio: auto; object-fit: cover; }
 .sdh-forza-pins {
   display: flex;
   flex-wrap: wrap;
@@ -2524,15 +2549,17 @@ span.sdh-icon-sm { width: 2.2em; }
   padding: 0.4em 0.55em;
   border: var(--line) solid var(--rim);
   background: var(--asphalt);
+  min-width: 0;
 }
-.sdh-forza-car-pill span { font-size: 0.75em; font-weight: 700; letter-spacing: 0.1em; color: var(--mist); }
-.sdh-forza-car-pill b { margin-right: auto; color: var(--marigold); font-size: 0.98em; }
+.sdh-forza-car-pill span { font-size: 0.75em; font-weight: 700; letter-spacing: 0.1em; color: var(--mist); flex: none; }
+.sdh-forza-car-pill b { margin-right: auto; color: var(--marigold); font-size: 0.98em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sdh-forza-tod { display: flex; align-items: center; justify-content: space-between; gap: 0.5em; flex-wrap: wrap; }
-.sdh-forza-tod-btns { display: flex; gap: 0.25em; }
+.sdh-forza-tod-btns { display: flex; gap: 0.25em; flex-wrap: wrap; }
 .sdh-forza-events {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
   gap: 0.35em;
@@ -2580,7 +2607,7 @@ span.sdh-icon-sm { width: 2.2em; }
 
 /* ------------------------------------------------------------------ Events Tab inside Hub */
 
-.sdh-events-view { overflow-y: auto; }
+.sdh-events-view { overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
 .sdh-events-grid {
   display: grid;
   grid-template-columns: minmax(18em, 0.9fr) minmax(0, 1.3fr);
@@ -2597,32 +2624,108 @@ span.sdh-icon-sm { width: 2.2em; }
   background: var(--board);
   box-shadow: var(--hard);
 }
-.sdh-events-board-head { display: flex; align-items: center; justify-content: space-between; gap: 0.6em; }
+.sdh-events-board-head { display: flex; align-items: center; justify-content: space-between; gap: 0.6em; flex-wrap: wrap; }
 
-/* ------------------------------------------------------------------ Responsive Hub */
+/* ------------------------------------------------------------------ Responsive Hub (Tablet, Split-Tab, Mobile) */
 
-@media (max-width: 960px) {
+@media (max-width: 1080px) {
+  .sdh[data-screen="menu"] .sdh-panel-menu {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
   .sdh-hub-xpbox, .sdh-hub-tagline { display: none; }
-  .sdh-garage-main { grid-template-columns: minmax(16em, 21em) minmax(0, 1fr); }
+  .sdh-garage-main { grid-template-columns: minmax(15em, 20em) minmax(0, 1fr); }
   .sdh-garage-right { grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: space-between; }
   .sdh-garage-cta-stack { flex-direction: row; width: auto; }
-  .sdh-forza-regions { grid-template-columns: 1fr; }
-  .sdh-forza-grid, .sdh-events-grid { grid-template-columns: 1fr; }
+  .sdh-forza-regions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sdh-forza-region { grid-template-columns: 5.5em minmax(0, 1fr); gap: 0.5em; padding: 0.32em; }
+  .sdh-forza-region-img { height: 3.6em; }
+  .sdh-forza-grid { grid-template-columns: minmax(0, 1.15fr) minmax(17em, 0.95fr); gap: 0.7em; flex: 0 0 auto; }
+  .sdh-forza-canvas-wrap { min-height: 0; }
+  .sdh-overview-forza, .sdh-forza-drone { flex: none; min-height: 0; aspect-ratio: 16 / 10; height: auto; max-height: 18em; }
+  .sdh-forza-events { max-height: 15em; }
+  .sdh-events-grid { grid-template-columns: minmax(15.5em, 0.9fr) minmax(0, 1.25fr); gap: 0.75em; }
 }
 
-@media (max-aspect-ratio: 1/1), (max-width: 680px) {
-  .sdh-hub-heading { font-size: 1.75em; }
+@media (max-aspect-ratio: 1/1), (max-width: 720px) {
+  .sdh-hub-top {
+    --hub-pad: max(0.85em, env(safe-area-inset-left), env(safe-area-inset-right));
+    padding-top: max(0.55em, env(safe-area-inset-top));
+    padding-bottom: 0.4em;
+    gap: 0.3em;
+  }
+  .sdh-hub-bar { gap: 0.45em; }
+  .sdh-brand-hub { font-size: 1.45em; }
+  .sdh-hub-heading { font-size: 1.65em; }
   .sdh-hub-convoy { display: none; }
-  .sdh[data-screen="menu"] .sdh-panel-menu { padding-top: calc(var(--hub-top-h, 9.6em) + 0.55em); overflow-y: auto; }
-  .sdh-panel.is-hub-docked { top: calc(var(--hub-top-h, 9.6em) + 0.55em); width: calc(100vw - 1.2em); border-right-width: var(--line); }
-  .sdh-garage-main { grid-template-columns: 1fr; align-items: start; }
-  .sdh-garage-stage { min-height: 11em; order: -1; }
-  .sdh-garage-lighting { width: 100%; justify-content: space-between; }
+  .sdh-hub-pills { gap: 0.4em; }
+  .sdh[data-screen="menu"] .sdh-panel-menu {
+    padding:
+      calc(var(--hub-top-h, 7.8em) + 0.5em)
+      max(0.75em, env(safe-area-inset-right))
+      max(0.8em, env(safe-area-inset-bottom))
+      max(0.75em, env(safe-area-inset-left));
+    overflow-y: auto;
+  }
+  .sdh-panel.is-hub-docked {
+    top: calc(var(--hub-top-h, 7.8em) + 0.5em);
+    bottom: max(0.65em, env(safe-area-inset-bottom));
+    width: calc(100vw - 1.2em);
+    border-right-width: var(--line);
+  }
+  .sdh-garage-view { flex: 1 0 auto; gap: 0.5em; }
+  .sdh-garage-subhead { gap: 0.45em; }
+  .sdh-garage-subtabs { margin-left: 0; }
+  .sdh-garage-lighting { width: 100%; justify-content: flex-start; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .sdh-garage-lighting::-webkit-scrollbar { display: none; }
+  .sdh-light-btn { flex: 1 0 auto; text-align: center; }
+  .sdh-garage-main { grid-template-columns: 1fr; align-items: start; gap: 0.6em; flex: 0 0 auto; }
+  .sdh-garage-stage { min-height: 8.5em; max-height: 23dvh; order: -1; }
+  .sdh-garage-left { width: 100%; max-height: none; overflow: visible; padding: 0.6em 0.8em; gap: 0.38em; }
+  .sdh-car-hero { font-size: clamp(1.8em, 6vw, 2.35em); }
+  .sdh-car-blurb { display: none; }
+  .sdh-stat-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.35em 0.7em; }
+  .sdh-stat-val { font-size: 1.25em; }
+  .sdh-garage-custom { max-height: 24em; }
   .sdh-garage-right { flex-direction: column; align-items: stretch; }
-  .sdh-garage-cta-stack { flex-direction: column; }
-  .sdh-drive-unit { display: none; }
-  .sdh-garage-footer { display: none; }
+  .sdh-garage-cta-stack { flex-direction: row; width: 100%; gap: 0.45em; }
+  .sdh-garage-cta-stack .sdh-btn { flex: 1 1 0; min-height: 44px; justify-content: center; font-size: 0.96em; }
+  .sdh-car-card { min-width: 11em; }
+  .sdh-car-card-main { height: 5.4em; }
+  .sdh-drive-unit, .sdh-garage-footer { display: none; }
+  .sdh-forza-view { flex: 0 0 auto; height: auto; gap: 0.55em; overflow: visible; }
+  .sdh-forza-regions { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.4em; }
+  .sdh-forza-region { grid-template-columns: 3.8em minmax(0, 1fr); gap: 0.4em; padding: 0.28em; }
+  .sdh-forza-region-img { height: 2.8em; }
+  .sdh-forza-region-top { flex-direction: column; align-items: flex-start; gap: 0.12em; }
+  .sdh-forza-region-top b { font-size: 1.02em; max-width: 100%; }
+  .sdh-forza-region-body small { display: none; }
+  .sdh-forza-grid { grid-template-columns: 1fr; flex: none; gap: 0.6em; }
+  .sdh-forza-stage, .sdh-forza-inspector { flex: none; min-height: auto; padding: 0.65em; gap: 0.45em; }
+  .sdh-forza-stage-title .sdh-map-stage-name { font-size: 1.4em; }
+  .sdh-forza-canvas-wrap { flex: none; min-height: 0; }
+  .sdh-overview-forza, .sdh-forza-drone { flex: none; min-height: 0; aspect-ratio: 16 / 9; height: auto; max-height: 15em; }
+  .sdh-forza-events { flex: none; max-height: 14em; overflow-y: auto; }
+  .sdh-events-grid { grid-template-columns: 1fr; gap: 0.7em; }
+  .sdh-events-left, .sdh-events-right { padding: 0.65em; }
   .sdh-loading-inner { margin-left: 0; justify-self: center; }
+}
+
+@media (max-width: 480px) {
+  .sdh-panel { --pad-x: 1.05em; padding-left: max(var(--pad-x), env(safe-area-inset-left)); padding-right: max(var(--pad-x), env(safe-area-inset-right)); }
+  .sdh-panel-foot, .sdh-party-foot { margin: auto calc(var(--pad-x, 1.05em) * -1) 0; padding: 0.7em var(--pad-x, 1.05em) max(0.85em, env(safe-area-inset-bottom)); }
+  .sdh-menu-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sdh-garage-cta-stack .sdh-btn { padding: 0.35em 0.55em 0.25em; font-size: 0.88em; min-height: 44px; }
+  .sdh-party-input { font-size: 1.8em; letter-spacing: 0.18em; }
+  .sdh-pplate-code { font-size: 2.3em; letter-spacing: 0.1em; }
+  .sdh-pm-name { flex-wrap: wrap; row-gap: 0.15em; }
+  .sdh-hero { font-size: 3.1em; }
+  .sdh-result-stamp { font-size: 1.65em; top: 1.7em; right: 0.4em; }
+}
+
+@media (max-width: 359px) {
+  .sdh-forza-regions { grid-template-columns: 1fr; }
 }
 
 /* ------------------------------------------------------------------ Drift background (src/ui/driftScene.js) */
@@ -2699,36 +2802,90 @@ span.sdh-icon-sm { width: 2.2em; }
   /* Played in portrait anyway: the pads take the bottom, the HUD sits above them. */
   .sdh.sdh--touch .sdh-race { padding-bottom: calc(clamp(52px, 16vmin, 80px) * 2.2 + 48px + env(safe-area-inset-bottom)); }
 }
-/* Short landscape screens (phones): the title keeps its buttons, drops the slogan board. */
-@media (max-height: 480px) {
-  .sdh-loading .sdh-loading-slogan { display: none; }
-  .sdh-title-actions .sdh-btn { min-height: 48px; }
-}
 
 /* Touch screens: keyboard/gamepad hints mean nothing, and the tab row scrolls instead of wrapping. */
 @media (pointer: coarse) {
   .sdh-garage-footer, .sdh-hub-bumper, .sdh-stage-hint { display: none; }
-  .sdh-hub-tabs { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
-  .sdh-hub-tabs::-webkit-scrollbar { display: none; }
-  .sdh-hub-tab { min-height: 40px; flex: none; }
+  .sdh-hub-tab { min-height: 40px; }
   .sdh-car-arrow { min-width: 44px; }
   .sdh-garage-cta-stack .sdh-btn { min-height: 48px; }
 }
-/* Phone landscape (short screens): one compact header row, the car in the middle, the drive buttons
-   beside it and small car tiles underneath; the stats panel gives way (the tiles carry name and drive). */
-@media (max-height: 480px) {
+
+/* Short screens & phone landscape: keep map chooser, tabs, and garage side-by-side without clipping. */
+@media (max-height: 540px) {
+  .sdh-loading .sdh-loading-slogan, .sdh-title-keyhint { display: none; }
+  .sdh-loading .sdh-brand-xl { font-size: clamp(2.1em, 5.2vw, 3.2em); }
+  .sdh-loading-inner { gap: 0.45em; }
+  .sdh-title-actions .sdh-btn { min-height: 44px; }
   .sdh-hub-crumb, .sdh-hub-tagline, .sdh-hub-xpbox, .sdh-hub-convoy, .sdh-pill-count, .sdh-drive-unit { display: none; }
-  .sdh-hub-top { gap: 0.3em; padding-top: max(6px, env(safe-area-inset-top)); padding-bottom: 6px; }
-  .sdh-garage-main { display: flex; align-items: flex-end; }
-  .sdh-garage-stage { flex: 1 1 auto; min-height: 0; }
+  .sdh-hub-top {
+    gap: 0.25em;
+    padding: max(6px, env(safe-area-inset-top)) max(1em, env(safe-area-inset-right)) 6px max(1em, env(safe-area-inset-left));
+  }
+  .sdh-hub-bar { gap: 0.5em; }
+  .sdh-brand-hub { font-size: 1.4em; }
+  .sdh-hub-tab { min-height: 34px; padding: 0.2em 0.65em 0.12em; font-size: 0.95em; }
+  .sdh[data-screen="menu"] .sdh-panel-menu {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    padding:
+      calc(var(--hub-top-h, 5.8em) + 0.45em)
+      max(1em, env(safe-area-inset-right))
+      max(0.65em, env(safe-area-inset-bottom))
+      max(1em, env(safe-area-inset-left));
+  }
+  .sdh-panel.is-hub-docked {
+    top: calc(var(--hub-top-h, 5.8em) + 0.45em);
+    bottom: max(0.55em, env(safe-area-inset-bottom));
+    width: min(56em, calc(100vw - 1.6em));
+  }
+  .sdh-garage-view { gap: 0.4em; flex: 1 1 auto; min-height: 0; }
+  .sdh-garage-main { display: flex; flex: 1 1 auto; min-height: 0; align-items: stretch; }
+  .sdh-garage-stage { flex: 1 1 auto; min-height: 0; max-height: none; order: 0; }
   .sdh-garage-inspect { display: none; }
   .sdh-garage-left:has(> .sdh-garage-custom[hidden]) { display: none; }
-  .sdh-garage-left { width: min(19em, 46vw); max-height: 100%; }
-  .sdh-garage-right { flex-direction: column; align-items: stretch; }
-  .sdh-garage-cta-stack { width: auto; }
+  .sdh-garage-left { width: min(20em, 48vw); max-height: 100%; min-height: 0; overflow: hidden; padding: 0.55em 0.7em; }
+  .sdh-garage-custom { max-height: 100%; min-height: 0; }
+  .sdh-garage-right { flex-direction: column; align-items: stretch; justify-content: flex-end; }
+  .sdh-garage-cta-stack { width: auto; flex-direction: column; }
+  .sdh-garage-cta-stack .sdh-btn { min-height: 40px; flex: none; }
   .sdh-car-card { min-width: 10.5em; flex-basis: 11em; }
   .sdh-car-card-main { height: 4.8em; }
-  .sdh-garage-view { gap: 0.4em; }
+  .sdh-forza-view { flex: 0 0 auto; gap: 0.45em; overflow: visible; }
+  .sdh-forza-regions {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 0.45em;
+    padding-bottom: 0.15em;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .sdh-forza-regions::-webkit-scrollbar { display: none; }
+  .sdh-forza-region {
+    flex: 0 0 auto;
+    min-width: 12.2em;
+    max-width: 15.5em;
+    grid-template-columns: 3.8em minmax(0, 1fr);
+    gap: 0.45em;
+    padding: 0.25em 0.35em;
+    scroll-snap-align: start;
+  }
+  .sdh-forza-region-img { height: 2.5em; }
+  .sdh-forza-region-top { flex-direction: column; align-items: flex-start; gap: 0.1em; }
+  .sdh-forza-region-body small { display: none; }
+  .sdh-forza-grid { flex: none; gap: 0.55em; }
+  .sdh-forza-stage, .sdh-forza-inspector { padding: 0.5em 0.6em; gap: 0.4em; flex: none; }
+  .sdh-forza-stage-title .sdh-map-stage-name { font-size: 1.35em; }
+  .sdh-forza-canvas-wrap { min-height: 0; flex: none; }
+  .sdh-overview-forza, .sdh-forza-drone { flex: none; min-height: 0; aspect-ratio: 16 / 9; height: auto; max-height: 10.5em; }
+  .sdh-forza-events { flex: none; max-height: 8.5em; overflow-y: auto; }
+}
+@media (max-height: 540px) and (min-width: 580px) {
+  .sdh-forza-grid { grid-template-columns: minmax(0, 1.05fr) minmax(16em, 0.95fr); }
+  .sdh-events-grid { grid-template-columns: minmax(15.5em, 0.9fr) minmax(0, 1.25fr); gap: 0.7em; }
 }
 
 /* Accent colour picker (Settings) */

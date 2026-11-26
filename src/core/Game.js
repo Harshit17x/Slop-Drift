@@ -182,6 +182,8 @@ export class Game {
     this.enterMenu();
     this.onResize();
     window.addEventListener('resize', this.onResize);
+    window.addEventListener('orientationchange', this.onResize);
+    window.visualViewport?.addEventListener('resize', this.onResize);
     document.addEventListener('visibilitychange', this.onVisibility);
     this.hud.showLoading(1, 'Ready');
     await nextFrame();
@@ -978,6 +980,8 @@ export class Game {
   dispose() {
     cancelAnimationFrame(this.frameHandle);
     window.removeEventListener('resize', this.onResize);
+    window.removeEventListener('orientationchange', this.onResize);
+    window.visualViewport?.removeEventListener('resize', this.onResize);
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.input?.destroy();
     this.meta?.dispose();
