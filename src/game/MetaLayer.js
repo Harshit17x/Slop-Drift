@@ -1,3 +1,4 @@
+import { getCar } from '../vehicle/cars.js';
 import { getMode, getNeon, getPaint, MODES } from '../config.js';
 import { RIM_OPTIONS, medalTargets } from '../meta/catalog.js';
 import { LEGACY_MAP, modeOfTrack, trackKey } from '../meta/trackKey.js';
@@ -253,7 +254,8 @@ export class MetaLayer {
       paint: getPaint(cosmetics.paint),
       rimColor: (RIM_OPTIONS.find((rim) => rim.id === cosmetics.rim) || RIM_OPTIONS[0]).color,
       number: cosmetics.number,
-      neon: getNeon(cosmetics.neon),
+      // A car's factory neon (cars.js `neon`) shows until the driver picks one of their own.
+      neon: getNeon(cosmetics.neon && cosmetics.neon !== 'off' ? cosmetics.neon : getCar(cosmetics.car).neon || cosmetics.neon),
     });
   }
 

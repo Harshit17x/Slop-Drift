@@ -1009,7 +1009,8 @@ span.sdh-icon-sm { width: 2.2em; }
 .sdh-cos { display: flex; flex-direction: column; align-items: center; gap: 0.2em; padding: 0.5em 0.3em 0.35em; border: 2px solid rgba(244, 241, 232, 0.45); border-radius: var(--r); background: none; color: var(--chalk); cursor: pointer; text-align: center; }
 .sdh-cos:hover { border-color: var(--chalk); }
 .sdh-cos-swatch { display: grid; place-items: center; width: 2.6em; height: 2.6em; border: var(--line) solid var(--rim); border-radius: 50%; background: var(--c); box-shadow: var(--hard-sm); }
-.sdh-cos-swatch.is-skin { position: relative; width: 100%; height: 3.1em; border-radius: var(--r); background-color: var(--c); background-size: cover; background-position: center; overflow: hidden; }
+.sdh-cos-swatch.is-skin { position: relative; width: 100%; height: 3.4em; border-radius: var(--r); background-color: var(--c); background-size: cover; background-position: center; overflow: hidden; }
+.sdh-cos-tag { position: absolute; right: 0.28em; bottom: 0.24em; font-style: normal; font-size: 0.62em; font-weight: 800; letter-spacing: 0.08em; line-height: 1; padding: 0.2em 0.36em; border-radius: 2px; background: rgba(11, 13, 18, 0.84); color: var(--chalk); border: 1px solid rgba(244, 241, 232, 0.28); pointer-events: none; }
 .sdh-cos-swatch.is-rim { background: var(--c); box-shadow: inset 0 0 0 0.55em var(--ink), inset 0 0 0 0.7em var(--c), 2px 2px 0 var(--ink); }
 .sdh-cos-swatch.is-neon { border-radius: var(--r); width: 3.2em; height: 1.5em; margin: 0.55em 0; background: var(--ink); box-shadow: inset 0 -0.35em 0 var(--c), 2px 2px 0 var(--ink); }
 .sdh-cos-swatch.is-neon.is-rainbow { box-shadow: var(--hard-sm); background: linear-gradient(var(--ink) 0 62%, transparent 62%), linear-gradient(90deg, #ff2424 0 17%, #ffa014 0 34%, #6dff2e 0 50%, #18e0ff 0 67%, #8443ff 0 84%, #ff2bd0 0); }

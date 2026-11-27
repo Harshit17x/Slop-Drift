@@ -407,6 +407,143 @@ export const CARS = Object.freeze([
       },
     },
   }),
+  // Raijin GT: an original Japanese AWD twin-turbo grand tourer in the R35 GT-R class (no badges or
+  // copied styling). Benchmarks from published R35 data: 3.8 L twin-turbo V6, 565-600 PS and
+  // 637-652 Nm, ATTESA-style AWD (2:98 to 50:50 front/rear), 6-speed dual-clutch rear transaxle,
+  // ~1,740 kg, 4.71 x 1.895 x 1.37 m, 2.78 m wheelbase, 255/40 R20 front and 285/35 R20 rear,
+  // 390/380 mm discs, 0-100 km/h in about 2.8 s and 315 km/h.
+  // https://www.nissan-global.com/EN/HERITAGE/418_nissan_gt-r.html
+  // https://usa.nissannews.com/releases/2024-nissan-gt-r-press-kit
+  Object.freeze({
+    id: 'raijin',
+    label: 'Raijin GT',
+    titleLines: Object.freeze(['RAIJIN', 'GT']),
+    blurb: 'AWD twin-turbo V6 grand tourer · 570 PS · dual-clutch',
+    classCode: 'S305',
+    classRank: 305,
+    classBand: 's',
+    origin: 'JPN',
+    category: 'SUPER GT',
+    drivetrain: 'AWD',
+    gearboxLabel: '6-SPD DCT',
+    thumbnail: HAS_URL ? new URL('../assets/ui/car-raijin.webp', import.meta.url).href : null,
+    ratings: Object.freeze({ acceleration: 9.7, topSpeed: 9.3, handling: 8.9, control: 9.3 }),
+    specs: Object.freeze({
+      massKg: 1740,
+      peakTorqueNm: 637,
+      redlineRpm: 7100,
+      gears: 6,
+      layoutLabel: 'AWD · Twin-turbo V6',
+      aeroLabel: 'Ducktail wing',
+      nitro: true,
+    }),
+    model: HAS_URL ? new URL('../assets/cars/raijin.glb', import.meta.url).href : null,
+    finish: {
+      RJ_Paint: { role: 'paint', paintMode: 'solid', color: 0xffffff, metalness: 0.55, roughness: 0.16, clearcoat: 1.0, clearcoatRoughness: 0.04, envMapIntensity: 1.4, flake: 0.3, blend: 0.7 },
+      RJ_Carbon: { color: 0x121316, metalness: 0.2, roughness: 0.3, clearcoat: 0.8, clearcoatRoughness: 0.08, envMapIntensity: 1.1 },
+      RJ_DarkTrim: { color: 0x0e0f12, metalness: 0.05, roughness: 0.7, envMapIntensity: 0.7 },
+      RJ_Metal: { color: 0xd4d8de, metalness: 0.95, roughness: 0.14, envMapIntensity: 1.5 },
+      RJ_Rim: { role: 'rim', color: 0x2c2f35, metalness: 0.85, roughness: 0.26, clearcoat: 0.4, clearcoatRoughness: 0.12, envMapIntensity: 1.3 },
+      RJ_Disc: { color: 0x6a6e74, metalness: 0.88, roughness: 0.32, envMapIntensity: 1.2 },
+      RJ_Tyre: { color: 0x121316, metalness: 0.0, roughness: 0.88, envMapIntensity: 0.5 },
+      RJ_Glass: { color: 0x1c2a33, metalness: 0.16, roughness: 0.05, clearcoat: 1.0, clearcoatRoughness: 0.03, envMapIntensity: 1.45, transparent: true, opacity: 0.42 },
+      RJ_Interior: { color: 0x111214, metalness: 0.0, roughness: 0.85 },
+      RJ_Exhaust_Tip: { color: 0x8a8580, metalness: 0.95, roughness: 0.18, clearcoat: 0.3, envMapIntensity: 1.5 },
+      RJ_Exhaust_Bore: { color: 0x0b0909, metalness: 0.05, roughness: 0.95 },
+      // Smoked projector housings: dark by day, lit with the headlights (CarLights drives 'lens').
+      RJ_Headlamp_Lens: { role: 'lens', color: 0x2a2f36, emissive: 0xf1f5ff, emissiveIntensity: 0.08, metalness: 0.75, roughness: 0.06, clearcoat: 1.0, envMapIntensity: 1.7 },
+      RJ_DRL: { color: 0xffffff, emissive: 0xf4f8ff, emissiveIntensity: 1.8, roughness: 0.2 },
+      RJ_Tail_Lamp: { role: 'tail', color: 0x7a0a0c, emissive: 0xff1416, emissiveIntensity: 0.5, roughness: 0.16, clearcoat: 0.9 },
+      RJ_LampHousing: { color: 0x0c0d10, metalness: 0.6, roughness: 0.08, clearcoat: 1.0, clearcoatRoughness: 0.03, envMapIntensity: 1.6 },
+      RJ_Mesh: { color: 0x26292e, metalness: 0.4, roughness: 0.45, envMapIntensity: 0.9 },
+      RJ_Leather: { color: 0x8c4a20, metalness: 0.0, roughness: 0.55, envMapIntensity: 0.6 },
+      RJ_Screen: { color: 0x0a1018, emissive: 0x5aa8ff, emissiveIntensity: 0.6, roughness: 0.2 },
+      RJ_Amber: { color: 0xd07a10, emissive: 0xff8a1a, emissiveIntensity: 0.15, roughness: 0.15, clearcoat: 1.0 },
+      RJ_RearFog: { color: 0x6a0608, emissive: 0xff1010, emissiveIntensity: 0.1, roughness: 0.2, clearcoat: 0.8 },
+    },
+    exhaustTips: Object.freeze([[-0.565, 0.37, 2.4], [-0.425, 0.37, 2.4], [0.425, 0.37, 2.4], [0.565, 0.37, 2.4]]),
+    cockpit: 'gt',
+    nitro: true,
+    // Factory look: cyan underglow unless the driver has picked a neon of their own.
+    neon: 'cyan',
+    // 3.8 L 60-degree V6, even 120-degree firing through two banks into twin turbos: a smooth, hard
+    // six with a muted exhaust, low-lag spool (two small turbos), whoosh on lift and the rear
+    // transaxle's straight-cut whine the class is known for.
+    sound: {
+      fires: 3, tone: 0.95, intake: 2.6, intakeFreq: [900, 2800], drive: 0.75, body: 0.85, crackle: 0.5, cracklePitch: 0.9,
+      turbo: 1, turboFreq: [2400, 7200], spoolRpm: [2200, 3600], spoolLag: 0.3, bov: 'valve', whoosh: 1.2,
+      shiftCut: 0.04, whine: { level: 0.9, teeth: 29, perMps: 22 }, n2o: { hiss: 1, roar: 1.3, wet: false },
+      synth: { firing: [0, 120, 240, 360, 480, 600], stagger: [0, 6, 0, 6, 0, 6], amps: [1, 0.9, 1, 0.9, 1, 0.9], highStagger: 0.35,
+        pulse: [0.022, 0.014], level: 1.05, sample: 0.5, exhaust: [260, 1.0, 5], lowpass: [900, 9500], drive: 0.45, rough: 0.22, jitter: 5 },
+    },
+    tuning: {
+      mass: 1740,
+      // Engine up front, transaxle at the back: ~54 % front static weight.
+      com: { y: 0.47, z: -0.11 },
+      inertiaBox: { width: 1.9, height: 1.37, length: 4.71 },
+      geometry: {
+        frontAxleZ: -1.40,
+        rearAxleZ: 1.38,
+        halfTrack: 0.80,
+        wheelRadius: 0.355,
+        wheelCenterY: 0.355,
+      },
+      suspension: {
+        staticLength: 0.24,
+        travel: 0.115,
+        springFront: 72000,
+        springRear: 66000,
+        bumpFront: 4300,
+        reboundFront: 7000,
+        bumpRear: 4100,
+        reboundRear: 6700,
+        // Double-wishbone front, multi-link rear; stiff bars for a flat, planted GT.
+        rollCentreFront: 0.07,
+        rollCentreRear: 0.11,
+        antiRollFront: 11000,
+        antiRollRear: 4200,
+        damperKnee: 0.13,
+      },
+      steering: { maxLockDeg: 37, mechanicalLockDeg: 43, rate: 4.0, returnRate: 6.6 },
+      tire: {
+        mu: 1.32,
+        peakSlipDeg: 9.6,
+        slideRatio: 0.9,
+        falloff: 1.2,
+        gravelPeakDeg: 12.0,
+        gravelSlideRatio: 0.9,
+      },
+      drivetrain: {
+        awd: true,
+        // Rear-biased AWD: mostly rear drive, sending up to half forward as the rear slips.
+        frontDriveShare: 0.38,
+        axleTorqueBias: 3.4,
+        peakTorque: 637,
+        idleRpm: 900,
+        launchRpm: 5000,
+        redlineRpm: 7100,
+        limiterRpm: 7300,
+        upshiftRpm: 6900,
+        downshiftRpmCoast: 1700,
+        downshiftRpmPower: 3900,
+        // Flat torque from 3,300 to 5,800 rpm, as twin small turbos give.
+        torqueCurve: [
+          [0, 0.42], [1500, 0.64], [2500, 0.9], [3300, 1.0], [5800, 1.0],
+          [6500, 0.97], [7100, 0.9], [7300, 0.72],
+        ],
+        gearRatios: [4.056, 2.301, 1.595, 1.248, 1.001, 0.796],
+        finalDrive: 3.7,
+        shiftTime: 0.04,
+        engineBrakeBase: 15,
+      },
+      brakes: { maxForce: 27000, frontBias: 0.62 },
+      aero: { dragArea: 0.74, liftArea: 1.0, downforceFront: 0.4 },
+      body: {
+        contactPoints: scalePoints(BASE_TUNING.body.contactPoints, 1.0, 0.98, 1.06),
+        collisionSpheres: scalePoints(BASE_TUNING.body.collisionSpheres, 1.0, 0.98, 1.06),
+      },
+    },
+  }),
 ]);
 
 export function getCar(id) {

@@ -64,6 +64,21 @@ export const MAPS = Object.freeze({
       mountain:{...WORLD.mountain,waterLevel:-30,valleyFloor:0,lake:null},
       road:{...WORLD.road,shoulder:.45,verge:.5,vergeDrop:.12,railHeight:1.4}},
   }),
+  fujimi: Object.freeze({
+    id: 'fujimi', label: 'Fujimi Rally', tagline: '富士見 · A compact bayside drift and rally course under Mount Fuji',
+    highlights: Object.freeze(['Waterfront straight to Fuji', 'Container Snake', '8 clipping zones']),
+    routes: Object.freeze(['loop']),
+    preview: HAS_URL ? new URL('../assets/maps/previews/fujimi.jpg', import.meta.url).href : null,
+    // Authored in Blender (tools/blender/fujimi): the layout is the map data, the GLB is the scenery.
+    assets: Object.freeze({
+      json: HAS_URL ? new URL('../assets/maps/fujimi/layout.json', import.meta.url).href : null,
+      scenery: HAS_URL ? new URL('../assets/maps/fujimi/fujimi.glb', import.meta.url).href : null,
+    }),
+    config: Object.freeze({ ...WORLD, map: 'fujimi', seed: 2611, grid: Object.freeze({ size: 129, cell: 16 }),
+      mountain: Object.freeze({ ...WORLD.mountain, waterLevel: -30, valleyFloor: 0, lake: null }),
+      road: Object.freeze({ ...WORLD.road, halfWidth: 7, hairpinExtraWidth: 0, maxBank: 0, shoulder: 0.6, railOffset: 0.55,
+        verge: 0.5, vergeDrop: 0.05, railHeight: 1.1 }) }),
+  }),
   hollow: Object.freeze({
     id: 'hollow', label: 'Hollow Creek', tagline: 'Three circuits through a town abandoned to the fog',
     highlights: ['Clock Square', 'Signal Tunnel', 'East Wharf'],
@@ -128,10 +143,11 @@ export async function loadMapData(map) {
       if (!response.ok) throw new Error(`map.json: HTTP ${response.status}`);
       return response.json();
     }),
-    fetch(map.assets.terrain).then((response) => {
+    // A flat authored map (Fujimi) has no terrain file: its layout is the whole map data.
+    !map.assets.terrain ? null : fetch(map.assets.terrain).then((response) => {
       if (!response.ok) throw new Error(`terrain.bin: HTTP ${response.status}`);
       return response.arrayBuffer();
     }),
   ]);
-  return parseMapData(json, terrain);
+  return terrain ? parseMapData(json, terrain) : json;
 }

@@ -203,7 +203,7 @@ export function garageHubMarkup() {
               <button type="button" class="sdh-subpill" data-act="garage-mode" data-gmode="view">DONE</button>
             </div>
             <div class="sdh-custom-scroll">
-              <div class="sdh-group-label">Car skins <small class="sdh-group-hint">custom image wraps · any car</small></div>
+              <div class="sdh-group-label">PPF studio wraps <small class="sdh-group-hint">custom-fitted per body</small></div>
               <div class="sdh-cos-grid" data-slot-grid="paint"></div>
               <div class="sdh-group-label">Rims</div>
               <div class="sdh-cos-grid" data-slot-grid="rim"></div>

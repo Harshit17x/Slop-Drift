@@ -2415,11 +2415,16 @@ export class Hud {
         const color = Number.isFinite(it.color) ? hex(it.color) : 'transparent';
         const isSkin = slot === 'paint';
         const swatchKind = isSkin ? ' is-skin' : slot === 'rim' ? ' is-rim' : slot === 'neon' ? (it.value === 'rainbow' ? ' is-neon is-rainbow' : it.value === 'off' ? ' is-neon is-off' : ' is-neon') : '';
-        const skinBg = isSkin && it.skinUrl ? `;background-image:url('${esc(it.skinUrl)}')` : '';
+        const flop = Number.isFinite(it.flopColor) ? hex(it.flopColor) : color;
+        const crevice = Number.isFinite(it.creviceColor) ? hex(it.creviceColor) : color;
+        const skinBg = isSkin && it.skinUrl
+          ? `;background-image:url('${esc(it.skinUrl)}')`
+          : isSkin ? `;background-image:linear-gradient(125deg,${crevice} 0%,${color} 52%,${flop} 100%)` : '';
+        const tag = isSkin && it.finishTag ? `<em class="sdh-cos-tag">${esc(it.finishTag)}</em>` : '';
         return `
           <button type="button" class="sdh-cos${on ? ' is-selected' : ''}${locked ? ' is-locked' : ''}" data-act="cosmetic" data-slot="${esc(slot)}" data-value="${esc(it.value)}"
             aria-pressed="${on}" aria-disabled="${locked}" title="${esc(it.label)}${locked ? ` · ${esc(it.requirement || 'Locked')}` : ''}">
-            <span class="sdh-cos-swatch${swatchKind}" style="--c:${color}${skinBg}">${locked ? ICON.lock : ''}</span>
+            <span class="sdh-cos-swatch${swatchKind}" style="--c:${color}${skinBg}">${locked ? ICON.lock : ''}${tag}</span>
             <span class="sdh-cos-label">${esc(it.label)}</span>
             <span class="sdh-cos-req">${locked ? esc(it.requirement || 'Locked') : on ? 'Equipped' : ''}</span>
           </button>`;

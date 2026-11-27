@@ -7,6 +7,7 @@ import { clamp } from './math.js';
 import { nextFrame } from './yield.js';
 import { World } from '../world/World.js';
 import { getMap, loadMapData, MAPS } from '../world/maps.js';
+import { RENDER_SCALE, createRenderScale, stepRenderScale } from './renderScale.js';
 import { Vehicle } from '../vehicle/Vehicle.js';
 import { DriftScorer } from '../vehicle/DriftScorer.js';
 import { RaceSession } from '../game/RaceSession.js';
@@ -57,7 +58,7 @@ export class Game {
     this.countdownShown = '';
     this.goTimer = 0;
     this.stuckTimer = 0;
-    this.headlightsWanted = false;
+    this.headlightsWanted = 0; // 0 off, 1 low beam, 2 high beam (H)
     this.debugVisible = false;
     this.garageOrbit = { yaw: 0, pitch: 0.08, dragging: false };
     this.pendingRoamOnName = false;
@@ -114,6 +115,7 @@ export class Game {
     // Pick starting Auto quality from hardware capabilities; refined further once WebGL initializes & samples FPS.
     this.autoQuality = detectInitialQuality(null);
     this.autoSample = { time: 0, frames: 0 };
+    this.renderScale = createRenderScale();
     this.contextLost = false;
     const quality = getQualityPreset(this.settings.quality, this.autoQuality);
     // The map is chosen once per page load; switching maps from the homepage reloads the page.
@@ -142,7 +144,7 @@ export class Game {
     // Views are built one per frame so the progress bar keeps moving.
     const activeQuality = getQualityPreset(this.settings.quality, this.autoQuality);
     const stages = [
-      ['Shaping the terrain', () => { if(this.map.id==='tokyo') return; this.terrain = new TerrainView({ world: this.world, quality: activeQuality }); this.scene.add(this.terrain.group); }],
+      ['Shaping the terrain', () => { if(this.map.id==='tokyo'||this.map.id==='fujimi') return; this.terrain = new TerrainView({ world: this.world, quality: activeQuality }); this.scene.add(this.terrain.group); }],
       ['Filling the lake', async () => {
         const { WaterView } = await import('../render/WaterView.js');
         this.water = new WaterView({ world: this.world });
@@ -150,7 +152,7 @@ export class Game {
       }],
       ['Paving the roads', () => { this.roads = new RoadView({ world: this.world, quality: activeQuality, anisotropy: activeQuality.anisotropy ?? 8 }); this.scene.add(this.roads.group); }],
       ['Building the town', async () => {
-        if (!this.map.assets) return;
+        if (!this.map.assets?.props) return;
         const { Landmarks } = await import('../render/Landmarks.js');
         this.landmarks = new Landmarks({ world: this.world, quality: activeQuality });
         try {
@@ -164,6 +166,7 @@ export class Game {
       ['Building roadside scenery', async () => {
         let Forest;
         if (this.map.id === 'tokyo') ({ TokyoCity: Forest } = await import('../render/TokyoCity.js'));
+        else if (this.map.id === 'fujimi') ({ FujimiScene: Forest } = await import('../render/FujimiScene.js'));
         else if (this.map.id === 'hollow') ({ HollowCreekTown: Forest } = await import('../render/HollowCreekTown.js'));
         else if (this.world.bridge) ({ JungleCanopy: Forest } = await import('../render/JungleCanopy.js'));
         else Forest = Scenery;
@@ -235,7 +238,7 @@ export class Game {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.shadowMap.enabled = activeQuality.shadowMapSize > 0;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap; // PCFSoft was removed in r180: three swaps it on the first frame and recompiles every shader
     this.onContextLost = (event) => {
       event.preventDefault();
       this.contextLost = true;
@@ -339,7 +342,7 @@ export class Game {
       this.audio.ui();
     };
     hud.onGaragePreviewLights = () => {
-      this.headlightsWanted = !this.car.headlightsOn;
+      this.headlightsWanted = this.car.headlightsOn ? 0 : 1;
       this.car.setHeadlights(this.headlightsWanted);
       this.audio.ui();
       return this.car.headlightsOn;
@@ -384,7 +387,7 @@ export class Game {
       return;
     }
     this.applyQuality();
-    this.atmosphere.setTimeOfDay(this.map.id === 'tokyo' ? 'night' : this.settings.timeOfDay);
+    this.atmosphere.setTimeOfDay(this.map.id === 'tokyo' ? 'night' : this.map.id === 'fujimi' ? 'day' : this.settings.timeOfDay);
     this.roads.setNight?.(this.atmosphere.isNight);
     this.landmarks?.setNight(this.atmosphere.isNight, this.atmosphere.timeOfDay === 'sunset' || this.atmosphere.timeOfDay === 'dawn');
     this.terrain?.setSun?.(this.atmosphere.sunDirection, this.atmosphere.sunColor, this.atmosphere.ambientColor);
@@ -394,7 +397,9 @@ export class Game {
       this.water.setSun();
     }
     this.meta?.applyLook(this.car);
-    this.car.setHeadlights(this.atmosphere.isNight || this.headlightsWanted);
+    // At night the low beams come on by themselves; the driver can still pick high beam (H).
+    this.car.setHeadlights(this.headlightsWanted || (this.atmosphere.isNight ? 1 : 0));
+    this.car.setNight(this.atmosphere.isNight);
     if (this.hud) {
       this.hud.headlightsOn = this.car.headlightsOn;
       this.hud.syncGarageLightsButton?.();
@@ -552,7 +557,8 @@ export class Game {
     const old = this.car;
     this.car = new CarVisual({ wheelLayout: this.vehicle.wheelLayout, carId: this.carId });
     this.scene.add(this.car.group);
-    this.car.setHeadlights(old.headlightsOn);
+    this.car.setHeadlights(old.headlightMode);
+    this.car.setNight(old.night);
     this.car.setNeon({ level: old.neonLevel, on: old.neonWanted });
     old.dispose();
     this.damage?.attach(this.car);
@@ -698,8 +704,9 @@ export class Game {
     if (this.state !== 'running' && this.state !== 'countdown') return;
     if (input.camera) this.cameraRig.cycle();
     if (input.headlights) {
-      this.headlightsWanted = !this.car.headlightsOn;
-      this.car.setHeadlights(this.headlightsWanted);
+      // The lamp switch: off, dipped (low) beam, main (high) beam.
+      this.headlightsWanted = this.car.cycleHeadlights();
+      this.hud.toast(['Headlights off', 'Low beam', 'High beam'][this.headlightsWanted], 'info');
       this.audio.ui();
     }
     if (input.neon) {
@@ -781,6 +788,12 @@ export class Game {
       }
     }
     const drift = this.drift.update(dt, state, controls);
+    // Fujimi's clipping zones: a drift through one pays a bonus into the running drift.
+    const clip = this.scenery.clipZone?.(state, drift);
+    if (clip) {
+      this.drift.score += clip.bonus;
+      this.hud.toast(`${clip.name} · clip +${clip.bonus}`, 'good');
+    }
 
     const nitro = CONFIG.nitro;
     if (boosting) this.nitro = Math.max(0, this.nitro - nitro.drainPerSecond * dt);
@@ -896,8 +909,10 @@ export class Game {
   onFrame(now) {
     if (this.contextLost) return;
     this.frameHandle = requestAnimationFrame(this.onFrame);
-    const dt = clamp((now - this.lastTime) / 1000, 0, 0.1);
+    const rawMs = now - this.lastTime;
+    const dt = clamp(rawMs / 1000, 0, 0.1);
     this.lastTime = now;
+    if (this.settings.quality === 'Auto' && stepRenderScale(this.renderScale, rawMs)) this.applyPixelRatio();
     if (dt > 0) this.fps += (1 / dt - this.fps) * 0.05;
 
     const input = this.input.update();
@@ -987,8 +1002,7 @@ export class Game {
   /** The graphics preset (settings.quality, or the level Auto resolved to) applied to every view. */
   applyQuality() {
     const quality = getQualityPreset(this.settings.quality, this.autoQuality);
-    const dpr = Math.min(window.devicePixelRatio || 1, quality.pixelRatio);
-    this.renderer.setPixelRatio(dpr);
+    this.applyPixelRatio(quality);
     const shadows = quality.shadowMapSize > 0;
     if (this.renderer.shadowMap.enabled !== shadows) {
       this.renderer.shadowMap.enabled = shadows;
@@ -1002,11 +1016,21 @@ export class Game {
     this.effects?.setQuality?.(quality);
     this.car?.setQuality?.(quality);
     this.remotePlayers?.setQuality?.(quality);
-    this.cameraRig?.setQuality?.(quality);
+    // Fujimi's Mount Fuji stands 3.4 km out: keep it inside the far plane on Low too.
+    this.cameraRig?.setQuality?.(this.map?.id === 'fujimi' ? { ...quality, farClip: Math.max(quality?.farClip ?? 0, 5200) } : quality);
     if (!shadows || this.autoQuality === 'Low' || this.settings.quality === 'Low') {
       const keep = new Set([this.carId, ...(this.remotePlayers?.cars ? Array.from(this.remotePlayers.cars.values(), (e) => e.carId) : [])]);
       trimCarModels(keep);
     }
+  }
+
+  /** Preset pixel ratio, scaled down by dynamic resolution while frames run slow (Auto quality only). */
+  applyPixelRatio(quality = getQualityPreset(this.settings.quality, this.autoQuality)) {
+    const scale = this.settings.quality === 'Auto' ? this.renderScale.scale : 1;
+    const dpr = Math.max(0.5, Math.min(window.devicePixelRatio || 1, quality.pixelRatio) * scale);
+    if (Math.abs(this.renderer.getPixelRatio() - dpr) < 1e-3) return;
+    this.renderer.setPixelRatio(dpr);
+    this.onResize();
   }
 
   /**
@@ -1017,6 +1041,12 @@ export class Game {
   sampleAutoQuality(dt) {
     if (this.settings.quality !== 'Auto' || dt > 0.25 || dt <= 0) return;
     const sample = this.autoSample;
+    // Resolution drops first; the preset only steps down once resolution is already at its floor.
+    if (this.renderScale.scale > RENDER_SCALE.min) {
+      sample.time = 0;
+      sample.frames = 0;
+      return;
+    }
     sample.time += dt;
     sample.frames += 1;
     if (sample.time < 3.5) return;
@@ -1027,6 +1057,7 @@ export class Game {
     sample.frames = 0;
     if (next === this.autoQuality) return;
     this.autoQuality = next;
+    this.renderScale = createRenderScale();
     this.applyQuality();
     this.onResize();
     this.hud.toast(`Graphics lowered to ${next} for smoother driving`, 'info');

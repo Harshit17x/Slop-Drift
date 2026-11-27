@@ -93,8 +93,8 @@ export function rallyLivery(material, graphics = true) {
       .replace('#include <lights_physical_fragment>', `
         vec3 stageMask = texture2D(uStageMask, clamp(vec2((vStagePoint.z+2.3)/4.6, vStagePoint.y/1.5),0.0,1.0)).rgb;
         float flank = smoothstep(0.72,0.85,abs(vStagePoint.x));
-        ${graphics ? 'diffuseColor.rgb = mix(diffuseColor.rgb,vec3(0.68,0.032,0.012),stageMask.r*flank); diffuseColor.rgb = mix(diffuseColor.rgb,vec3(0.90,0.82,0.66),stageMask.g*flank);' : ''}
-        float mud = stageMask.b * mix(0.42, 1.0, flank);
+        ${graphics ? 'float wrapMask = smoothstep(0.0, 0.25, uSkinMix); float factoryDecal = 1.0 - wrapMask; diffuseColor.rgb = mix(diffuseColor.rgb,vec3(0.68,0.032,0.012),stageMask.r*flank*factoryDecal); diffuseColor.rgb = mix(diffuseColor.rgb,vec3(0.90,0.82,0.66),stageMask.g*flank*factoryDecal);' : ''}
+        float mud = stageMask.b * mix(0.42, 1.0, flank)${graphics ? ' * mix(1.0, 0.16, wrapMask)' : ''};
         diffuseColor.rgb = mix(diffuseColor.rgb,mix(vec3(0.15,0.081,0.035),vec3(0.32,0.22,0.13),stageMask.b),mud);
         roughnessFactor = mix(roughnessFactor,0.93,mud);
         metalnessFactor *= 1.0-mud;

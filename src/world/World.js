@@ -78,6 +78,10 @@ export class World {
       const { buildTokyo } = await import('./Tokyo.js');
       return buildTokyo(this, stage);
     }
+    if (config.map === 'fujimi') {
+      const { buildFujimi } = await import('./Fujimi.js');
+      return buildFujimi(this, stage);
+    }
     if (config.map === 'hollow') return buildHollowCreek(this, stage);
     if (config.map === 'jungle') return buildJungle(this, stage);
     if (this.mapData) return this.buildFromMap(stage);
@@ -770,6 +774,8 @@ export class World {
             ? (scratchLocation.s>=1830 && scratchLocation.s<1870 ? SURFACE.WOOD : scratchLocation.s > 3310 && scratchLocation.s < 3480 ? SURFACE.MUD : SURFACE.GRAVEL)
             : r === 1 ? SURFACE.COBBLE : SURFACE.ASPHALT;
         }
+        // Fujimi's Container Snake is a gravel rally sector.
+        if (this.gravel && scratchLocation.s >= this.gravel[0] && scratchLocation.s <= this.gravel[1]) roadSurface = SURFACE.GRAVEL;
         const lateralSlope = scratchLocation.bank + side * Road.profileSlope;
         // Horizontal tangent is (rz, -rx); height gradient = grade * tangent + lateralSlope * right.
         gradX = scratchLocation.grade * scratchLocation.rz + lateralSlope * scratchLocation.rx;

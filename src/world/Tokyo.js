@@ -27,7 +27,7 @@ function circuit(vertices, target, anchor, height) {
   });
 }
 
-function makeRoad(world,name,xyz,width,closed=false,clearances=[]) {
+export function makeRoad(world,name,xyz,width,closed=false,clearances=[]) {
   const sample=world.constructor.resamplePolyline(xyz.flatMap(p=>[p[0],p[2]]),xyz.map(p=>p[1]),closed,3.4);
   // Ease the deck up or down on both approaches. The flat part spans the
   // entire intersecting carriageway, including the shoulder and soffit.
@@ -43,7 +43,7 @@ function makeRoad(world,name,xyz,width,closed=false,clearances=[]) {
   return r;
 }
 
-function race(world,id,road,dir=1, start, finish) {
+export function race(world,id,road,dir=1, start, finish) {
   const l=road.length;
   const a=start??(road.closed?40:dir===1?22:l-22), b=finish??(road.closed?a:dir===1?l-14:14);
   const length=road.closed?l:Math.abs(b-a);

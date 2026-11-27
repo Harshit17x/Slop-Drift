@@ -732,7 +732,7 @@ function testCars() {
     const contacts = s.wheels.filter((w) => w.contact).length;
     check(`${car.id} settles on four wheels`, contacts === 4 && Math.abs(s.position.y) < 0.05 && s.speed < 0.2, `y ${s.position.y.toFixed(3)}`);
     // Standing starts on flat dry asphalt, with the same assists for all selectable cars.
-    const target = { hatch: [100, 4, 9], gt: [100, 2.6, 4.2], thar: [60, 3.8, 6.5], tokyo: [100, 2.8, 5.4] }[car.id];
+    const target = { hatch: [100, 4, 9], gt: [100, 2.6, 4.2], thar: [60, 3.8, 6.5], tokyo: [100, 2.8, 5.4], raijin: [100, 2.6, 3.6] }[car.id];
     let reached = null;
     s = run(v, 12, (time, st) => {
       if (reached === null && st.speed * 3.6 >= target[0]) reached = time;
@@ -743,6 +743,14 @@ function testCars() {
     if (car.id === 'tokyo') {
       check('Tokyo Sedan wheelbase, 6-speed gearbox, nitro and twin exhaust tips',
         Math.abs(v.wheelbase - 2.70) < 1e-6 && v.drivetrain.gearCount === 6 && car.nitro === true && car.exhaustTips?.length === 2);
+    }
+    if (car.id === 'raijin') {
+      // R35-class benchmarks: 2.78 m wheelbase, six-speed dual-clutch, quad exhausts, 565-600 PS.
+      let peakKW = 0;
+      for (let rpm = 1500; rpm <= 7300; rpm += 10) peakKW = Math.max(peakKW, v.drivetrain.torqueAt(rpm) * rpm * Math.PI / 30000);
+      check('Raijin GT wheelbase, 6-speed DCT, quad exhausts and 557-605 PS peak', Math.abs(v.wheelbase - 2.78) < 1e-6
+        && v.drivetrain.gearCount === 6 && car.exhaustTips?.length === 4 && peakKW > 410 && peakKW < 445, `${peakKW.toFixed(0)} kW`);
+      check('Raijin GT staggered 20 in tyres on all-wheel drive', v.wheels.every((w) => Math.abs(w.radius - 0.355) < 1e-6 && w.driven));
     }
     if (car.id === 'gt') {
       check('GT3 R wheelbase and staggered slick radii', Math.abs(v.wheelbase - 2.507) < 1e-6 &&
