@@ -90,12 +90,15 @@ export class Game {
     this.disposed = false;
     this.courseClips = [];
     this.courseTraps = [];
-    // Frames stop in a background tab or iframe focus loss; pause so timers and audio never drift.
+    // Frames stop in a background tab or iframe focus loss in solo runs; never auto-pause an active shared party race.
     this.onVisibility = () => {
-      if (!document.hidden) return;
+      if (!document.hidden || this.partyRace?.runActive) return;
       this.pause();
     };
-    this.onWindowBlur = () => this.pause();
+    this.onWindowBlur = () => {
+      if (this.partyRace?.runActive) return;
+      this.pause();
+    };
   }
 
   // ---------------------------------------------------------------- startup
@@ -200,7 +203,11 @@ export class Game {
       }],
       ['Lighting the sky', () => { this.atmosphere = new Atmosphere({ scene: this.scene, renderer: this.renderer, world: this.world, quality: activeQuality,cityPanorama:this.scenery.panorama }); }],
       // Only the equipped car's model (they are megabytes each); other cars load on demand when selected or seen online.
-      ['Warming the engine', async () => { await loadCarModels([this.career.profile.cosmetics.car]); this.createVehicle(); }],
+      ['Warming the engine', async () => {
+        const startCarId = this.career.activeCarId?.() || this.career.profile.cosmetics.car;
+        await loadCarModels([startCarId]);
+        this.createVehicle(startCarId);
+      }],
     ];
     for (let i = 0; i < stages.length; i += 1) {
       mark(stages[i][0]);
@@ -289,10 +296,11 @@ export class Game {
     this.scene = new THREE.Scene();
   }
 
-  createVehicle() {
+  createVehicle(initialCarId = 'hatch') {
     this.vehicle = new Vehicle({ world: this.world, handling: this.settings.handling });
     this.drift = new DriftScorer();
-    this.carId = 'hatch';
+    this.carId = getCar(initialCarId).id;
+    this.carModelLoading = null;
     this.audio.setProfile(getCar(this.carId).sound || null); // setCar() skips the car it starts with
     this.car = new CarVisual({ wheelLayout: this.vehicle.wheelLayout, carId: this.carId });
     this.scene.add(this.car.group);
@@ -326,7 +334,21 @@ export class Game {
     hud.onStartQuest = (questId) => this.startQuest(questId);
     hud.onPause = () => this.pause();
     hud.onResume = () => this.resume();
-    hud.onRestart = () => this.maybeShowMidgameAd(() => this.beginRun(this.mode.id));
+    hud.onRestart = () => {
+      if (this.partyRace?.inParty && this.partyRace?.state) {
+        if (this.partyRace.state.phase === 'results') {
+          if (this.partyRace.isHost) this.partyRace.rematch();
+          else this.partyRace.backToRoom();
+          return;
+        }
+        if (this.partyRace.runActive || this.partyRace.state.phase === 'racing' || this.partyRace.state.phase === 'countdown') {
+          this.hud.toast('Party race in progress — waiting in party room', 'info');
+          this.partyRace.backToRoom();
+          return;
+        }
+      }
+      this.maybeShowMidgameAd(() => this.beginRun(this.mode.id));
+    };
     hud.onMenu = () => this.maybeShowMidgameAd(() => this.enterMenu());
     hud.onRespawn = () => {
       if (this.state === 'paused') this.resume();
@@ -410,11 +432,10 @@ export class Game {
   // ---------------------------------------------------------------- settings
 
   applySettings(settings, { save = true } = {}) {
-    const previousMap = this.settings.map;
     this.settings = normalizeSettings(settings);
     if (save) saveSettings(this.settings);
     // A different map means a different world: rebuild by reloading the page.
-    if (save && this.map && this.settings.map !== previousMap && this.settings.map !== this.map.id) {
+    if (save && this.map && this.settings.map !== this.map.id) {
       this.hud.showLoading?.(0, `Driving to ${getMap(this.settings.map).label}`);
       window.location.reload();
       return;
@@ -596,7 +617,23 @@ export class Game {
    */
   setCar(carId) {
     const car = getCar(carId);
-    if (car.id === this.carId) return;
+    const ready = hasCarModel(car.id);
+    const visualOk = this.car?.model?.userData?.visualReady !== false && this.car?.carId === car.id;
+    if (car.id === this.carId) {
+      if (ready && !visualOk) {
+        this.buildCarVisual();
+      } else if (!ready && this.carModelLoading !== car.id) {
+        this.carModelLoading = car.id;
+        loadCarModels([car.id]).then(() => {
+          if (this.carModelLoading === car.id) this.carModelLoading = null;
+          if (this.carId === car.id && hasCarModel(car.id)) {
+            this.buildCarVisual();
+            this.meta?.applyLook(this.car, car.id);
+          }
+        });
+      }
+      return;
+    }
     this.carId = car.id;
     const pose = this.vehicle.getState();
     this.applyActiveVehicleTuning();
@@ -605,8 +642,10 @@ export class Game {
     this.buildCarVisual();
     this.audio.setProfile(car.sound || null);
     // Picked before its model finished downloading: drive the stand-in, swap the body in when it lands.
-    if (!hasCarModel(car.id)) {
+    if (!ready) {
+      this.carModelLoading = car.id;
       loadCarModels([car.id]).then(() => {
+        if (this.carModelLoading === car.id) this.carModelLoading = null;
         if (this.carId === car.id && hasCarModel(car.id)) {
           this.buildCarVisual();
           this.meta?.applyLook(this.car, car.id); // keep a locked car's garage preview, not the equipped car
@@ -770,7 +809,7 @@ export class Game {
     if (result?.isRecord || rewards?.medal?.tier === 'gold') {
       this.platform?.happytime();
     }
-    this.hud.showFinish(result, rewards);
+    this.hud.showFinish(result, rewards, { inParty: Boolean(this.partyRace?.inParty && this.partyRace?.state) });
     this.partyRace?.onFinish(result);
     this.cameraRig.startBlend();
   }

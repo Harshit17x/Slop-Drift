@@ -13,8 +13,8 @@ import { cors } from 'hono/cors';
 import { routePartykitRequest } from 'partyserver';
 import { Room } from './Room.js';
 import {
-  RANKED_MODES, ROOM_MODES, SUBMIT_INTERVAL_MS, isPartyRoom, isValidPlayerId, limitsFor, originAllowed, parseJoinParams,
-  sanitizeName, signToken, validateSubmission, verifyToken,
+  PRIMARY_ROOMS, RANKED_MODES, ROOM_MODES, SUBMIT_INTERVAL_MS, isPartyRoom, isValidPlayerId, limitsFor, originAllowed,
+  parseJoinParams, sanitizeName, signToken, validateSubmission, verifyToken,
 } from './validate.js';
 
 export { Room };
@@ -23,9 +23,6 @@ const TOP_TTL = 30;
 const ONLINE_TTL = 60;
 const GHOST_TTL = 60;
 const MAX_BODY = 100_000;
-
-/** Primary lobby rooms where public players connect; checked for presence. */
-const PRIMARY_ROOMS = ['mountain', 'mussoorie.mountain', 'jungle.mountain'];
 
 /** Ephemeral set of rooms with recent connection activity, avoiding waking up empty rooms. */
 const activeRooms = new Set(PRIMARY_ROOMS);
@@ -74,7 +71,7 @@ async function cached(c, key, ttl, produce) {
   if (memory.size > 500) memory.delete(memory.keys().next().value);
   if (edge) {
     const store = new Response(body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': `public, max-age=${ttl}` } });
-    c.executionCtx.waitUntil(edge.put(cacheKey, store).catch(() => {}));
+    c.executionCtx?.waitUntil?.(edge.put(cacheKey, store).catch(() => {}));
   }
   return respondJson(body, ttl);
 }
@@ -83,7 +80,7 @@ async function invalidate(c, keys) {
   const edge = typeof caches !== 'undefined' ? caches.default : null;
   for (const key of keys) {
     memory.delete(key);
-    if (edge) c.executionCtx.waitUntil(edge.delete(new Request(`https://cache.slop-drift.internal/${key}`)).catch(() => {}));
+    if (edge) c.executionCtx?.waitUntil?.(edge.delete(new Request(`https://cache.slop-drift.internal/${key}`)).catch(() => {}));
   }
 }
 

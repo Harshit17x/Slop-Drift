@@ -21,8 +21,10 @@ const validate = await import('../server/src/validate.js');
 const { encodeGhost } = await import('../src/ghost/ghostCodec.js');
 const { MEDAL_TARGETS, MUSSOORIE_MEDAL_TARGETS } = await import('../src/meta/catalog.js');
 const { MetaLayer } = await import('../src/game/MetaLayer.js');
-const { PartyHost } = await import('../server/src/partyHost.js');
-const { PARTY_COUNTDOWN_MS, PARTY_FINISH_GRACE_MS } = await import('../src/net/party.js');
+const { PartyHost, MAP_SWITCH_GRACE_MS } = await import('../server/src/partyHost.js');
+const { PARTY_COUNTDOWN_MS, PARTY_FINISH_GRACE_MS, partyModes } = await import('../src/net/party.js');
+const { MAPS } = await import('../src/world/maps.js');
+const { trackKey } = await import('../src/meta/trackKey.js');
 const THREE = await import('three');
 const { RemotePlayers } = await import('../src/render/RemotePlayers.js');
 
@@ -439,6 +441,42 @@ test('server party host: create/join refusals, ops, alarms, persistence, migrati
   assert(new PartyHost({ roomName: 'mountain', storage }).code === null, 'not a party room');
 });
 
+test('server party host: map-switch grace preserves room across simultaneous reloads and serializes writes', async () => {
+  let now = 1_800_000_000_000;
+  const storage = fakeStorage();
+  const host = new PartyHost({ roomName: 'party.M4PSW', storage, now: () => now });
+  const profile = (name, peer, car = 'hatch') => ({ name, level: 3, paint: 'ember', car, peer });
+
+  const created = await host.connect('a#1', profile('Alice', 0, 'gt'), { intent: 'create', mapId: 'mussoorie', modeId: 'sprint' });
+  assert(!created.error && created.state.mapId === 'mussoorie', 'created');
+  await host.connect('b#2', profile('Bob', 1, 'tokyo'), { intent: 'join' });
+
+  // Host switches map: room stays alive through simultaneous reload disconnects inside grace window.
+  const switched = await host.message('a#1', { t: 'party', op: 'select', mapId: 'tokyo', modeId: 'sprint' });
+  assert(switched.changed && switched.state.mapId === 'tokyo' && host.rejoinUntil === now + MAP_SWITCH_GRACE_MS, 'switched map + grace set');
+  await host.disconnect('a#1');
+  await host.disconnect('b#2');
+  assert(host.state !== null && storage.data.has('party') && storage.alarm === host.rejoinUntil, 'empty party preserved during map-switch grace');
+
+  // Reconnect after hibernation inside the grace window succeeds (both create/join).
+  now += 5_000;
+  const woken = new PartyHost({ roomName: 'party.M4PSW', storage, now: () => now });
+  const [reHost, rePeer] = await Promise.all([
+    woken.connect('a#3', profile('Alice', 0, 'gt'), { intent: 'create', mapId: 'tokyo', modeId: 'sprint' }),
+    woken.connect('b#4', profile('Bob', 1, 'tokyo'), { intent: 'join' }),
+  ]);
+  assert(!reHost.error && !rePeer.error && Object.keys(woken.state.members).length === 2, 'concurrent reconnects serialized cleanly');
+
+  // Expired grace with no connected members cleans up on alarm().
+  await woken.message('a#3', { t: 'party', op: 'select', mapId: 'apex', modeId: 'sprint' });
+  await woken.disconnect('a#3');
+  await woken.disconnect('b#4');
+  now += MAP_SWITCH_GRACE_MS;
+  storage.alarm = 0;
+  await woken.alarm();
+  assert(woken.state === null && !storage.data.has('party'), 'expired empty map-switch party deleted');
+});
+
 // ------------------------------------------------------------------ leaderboard (local)
 
 test('Leaderboard local: time ascending, score descending, best per player', async () => {
@@ -586,6 +624,29 @@ test('validate: names, ids, cosmetics, origins', () => {
   assert(validate.originAllowed('https://slop-drift-git-main-abc.vercel.app', list), 'preview wildcard');
   assert(!validate.originAllowed('https://slop-drift-x.vercel.app.evil.com', list), 'suffix attack');
   assert(!validate.originAllowed('https://evil.vercel.app', list) && !validate.originAllowed(null, list), 'others');
+
+  const cgList = 'https://*.game-files.crazygames.com,https://*.crazygames.com,https://crazygames.com,http://localhost:*,http://[::1]:*';
+  assert(validate.originAllowed('https://12345.prod.game-files.crazygames.com', cgList), 'nested CrazyGames subdomain');
+  assert(validate.originAllowed('https://games.crazygames.com', cgList) && validate.originAllowed('https://crazygames.com', cgList), 'CrazyGames root + subdomain');
+  assert(validate.originAllowed('http://localhost:4173', cgList) && validate.originAllowed('http://[::1]:5173', cgList), 'localhost + IPv6 loopback ports');
+  assert(!validate.originAllowed('http://localhost:80a', cgList) && !validate.originAllowed('https://evil.com/game-files.crazygames.com', cgList), 'reject malformed port/path');
+  assert(!validate.originAllowed('https://a..b.game-files.crazygames.com', cgList), 'reject empty label');
+});
+
+test('validate: all 7 maps are playable in primary lobbies, ranked rooms, and party modes', () => {
+  const mapIds = Object.keys(MAPS);
+  assert(mapIds.length === 7, `expected 7 maps, got ${mapIds.length}`);
+  assert(validate.PRIMARY_ROOMS.length === mapIds.length, `PRIMARY_ROOMS ${validate.PRIMARY_ROOMS.length} vs ${mapIds.length}`);
+  for (const mapId of mapIds) {
+    assert(validate.PRIMARY_ROOMS.includes(trackKey(mapId, 'mountain')), `missing primary room for ${mapId}`);
+    assert(validate.ROOM_MODES.includes(trackKey(mapId, 'roam')), `missing roam room for ${mapId}`);
+    const modes = partyModes(mapId);
+    assert(modes.length >= 1, `no party modes for ${mapId}`);
+    for (const modeId of modes) {
+      const room = trackKey(mapId, modeId);
+      assert(validate.ROOM_MODES.includes(room), `party mode room missing: ${room}`);
+    }
+  }
 });
 
 test('validate: HMAC tokens', async () => {

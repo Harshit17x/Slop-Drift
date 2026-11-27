@@ -48,6 +48,7 @@ export class RemotePlayers {
     this.night = false;
     this.shadowsEnabled = true;
     this.requestedModels = new Set();
+    this.modelRetryAt = new Map();
   }
 
   setQuality(quality) {
@@ -108,9 +109,14 @@ export class RemotePlayers {
         entry = null;
       }
       if (!entry) entry = this.add(id, peer, wantedCarId);
-      if (!entry.visualReady && !this.requestedModels.has(wantedCarId)) {
+      const retryAt = this.modelRetryAt.get(wantedCarId) || 0;
+      if (!entry.visualReady && !this.requestedModels.has(wantedCarId) && renderTime >= retryAt) {
         this.requestedModels.add(wantedCarId);
-        loadCarModels([wantedCarId]).finally(() => this.requestedModels.delete(wantedCarId));
+        loadCarModels([wantedCarId]).finally(() => {
+          this.requestedModels.delete(wantedCarId);
+          if (!hasCarModel(wantedCarId)) this.modelRetryAt.set(wantedCarId, (typeof performance !== 'undefined' ? performance.now() : Date.now()) + 10_000);
+          else this.modelRetryAt.delete(wantedCarId);
+        });
       }
       this.refresh(entry, peer);
 

@@ -533,6 +533,7 @@ class LocalTransport {
   startParty() {
     const client = this.client;
     const join = client.partyJoin || { intent: 'join' };
+    this.joinedProfileKey = client._profileKey();
     this.partyTimer = setInterval(() => this.partyTick(), LOCAL_PARTY_TICK);
     if (join.intent === 'create') {
       const created = createParty({ code: this.code, mapId: join.mapId, modeId: join.modeId });
@@ -605,6 +606,10 @@ class LocalTransport {
       if (!message.state || typeof message.state !== 'object' || message.state.code !== this.code) return;
       clearTimeout(this.joinTimer);
       client._onPartyState(message.state, Number(message.now), client.instanceId);
+      if (client._profileKey() !== this.joinedProfileKey) {
+        this.joinedProfileKey = client._profileKey();
+        this.sendProfile();
+      }
     } else if (message.t === 'party-op') {
       if (!this.isAuthority() || typeof message.key !== 'string') return;
       const event = eventFromOp(message.key, message, { allowJoin: true });

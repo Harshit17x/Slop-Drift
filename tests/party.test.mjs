@@ -18,6 +18,7 @@ const {
 } = party;
 const { PartyRace, RouteProgress, buildResults, buildStandings, formatRaceTime } = await import('../src/game/PartyRace.js');
 const { isPartyRoom } = await import('../server/src/validate.js');
+const { MAPS } = await import('../src/world/maps.js');
 
 let failures = 0;
 let passes = 0;
@@ -328,12 +329,13 @@ test('buildResults: shared results rows', () => {
 // ------------------------------------------------------------------ PartyRace flow against a fake net
 
 function fakeHud() {
-  const calls = { party: [], standings: [], results: [], toasts: [], opened: 0 };
+  const calls = { party: [], standings: [], results: [], resultOpts: [], hostSwitches: [], toasts: [], opened: 0 };
   return {
     calls,
     setParty(view) { calls.party.push(view); },
     setRaceStandings(rows) { calls.standings.push(rows); },
-    showPartyResults(results) { calls.results.push(results); },
+    showPartyResults(results, options = {}) { calls.results.push(results); calls.resultOpts.push(options); },
+    setPartyResultsHost(isHost) { calls.hostSwitches.push(isHost); },
     openParty() { calls.opened += 1; },
     toast(text) { calls.toasts.push(text); },
   };
@@ -528,6 +530,103 @@ test('PartyRace: exposes member car labels from state and live roster updates', 
   view = hud.calls.party.at(-1);
   assert(view.members[1].car === 'thar' && view.members[1].carLabel === 'Hill 4x4', JSON.stringify(view.members[1]));
   race.dispose();
+});
+
+test('PartyRace: DNF/paused results open forced results, host migration updates results, backToRoom/leave reset state, map selection + local host rejoin + equipped car priority', async () => {
+  const store = new Map();
+  globalThis.sessionStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) };
+  try {
+    const hud = fakeHud();
+    const net = fakeNet('me#1');
+    const game = {
+      state: 'menu',
+      mode: { id: 'sprint' },
+      carId: 'apex', // Garage showcase previewing locked car; equipped car should win!
+      world: fakeWorld(),
+      settings: { map: 'mussoorie' },
+      modes: [{ id: 'sprint' }, { id: 'drift' }],
+      session: null,
+      beginRun(modeId) { this.state = 'countdown'; this.session = { mode: { id: modeId }, hud: { progress: 0 } }; return true; },
+      enterMenu() { this.state = 'menu'; this.session = null; },
+    };
+    const meta = { career: { activeCarId: () => 'gt' } };
+    const race = new PartyRace({ game, net, hud, meta, mapId: 'mussoorie' });
+
+    // Join as non-host initially.
+    hud.onPartyJoin('K7QXM');
+    let state = racing(['host', 'me#1'], 'sprint');
+    // Force start round cleanly via lobby -> countdown -> racing transition.
+    let lobbyState = lobby(['host', 'me#1'], 'mussoorie', 'sprint');
+    lobbyState.members['me#1'].car = 'apex';
+    net.emit(lobbyState);
+    let view = hud.calls.party.at(-1);
+    assert(view.maps.length === Object.keys(MAPS).length, 'all 7 maps in party view');
+    const meRow = view.members.find((m) => m.isYou);
+    assert(meRow.car === 'gt' && meRow.carLabel === 'Track GT3', `equipped car beats preview: ${JSON.stringify(meRow)}`);
+
+    // Switch host to test host-side map change.
+    lobbyState = { ...lobbyState, hostId: 'me#1', members: { ...lobbyState.members, host: { ...lobbyState.members.host }, 'me#1': { ...lobbyState.members['me#1'] } } };
+    net.emit(lobbyState);
+    hud.onPartySelect(null, 'tokyo');
+    const selectMsg = net.sent.at(-1);
+    assert(selectMsg.op === 'select' && selectMsg.mapId === 'tokyo' && selectMsg.modeId === 'sprint', JSON.stringify(selectMsg));
+
+    // Restore host as 'host' and run round 1 -> pause mid-run -> finish deadline DNF forces results + menu!
+    let roundState = lobby(['host', 'me#1'], 'mussoorie', 'sprint');
+    net.emit(roundState);
+    roundState = reduce(roundState, { type: 'start', id: 'host' }, T0 + 100);
+    net.emit(roundState);
+    roundState = reduce(roundState, { type: 'tick' }, T0 + 100 + PARTY_COUNTDOWN_MS);
+    net.emit(roundState);
+    game.state = 'paused';
+    roundState = reduce(roundState, { type: 'finish', id: 'host', time: 40 }, T0 + 50_000);
+    roundState = reduce(roundState, { type: 'tick' }, roundState.finishDeadline);
+    net.emit(roundState);
+    assert(game.state === 'menu', 'DNF deadline exits pause to menu');
+    assert(hud.calls.results.at(-1)?.rows?.find((r) => r.isYou)?.dnf === true, 'DNF shown on results');
+    assert(hud.calls.resultOpts.at(-1)?.force === true, 'results opened with force: true');
+
+    // Host leaves while viewing results: remaining driver becomes host and UI updates.
+    roundState = reduce(roundState, { type: 'leave', id: 'host' }, T0 + 60_000);
+    net.emit(roundState);
+    assert(hud.calls.hostSwitches.at(-1) === true, 'setPartyResultsHost notified on migration');
+
+    // Back to room opens party drawer; leaving from finished state returns to menu cleanly.
+    game.state = 'finished';
+    hud.onPartyBack();
+    assert(game.state === 'menu' && hud.calls.opened >= 1, 'backToRoom resets finished state and opens party');
+    game.state = 'finished';
+    hud.onPartyLeave();
+    assert(game.state === 'menu' && hud.calls.results.at(-1) === null, 'leaving exits finished state and clears results');
+    race.dispose();
+
+    // Local transport host auto-recreates room if BroadcastChannel host reloaded across maps.
+    const netLocal = fakeNet('me#2');
+    netLocal.mode = 'local';
+    let applied = null;
+    const game2 = { ...game, state: 'menu', applySettings: (s) => { applied = s; } };
+    const hudLocal = fakeHud();
+    const raceSwitch = new PartyRace({ game: game2, net: netLocal, hud: hudLocal, meta, mapId: 'mussoorie' });
+    hudLocal.onPartyCreate();
+    const localCode = partyCodeOfRoom(netLocal.joined[0][0]);
+    let sw = createParty({ code: localCode, mapId: 'mussoorie', modeId: 'sprint' });
+    sw = reduce(sw, { type: 'join', id: 'me#2', name: 'Me' }, T0);
+    netLocal.emit(sw);
+    sw = { ...sw, mapId: 'tokyo', modeId: 'sprint' };
+    netLocal.emit(sw);
+    assert(applied?.map === 'tokyo', 'switched map');
+    const netLocal2 = fakeNet('me#3');
+    netLocal2.mode = 'local';
+    const raceAfterReload = new PartyRace({ game: { ...game2, settings: { map: 'tokyo' } }, net: netLocal2, hud: fakeHud(), meta, mapId: 'tokyo' });
+    await raceAfterReload.boot();
+    assert(netLocal2.joined[0]?.[0] === `party.${localCode}` && netLocal2.joined[0]?.[1]?.party?.intent === 'join', 'initial rejoin join');
+    netLocal2.emit(null, { error: 'not-found', fatal: true });
+    assert(netLocal2.joined.at(-1)?.[0] === `party.${localCode}` && netLocal2.joined.at(-1)?.[1]?.party?.intent === 'create', 'local wasHost recreates party after reload');
+    raceSwitch.dispose();
+    raceAfterReload.dispose();
+  } finally {
+    delete globalThis.sessionStorage;
+  }
 });
 
 // ------------------------------------------------------------------ run

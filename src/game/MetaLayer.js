@@ -256,6 +256,7 @@ export class MetaLayer {
         this.syncNetProfile();
         this.flushEvents();
         this.refreshAll();
+        this.game.partyRace?.pushView?.();
         hud.toast(`${getCar(carId).label} unlocked early!`, 'good');
       } else {
         hud.toast(res.reason === 'insufficient-credits' ? 'Not enough Chai Credits yet' : 'Cannot unlock yet', 'warn');
@@ -266,6 +267,7 @@ export class MetaLayer {
         if (!career.startTrialCar(carId)) return;
         this.applyLook(this.game.car);
         this.refreshAll();
+        this.game.partyRace?.pushView?.();
         hud.toast(`Test Drive active: ${getCar(carId).label} for 1 run!`, 'good');
       };
       if (this.game.platform?.initialized) {

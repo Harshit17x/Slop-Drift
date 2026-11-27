@@ -216,6 +216,8 @@ export class PartyRace {
     this.runActive = false; // that run is still on the road
     this.localFinish = null; // our finish time until the authority confirms it
     this.shownResultsRound = 0;
+    this.lastResultsHost = null;
+    this.rejoinPending = null;
     this.progress = new Map(); // member id -> RouteProgress
     this.peerPosition = { x: 0, y: 0, z: 0 };
     this.timer = null;
@@ -231,10 +233,11 @@ export class PartyRace {
     hud.onPartyCreate = () => this.createParty();
     hud.onPartyJoin = (code) => this.joinParty(code);
     hud.onPartyLeave = () => this.leave();
-    hud.onPartySelect = (modeId) => this.select(modeId);
+    hud.onPartySelect = (modeId, mapId) => this.select(modeId, mapId);
     hud.onPartyReady = (ready) => this.setReady(ready);
     hud.onPartyStart = () => this.start();
     hud.onPartyRematch = () => this.rematch();
+    hud.onPartyBack = () => this.backToRoom();
     hud.onPartyCopyLink = () => this.copyLink();
   }
 
@@ -265,6 +268,7 @@ export class PartyRace {
     if (!code && pending && isPartyCode(pending.code) && Date.now() - (pending.at || 0) < REJOIN_MAX_AGE) {
       code = pending.code;
       this.expectMap = pending.mapId;
+      this.rejoinPending = { code, mapId: pending.mapId, modeId: pending.modeId || null, wasHost: Boolean(pending.wasHost) };
     }
     if (code) {
       this.joinParty(code);
@@ -322,6 +326,7 @@ export class PartyRace {
     this.runRound = 0;
     this.runActive = false;
     this.shownResultsRound = 0;
+    this.lastResultsHost = null;
     this.joinOptions = party;
     this.pushView();
     this.meta?.enterParty?.(partyRoomName(code), { party });
@@ -333,6 +338,7 @@ export class PartyRace {
   leave({ quiet = false } = {}) {
     if (!this.inParty) return;
     if (this.runActive) this.reportDnf();
+    const shouldExitResults = !quiet && (this.hud?.screen === 'party-results' || this.game?.state === 'finished');
     clearInterval(this.timer);
     this.timer = null;
     this.code = null;
@@ -341,6 +347,8 @@ export class PartyRace {
     this.error = null;
     this.localFinish = null;
     this.expectMap = null;
+    this.rejoinPending = null;
+    this.lastResultsHost = null;
     this.runActive = false;
     this.runRound = 0;
     this.progress.clear();
@@ -348,13 +356,28 @@ export class PartyRace {
     else this.net?.leave();
     this.hud.setRaceStandings?.(null);
     this.hud.setParty?.(null);
-    if (!quiet) this.hud.showPartyResults?.(null);
+    if (!quiet) {
+      this.hud.showPartyResults?.(null);
+      if (shouldExitResults) this.game?.enterMenu?.();
+    }
   }
 
-  select(modeId) {
+  backToRoom() {
+    if (!this.inParty) return;
+    if (this.game?.state && this.game.state !== 'menu') {
+      this.game.enterMenu?.();
+    }
+    this.hud.openParty?.();
+  }
+
+  select(modeId, mapId = null) {
     if (!this.state) return;
     if (!this.isHost) return this.hud.toast?.(OP_ERROR_TEXT['not-host'], 'warn');
-    this.net.sendParty('select', { mapId: this.mapId, modeId });
+    const nextMap = mapId && MAPS[mapId] ? mapId : (this.state.mapId || this.mapId);
+    const allowed = partyModes(nextMap);
+    if (!allowed.length) return;
+    const nextMode = modeId && allowed.includes(modeId) ? modeId : allowed[0];
+    this.net.sendParty('select', { mapId: nextMap, modeId: nextMode });
   }
 
   setReady(ready) {
@@ -461,9 +484,16 @@ export class PartyRace {
         this.connect(randomPartyCode(), this.joinOptions);
         return;
       }
+      if (info.error === 'not-found' && this.net?.mode === 'local' && this.rejoinPending?.wasHost && this.rejoinPending.code === this.code && this.rejoinPending.mapId === this.mapId) {
+        const pending = this.rejoinPending;
+        this.rejoinPending = null;
+        this.connect(pending.code, { intent: 'create', mapId: pending.mapId, modeId: pending.modeId });
+        return;
+      }
       const wasIn = Boolean(this.state);
       this.state = null;
       this.runActive = false;
+      this.rejoinPending = null;
       this.status = wasIn ? 'closed' : 'error';
       this.error = info.error;
       this.hud.setRaceStandings?.(null);
@@ -474,6 +504,7 @@ export class PartyRace {
       if (info.error) this.hud.toast?.(OP_ERROR_TEXT[info.error] || 'The party refused that', 'warn');
       return;
     }
+    this.rejoinPending = null;
     const before = this.state;
     this.state = state;
     this.you = info.you || this.you;
@@ -508,7 +539,7 @@ export class PartyRace {
 
   switchMap(state) {
     try {
-      sessionStore()?.setItem(REJOIN_KEY, JSON.stringify({ code: state.code, mapId: state.mapId, at: Date.now() }));
+      sessionStore()?.setItem(REJOIN_KEY, JSON.stringify({ code: state.code, mapId: state.mapId, modeId: state.modeId, wasHost: this.isHost, at: Date.now() }));
     } catch {
       // without sessionStorage the player rejoins by hand
     }
@@ -530,21 +561,30 @@ export class PartyRace {
       // Missed the start (e.g. the countdown state arrived late): start now, behind everyone.
       this.startRun(state);
     }
-    if (state.phase === 'results' && this.shownResultsRound !== state.round) {
-      this.shownResultsRound = state.round;
-      this.runActive = false;
-      this.hud.setRaceStandings?.(null);
-      if (this.game.state === 'running' || this.game.state === 'countdown') {
-        // Our run did not make the deadline: stop driving and see the results.
-        if (me.inRace) this.game.enterMenu?.();
+    if (state.phase === 'results') {
+      if (this.shownResultsRound !== state.round) {
+        this.shownResultsRound = state.round;
+        const wasInRace = Boolean(me.inRace);
+        const activeOnTrack = this.game.state === 'running' || this.game.state === 'countdown' || this.game.state === 'paused';
+        this.runActive = false;
+        this.hud.setRaceStandings?.(null);
+        if (activeOnTrack && wasInRace) {
+          // Our run did not make the deadline (or was paused): stop driving and see the results.
+          this.game.enterMenu?.();
+        }
+        const force = activeOnTrack || this.hud.screen === 'finish' || this.hud.screen === 'party-results' || this.hud.sub === 'party';
+        this.hud.showPartyResults?.(buildResults(state, this.you, this.isHost), { force });
+        this.lastResultsHost = this.isHost;
+      } else if (this.lastResultsHost !== this.isHost) {
+        this.lastResultsHost = this.isHost;
+        this.hud.setPartyResultsHost?.(this.isHost);
       }
-      this.hud.showPartyResults?.(buildResults(state, this.you, this.isHost));
     }
     if (phaseChanged && state.phase === 'lobby' && before && before.phase === 'results') {
       // Rematch or another event: back to the lobby panel.
       this.localFinish = null;
       this.hud.showPartyResults?.(null);
-      if (this.game.state === 'finished') this.game.enterMenu?.();
+      if (this.game.state && this.game.state !== 'menu') this.game.enterMenu?.();
       this.hud.openParty?.();
     }
   }
@@ -639,7 +679,7 @@ export class PartyRace {
       const peerKey = id === this.you ? null : this.net?.partyPeerKey?.(id);
       const peerInfo = peerKey ? this.net?.peers?.get?.(peerKey) : null;
       const rawCar = id === this.you
-        ? (this.game?.carId || this.meta?.career?.profile?.cosmetics?.car || member.car || '')
+        ? (this.meta?.career?.activeCarId?.() || this.meta?.career?.profile?.cosmetics?.car || this.game?.carId || member.car || '')
         : (peerInfo?.car || member.car || '');
       const car = rawCar ? getCar(rawCar) : null;
       const rawPaint = id === this.you
@@ -664,6 +704,7 @@ export class PartyRace {
       ...base,
       mapId: state.mapId,
       mapLabel: MAPS[state.mapId]?.label || state.mapId,
+      maps: Object.values(MAPS).map((m) => ({ id: m.id, label: m.label })),
       modeId: state.modeId,
       modeLabel: getMode(state.modeId).label,
       modes: this.availableModes(state.mapId),

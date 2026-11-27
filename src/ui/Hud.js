@@ -354,6 +354,7 @@ export class Hud {
     this.track = null;
     this.activeRoad = null;
     this.lastCar = null;
+    this.lastActiveCar = null;
     this.timers = new Set();
     this.party = null; // last view passed to setParty()
     this.partyResults = null;
@@ -408,6 +409,7 @@ export class Hud {
     this.onPartyReady = null;
     this.onPartyStart = null;
     this.onPartyRematch = null;
+    this.onPartyBack = null;
     this.onPartyCopyLink = null;
 
     if (injectStyles) this.injectStyles();
@@ -584,6 +586,7 @@ export class Hud {
         <div class="sdh-finish-body"></div>
         <footer class="sdh-panel-foot sdh-finish-foot">
           <button type="button" class="sdh-btn sdh-btn-bonus" data-act="double-rewards" hidden>${ICON.flame}<span>2× XP &amp; CR (Ad)</span></button>
+          <button type="button" class="sdh-btn sdh-btn-primary" data-act="party-back" hidden>${ICON.party}<span>Back to party</span></button>
           <button type="button" class="sdh-btn sdh-btn-primary" data-act="finish-next" hidden>${ICON.play}<span>Next event</span></button>
           <button type="button" class="sdh-btn sdh-btn-primary" data-act="restart">${ICON.restart}<span>Race again</span></button>
           <button type="button" class="sdh-btn" data-act="race-ghost">${ICON.ghost}<span>Race your ghost</span></button>
@@ -1002,11 +1005,15 @@ export class Hud {
         case 'party-leave': this.onPartyLeave?.(); break;
         case 'party-copy': this.onPartyCopyLink?.(); break;
         case 'party-select': this.onPartySelect?.(target.dataset.id); break;
+        case 'party-map': this.onPartySelect?.(null, target.dataset.map); break;
         case 'party-ready': this.onPartyReady?.(target.getAttribute('aria-pressed') !== 'true'); break;
         case 'party-start': this.onPartyStart?.(); break;
         case 'party-rematch': this.onPartyRematch?.(); break;
-        case 'party-back': this.openSub('party', this.screen === 'party-results' ? 'party-results' : 'menu'); break;
-        case 'party-results': if (this.partyResults) this.showPartyResults(this.partyResults); break;
+        case 'party-back':
+          if (typeof this.onPartyBack === 'function') this.onPartyBack();
+          else this.openParty();
+          break;
+        case 'party-results': if (this.partyResults) this.showPartyResults(this.partyResults, { force: true }); break;
         case 'map-preview': this.previewMap(target.dataset.map); break;
         case 'map-go': this.onSelectMap?.(this.previewMapId); break;
         case 'sub-back': this.closeSub(); break;
@@ -1389,8 +1396,12 @@ export class Hud {
 
   setHubTab(tab) {
     const id = HUB_TABS.some((t) => t.id === tab) ? tab : 'garage';
+    if (id !== 'garage' && this.garage) {
+      this.previewCarId = this.garage.trialCar || this.garage.selected?.car || 'hatch';
+    }
     if (['party', 'leaderboard', 'achievements', 'settings'].includes(id)) {
       this.screen = 'menu';
+      this.onHubTabChange(id);
       if (id === 'party') { this.openParty(); return; }
       if (id === 'leaderboard') {
         const modeId = this.lbMode || this.rankedModes()[0]?.id;
@@ -1515,7 +1526,8 @@ export class Hud {
    * @param {{modeId:string, modeLabel?:string, time?:number, bestTime?:number, isRecord?:boolean, score?:number,
    *          bestScore?:number, topSpeedKmh?:number, respawns?:number, laps?:number[]}} result
    */
-  showFinish(result = {}, rewards = null) {
+  showFinish(result = {}, rewards = null, options = {}) {
+    const inParty = Boolean(options?.inParty);
     const mode = this.modes.find((m) => m.id === result.modeId);
     const kind = recordKind(mode || { id: result.modeId });
     const label = result.modeLabel || mode?.label || 'Event';
@@ -1570,11 +1582,17 @@ export class Hud {
       <div class="sdh-ticket-chai">${CHAI_GLASS}</div>`;
     this.finishModeId = result.modeId;
     // "Next event" leads when there is one, so the next goal is a single click away.
-    this.finishNextMode = rewards?.upNext?.modeId || null;
+    this.finishNextMode = inParty ? null : (rewards?.upNext?.modeId || null);
+    const partyBtn = this.q('[data-panel="finish"] [data-act="party-back"]');
+    if (partyBtn) partyBtn.hidden = !inParty;
     const next = this.q('[data-act="finish-next"]');
     next.hidden = !this.finishNextMode;
     next.querySelector('span').textContent = this.finishNextMode ? `Next: ${rewards.upNext.modeLabel}` : 'Next event';
-    this.q('[data-act="restart"]').classList.toggle('sdh-btn-primary', !this.finishNextMode);
+    const restartBtn = this.q('[data-panel="finish"] [data-act="restart"]');
+    if (restartBtn) {
+      restartBtn.hidden = inParty;
+      restartBtn.classList.toggle('sdh-btn-primary', !this.finishNextMode && !inParty);
+    }
     this.q('[data-act="race-ghost"]').hidden = kind === 'none';
     this.q('[data-act="finish-leaderboard"]').hidden = kind === 'none';
     const dbl = this.q('[data-act="double-rewards"]');
@@ -1674,7 +1692,7 @@ export class Hud {
       racing: 'Race in progress', results: 'Results are in', error: 'Problem with the party', closed: 'Party closed',
     }[status] || 'Party';
     const active = document.activeElement;
-    const keep = room.contains(active) ? (active.dataset.act ? `[data-act="${active.dataset.act}"]${active.dataset.id ? `[data-id="${CSS.escape(active.dataset.id)}"]` : ''}` : null) : null;
+    const keep = room.contains(active) ? (active.dataset.act ? `[data-act="${active.dataset.act}"]${active.dataset.id ? `[data-id="${CSS.escape(active.dataset.id)}"]` : active.dataset.map ? `[data-map="${CSS.escape(active.dataset.map)}"]` : ''}` : null) : null;
 
     const plate = v.code ? `
       <div class="sdh-pplate" role="group" aria-label="Party code ${esc(v.code.split('').join(' '))}">
@@ -1690,8 +1708,14 @@ export class Hud {
     else if (status === 'racing') banner = '<div class="sdh-party-banner" role="status">Race in progress. You’ll join the next round.</div>';
 
     const modes = Array.isArray(v.modes) ? v.modes : [];
+    const maps = Array.isArray(v.maps) ? v.maps : [];
     const canPick = Boolean(v.isHost) && (status === 'lobby' || status === 'results');
+    const mapBlock = canPick && maps.length > 1 && status !== 'error' && status !== 'closed' && status !== 'connecting' ? `
+      <div class="sdh-section-label">Map</div>
+      <div class="sdh-party-modes" role="group" aria-label="Choose the map">${maps.map((m) => `
+        <button type="button" class="sdh-party-mode" data-act="party-map" data-map="${esc(m.id)}" aria-pressed="${m.id === v.mapId}">${esc(m.label)}</button>`).join('')}</div>` : '';
     const modeBlock = status === 'error' || status === 'closed' || status === 'connecting' ? '' : `
+      ${mapBlock}
       <div class="sdh-section-label">Event · ${esc(v.mapLabel || '')}${v.round > 1 ? ` · Round ${esc(v.round)}` : ''}</div>
       ${canPick && modes.length ? `<div class="sdh-party-modes" role="group" aria-label="Choose the event">${modes.map((m) => `
         <button type="button" class="sdh-party-mode" data-act="party-select" data-id="${esc(m.id)}" aria-pressed="${m.id === v.modeId}">${esc(m.label)}</button>`).join('')}</div>`
@@ -1726,7 +1750,8 @@ export class Hud {
       <div class="sdh-party-codebar">${plate}</div>
       ${banner}${modeBlock}${list}
       <div class="sdh-party-foot">${foot}</div>`;
-    if (keep) room.querySelector(keep)?.focus({ preventScroll: true });
+    const kept = keep ? room.querySelector(keep) : null;
+    if (kept) kept.focus({ preventScroll: true });
     else if (this.sub === 'party' && !this.el.contains(document.activeElement)) {
       room.querySelector('.sdh-btn-primary:not(:disabled), [data-act="party-leave"]')?.focus({ preventScroll: true });
     }
@@ -1753,7 +1778,8 @@ export class Hud {
    * @param {{modeLabel:string, mapLabel?:string, isScore?:boolean, round?:number, isHost?:boolean,
    *          rows:{position:number, name:string, isYou?:boolean, time?:number, score?:number, dnf?:boolean}[]}|null} r
    */
-  showPartyResults(r) {
+  showPartyResults(r, options = {}) {
+    const force = Boolean(options?.force);
     const body = this.q('.sdh-party-results-body');
     if (!r) {
       this.partyResults = null;
@@ -1793,7 +1819,7 @@ export class Hud {
         <div class="sdh-ticket-foot">One road · One finish line · Chai is on the winner</div>
       </div>`;
     this.q('[data-act="party-rematch"]').hidden = !r.isHost;
-    if (this.screen === 'menu') {
+    if (!force && this.screen === 'menu' && this.sub !== 'party') {
       this.toast('Party results are in. Open Race with friends to view them.', 'good');
       return;
     }
@@ -1802,6 +1828,14 @@ export class Hud {
     this.currentPanel = null;
     this.applyScreen();
     this.q('[data-panel="party-results"]').scrollTop = 0;
+  }
+
+  /** Update host-only Rematch button state when host migrates while viewing results. */
+  setPartyResultsHost(isHost) {
+    if (this.partyResults) this.partyResults = { ...this.partyResults, isHost: Boolean(isHost) };
+    const btn = this.q('[data-act="party-rematch"]');
+    if (btn) btn.hidden = !isHost;
+    this.renderParty();
   }
 
   openSettings(source = 'menu') {
@@ -2324,9 +2358,9 @@ export class Hud {
       return;
     }
     this.subSource = source;
-    if (this.sub === name) return;
+    const sameSub = this.sub === name;
     this.sub = name;
-    this.applyScreen();
+    this.applyScreen(!sameSub);
   }
 
   closeSub() {
@@ -2643,9 +2677,11 @@ export class Hud {
   /** @param {{items:Array, selected:{paint:string, rim:string, number:string, neon?:string, smoke?:string, car?:string}, favorites?:string[]}} garage */
   setGarage(garage) {
     this.garage = garage || { items: [], selected: {}, favorites: [] };
-    if (!this.previewCarId || !CARS.some((c) => c.id === this.previewCarId)) {
-      this.previewCarId = this.garage.trialCar || this.garage.selected?.car || 'hatch';
+    const activeCar = this.garage.trialCar || this.garage.selected?.car || 'hatch';
+    if (!this.previewCarId || !CARS.some((c) => c.id === this.previewCarId) || !this.isGarageShowcaseActive() || this.lastActiveCar !== activeCar) {
+      this.previewCarId = activeCar;
     }
+    this.lastActiveCar = activeCar;
     const items = this.garage.items || [];
     const sel = this.garage.selected || {};
     for (const slot of ['paint', 'rim', 'neon', 'smoke']) {

@@ -27,6 +27,8 @@ export const ROOM_MODES = Object.freeze(Object.keys(MAPS).flatMap((mapId) => (
   ['mountain', ...MODES.map((mode) => mode.id).filter((modeId) => modeId === 'roam' || medalTargets(trackKey(mapId, modeId)))]
     .map((modeId) => trackKey(mapId, modeId))
 )));
+/** Primary lobby room for every map, checked for global online presence. */
+export const PRIMARY_ROOMS = Object.freeze(Object.keys(MAPS).map((mapId) => trackKey(mapId, 'mountain')));
 /** Tracks with a leaderboard (every map's events but free roam), as track keys. */
 export const RANKED_MODES = Object.freeze(Object.keys(TRACK_MEDAL_TARGETS));
 
@@ -134,7 +136,9 @@ export function originAllowed(origin, allowList) {
       const head = entry.slice(0, star);
       const tail = entry.slice(star + 1);
       const middle = origin.slice(head.length, origin.length - tail.length);
-      if (origin.length >= head.length + tail.length && origin.startsWith(head) && origin.endsWith(tail) && /^[a-z0-9-]+$/i.test(middle)) return true;
+      const isPort = head.endsWith(':') && !tail;
+      const validMiddle = isPort ? /^[0-9]{1,5}$/.test(middle) : /^[a-z0-9-]+(\.[a-z0-9-]+)*$/i.test(middle);
+      if (origin.length >= head.length + tail.length && origin.startsWith(head) && origin.endsWith(tail) && validMiddle) return true;
     }
   }
   return false;
