@@ -49,6 +49,8 @@ try{
     const mobile=await ev(`(()=>{const m=g.apexMeeting;m.startButton.scrollIntoView({block:'center'});const b=m.startButton.getBoundingClientRect();
       if(b.width<50 || b.height<15)throw Error('Phone setup button hidden');m.startButton.click();if(!g.session||g.mode.id!=='apex-meeting')throw Error('Phone race setup failed');
       return {viewport:[innerWidth,innerHeight],buttonWidth:b.width,course:g.session.route.id};})()`);
+    // This isolated browser profile needs the career unlocks for the map-switch checks.
+    await ev("g.career.profile.unlockedMaps=['tokyo','hollow','apex'];g.career.save();");
     const maps=[];
     for(const map of ['tokyo','hollow','apex']){
       await ev("window.g=window.__SLOP_DRIFT__;g.enterMenu();setTimeout(()=>g.selectMap("+JSON.stringify(map)+"),30);true");
