@@ -69,7 +69,14 @@ export function getMode(id) {
 export function modesForWorld(world) {
   const routes = world?.routes || {};
   const modes=MODES.filter((mode) => Object.prototype.hasOwnProperty.call(routes, mode.route));
-  if(world?.config?.map==='apex')return modes.map(mode=>({...mode,label:({sprint:'Endurance Qualifying',circuit:'Endurance Race',roam:'Open Track Day'})[mode.id]||mode.label,tagline:mode.id==='roam'?'Explore the paddock and all six layouts':mode.id==='drift'?'Two-minute drift exhibition':`${(routes[mode.route].metres/1000).toFixed(2)} km · ${mode.laps} ${mode.laps===1?'lap':'laps'}`}));
+  if (world?.config?.map === 'apex') {
+    const labels = {sprint:'Endurance Loop', gp:'Grand Prix Loop', bowl:'Stadium Loop'};
+    return modes.filter(mode => labels[mode.id] || mode.id === 'roam').map(mode => ({
+      ...mode, label: labels[mode.id] || 'Free Roam', trackLimits: false,
+      tagline: !mode.laps ? 'Explore the circuit and paddock' : Number.isFinite(routes[mode.route].metres)
+        ? `${(routes[mode.route].metres / 1000).toFixed(2)} km · solo lap` : 'Solo lap',
+    }));
+  }
   if(world?.config?.map==='tokyo')return modes.map(mode=>{
     const overrides={sprint:['Tokyo Midnight Circuit','5 km · Minato and Electric Town'],circuit:['Midnight Endurance','Two laps of Tokyo'],roam:['City Explorer','Explore districts and collect night photographs']};
     return overrides[mode.id]?{...mode,label:overrides[mode.id][0],tagline:overrides[mode.id][1]}:mode;

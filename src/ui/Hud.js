@@ -677,6 +677,10 @@ export class Hud {
   /** How many events a map's roads can run (mirrors World.build's routes). */
   eventCount(map) {
     const routes = map?.routes || [];
+    if (map?.id === 'apex') {
+      const world = {config:map.config,routes:Object.fromEntries(routes.map(id=>[id,true]))};
+      return modesForWorld(world).filter(mode => mode.laps > 0).length;
+    }
     return MODES.filter((mode) => routes.includes(mode.route)).length;
   }
 
@@ -781,7 +785,7 @@ export class Hud {
           ${seg('touchSteer', 'Touch steering', [{ value: 'arrows', label: 'Arrows' }, { value: 'slider', label: 'Slider' }], 'Phones and tablets. Slider steers gradually; arrows are easier.')}
           <div class="sdh-group-label">Graphics</div>
           ${seg('quality', 'Quality', ['Auto', ...Object.keys(QUALITY_PRESETS)].map((k) => ({ value: k, label: k })), 'Auto lowers detail by itself if the game runs slowly.')}
-          ${seg('timeOfDay', 'Time of day', TIME_OF_DAY.map((k) => ({ value: k, label: cap(k) })))}
+          ${this.mapId === 'apex' ? '' : seg('timeOfDay', 'Time of day', TIME_OF_DAY.map((k) => ({ value: k, label: cap(k) })))}
           <div class="sdh-group-label">Sound &amp; display</div>
           ${slider('volume', 'Volume')}
           ${seg('units', 'Units', [{ value: 'kmh', label: 'km/h · m' }, { value: 'mph', label: 'mph · ft' }])}
@@ -2603,8 +2607,10 @@ export class Hud {
   }
 
   syncLightingPills() {
-    const tod = this.settings?.timeOfDay || 'day';
+    const tod = this.mapId === 'apex' ? 'day' : this.settings?.timeOfDay || 'day';
     for (const btn of this.el.querySelectorAll('[data-act="garage-time"]')) {
+      btn.disabled = this.mapId === 'apex';
+      btn.hidden = this.mapId === 'apex' && btn.dataset.time !== 'day';
       btn.classList.toggle('is-on', btn.dataset.time === tod);
       btn.setAttribute('aria-pressed', String(btn.dataset.time === tod));
     }

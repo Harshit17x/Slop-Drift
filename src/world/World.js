@@ -1157,6 +1157,19 @@ export class World {
     out.position.x = frame.x;
     out.position.y = frame.y;
     out.position.z = frame.z;
+    if (this.apex) {
+      // Timing ribbons only define the heading. Respawn on the physical deck underneath.
+      const hit = this.sampleGround(frame.x,frame.z,{},frame.y+.45);
+      out.position.y = hit.y;
+      const rx = frame.ty*hit.nz - frame.tz*hit.ny;
+      const ry = frame.tz*hit.nx - frame.tx*hit.nz;
+      const rz = frame.tx*hit.ny - frame.ty*hit.nx;
+      const scale = d / Math.hypot(rx,ry,rz);
+      const x = rx*scale, y = ry*scale, z = rz*scale;
+      basisToQuaternion(x,y,z,hit.nx,hit.ny,hit.nz,
+        y*hit.nz-z*hit.ny,z*hit.nx-x*hit.nz,x*hit.ny-y*hit.nx,out.quaternion);
+      return out;
+    }
     // Rotation with columns (right, up, back) where back = -forward.
     basisToQuaternion(
       frame.rx * d, frame.ry * d, frame.rz * d,
@@ -1194,19 +1207,6 @@ export class World {
         heights.push(road.py[i]);
       };
       for (let i = 0; i < road.count; i += 3) add(i);
-    if (this.apex) {
-      // Timing ribbons only define the heading. Respawn on the physical deck underneath.
-      const hit = this.sampleGround(frame.x,frame.z,{},frame.y+.45);
-      out.position.y = hit.y;
-      const rx = frame.ty*hit.nz - frame.tz*hit.ny;
-      const ry = frame.tz*hit.nx - frame.tx*hit.nz;
-      const rz = frame.tx*hit.ny - frame.ty*hit.nx;
-      const scale = d / Math.hypot(rx,ry,rz);
-      const x = rx*scale, y = ry*scale, z = rz*scale;
-      basisToQuaternion(x,y,z,hit.nx,hit.ny,hit.nz,
-        y*hit.nz-z*hit.ny,z*hit.nx-x*hit.nz,x*hit.ny-y*hit.nx,out.quaternion);
-      return out;
-    }
       if (!road.closed) add(road.count - 1);
       return { id: road.id, closed: road.closed, points, heights, layered: this.layered && !this.apex, parkade: this.config.map==='tokyo' && road.id===4 };
     });

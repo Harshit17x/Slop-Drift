@@ -43,7 +43,7 @@ export const MAPS = Object.freeze({
   apex: Object.freeze({
     id:'apex', label:'APEX Grand Prix', tagline:'International Motorsport Park · Forest, ridge and stadium',
     highlights:['Skyline Ridge','Thunder Bowl','Endurance pit lane'],
-    routes:['loop','gp','ridge','international','bowl','academy'], assets:null,
+    routes:['loop','gp','bowl'], assets:null,
     preview: HAS_URL ? new URL('../assets/maps/previews/apex.jpg',import.meta.url).href : null,
     config:{...WORLD,map:'apex',seed:62025,grid:{size:513,cell:8},
       mountain:{...WORLD.mountain,waterLevel:12,valleyFloor:20,snowLine:580,treeLine:470,lake:null},

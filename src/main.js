@@ -19,8 +19,11 @@ game.init().catch((error) => {
   title.textContent = 'Slop-Drift could not start';
   const detail = document.createElement('p');
   detail.textContent = String(error?.message || error);
-  const hint = document.createElement('p');
-  hint.textContent = 'The game needs WebGL 2. Try a current desktop browser with hardware acceleration enabled.';
-  failure.append(title, detail, hint);
+  failure.append(title, detail);
+  if (/webgl|graphics context/i.test(detail.textContent)) {
+    const hint = document.createElement('p');
+    hint.textContent = 'The game needs WebGL 2. Try a current desktop browser with hardware acceleration enabled.';
+    failure.appendChild(hint);
+  }
   root.appendChild(failure);
 });
