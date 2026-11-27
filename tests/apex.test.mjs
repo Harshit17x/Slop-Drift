@@ -24,6 +24,7 @@ for (const route of Object.values(world.routes)) {
   const p = pose.position;
   assert(Math.abs(p.y - world.sampleGround(p.x,p.z,{},p.y+.45).y) < .001);
 }
+assert.deepEqual(modesForWorld(world).filter(m=>m.laps).map(m=>m.route),['loop','gp','bowl']);
 assert.equal(Object.keys(world.routes).length,6);
 assert.deepEqual(Object.keys(world.routes).filter(k=>world.routes[k].pitPath).sort(),['bowl','gp','international','loop']);
 assert(Math.max(...main.py)-Math.min(...main.py)>143);
@@ -33,7 +34,7 @@ for(const s of [bridge,under]){
 }
 assert(frame(main,bridge).y-frame(main,under).y>9);
 for(const [id,route] of Object.entries(world.routes)){
-  const road=world.roads[route.roadId],mode=modesForWorld(world).find(m=>m.route===id && m.laps===1);
+  const road=world.roads[route.roadId],mode={id,route:id,laps:1,trackLimits:false};
   assert(road.closed && route.metres>1000);
   const session=new RaceSession({world,mode});
   let worst=0,gates=0;
@@ -161,7 +162,7 @@ for(let n=0;n<240;n++)repaired=service.update(.1,parked)||repaired;
 assert(repaired.repair);assert.equal(service.stops,1);assert.equal(service.fuel,90);assert.equal(service.tyres,1);
 const controls={throttle:1,brake:0};service.controls(controls,{speedKmh:76});assert.equal(controls.throttle,0);assert(controls.brake>0);
 for(const [routeId,route] of Object.entries(world.routes)){
-const road=world.roads[route.roadId],mode=modesForWorld(world).find(m=>m.route===routeId&&m.laps===1),session=new RaceSession({world,mode});
+const road=world.roads[route.roadId],mode={id:routeId,route:routeId,laps:1,trackLimits:false},session=new RaceSession({world,mode});
 const car=new Vehicle({world,handling:'Balanced'});car.setHandling('Balanced',getCar('gt').tuning);car.teleport(world.getSpawn(routeId,route.startS-6));
 let maxOffset=0,air=0;
 const loc={},ahead={},probe={};

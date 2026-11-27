@@ -46,9 +46,8 @@ function keyedByTrack(mapId, targets) {
  */
 export const TRACK_MEDAL_TARGETS = Object.freeze({
   ...keyedByTrack('apex', {
-    ...Object.fromEntries(Object.entries({sprint:340,circuit:680,gp:235,ridge:168,international:141,bowl:102,academy:68})
+    ...Object.fromEntries(Object.entries({sprint:340,gp:235,bowl:102})
       .map(([id,gold])=>[id,{kind:'time',bronze:Math.round(gold*1.4),silver:Math.round(gold*1.17),gold,author:Math.round(gold*.87)}])),
-    drift:MEDAL_TARGETS.drift,
   }),
   ...keyedByTrack('tokyo', {
     ...Object.fromEntries(Object.entries({ sprint: 245, circuit: 490, shibuya: 152, express: 347, bay: 196, parkade: 179, parkdown: 165, tour: 635, underground: 85 })

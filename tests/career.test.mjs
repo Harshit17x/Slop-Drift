@@ -6,7 +6,7 @@ import {
 } from '../src/meta/catalog.js';
 import { trackKey, parseTrackKey, modeOfTrack } from '../src/meta/trackKey.js';
 import { MAPS } from '../src/world/maps.js';
-import { PAINT_OPTIONS, SMOKE_OPTIONS, MODES } from '../src/config.js';
+import { PAINT_OPTIONS, SMOKE_OPTIONS, MODES, modesForWorld } from '../src/config.js';
 import { CARS, getCar } from '../src/vehicle/cars.js';
 import { applyCarUpgrades, effectiveCarRatings, effectiveClassInfo, hasCarNitro } from '../src/vehicle/upgradeTuning.js';
 import { DriftScorer } from '../src/vehicle/DriftScorer.js';
@@ -280,8 +280,8 @@ check('mussoorie targets are ordered', Object.values(MUSSOORIE_MEDAL_TARGETS).ev
 check('mussoorie timed targets are quicker than alpine', ['sprint', 'circuit', 'climb', 'descent'].every((m) => MUSSOORIE_MEDAL_TARGETS[m].gold < MEDAL_TARGETS[m].gold));
 check('track targets resolve through the track key', medalTargets('sprint') === MEDAL_TARGETS.sprint && medalTargets('mussoorie.sprint') === MUSSOORIE_MEDAL_TARGETS.sprint);
 check('unranked tracks have no targets', medalTargets('roam') === null && medalTargets('mussoorie.roam') === null && medalTargets('toString') === null);
-const expectedTracks = Object.values(MAPS).flatMap(map => MODES
-  .filter(mode => mode.id !== 'roam' && map.routes.includes(mode.route))
+const expectedTracks = Object.values(MAPS).flatMap(map => modesForWorld({config:map.config,routes:Object.fromEntries(map.routes.map(id=>[id,true]))})
+  .filter(mode => mode.id !== 'roam')
   .map(mode => trackKey(map.id, mode.id)));
 check('every map ranks its own events', expectedTracks.length === Object.keys(TRACK_MEDAL_TARGETS).length
   && expectedTracks.every(key => medalTargets(key)));

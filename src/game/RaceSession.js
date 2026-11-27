@@ -152,7 +152,7 @@ export class RaceSession {
 
   addRespawn() {
     this.respawns += 1;
-    if (this.world.apex && this.isRace) this.hadInvalidLap = this.lapInvalid = true;
+    if (this.world.apex && this.mode.trackLimits !== false && this.isRace) this.hadInvalidLap = this.lapInvalid = true;
     this._respawnPending = true;
   }
 
@@ -208,7 +208,7 @@ export class RaceSession {
         this._hasPrev = false;
         this._budget = 0;
         this.outsideSeconds = (this.outsideSeconds || 0) + dt;
-        if (!this.warnedHere && this.outsideSeconds >= this.limitGrace) {
+        if (this.mode.trackLimits !== false && !this.warnedHere && this.outsideSeconds >= this.limitGrace) {
           this.warnedHere = true;
           this.lapInvalid = true;
           this.hadInvalidLap = true;

@@ -35,7 +35,7 @@ export class ApexKit{
   beam(a,b,width,color){
     const dir=new T.Vector3().subVectors(b,a),mid=new T.Vector3().addVectors(a,b).multiplyScalar(.5);
     const o=this.transform;o.position.copy(mid);o.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),dir.clone().normalize());o.scale.set(width,dir.length(),width);o.updateMatrix();
-    const key='truss/'+Math.floor(mid.x/128)+'/'+Math.floor(mid.z/128);
+    const key=['steel','box',Math.floor(mid.x/128),Math.floor(mid.z/128)].join('/');
     if(!this.batches.has(key))this.batches.set(key,{kind:'steel',shape:'box',items:[]});
     this.batches.get(key).items.push([o.matrix.clone(),color]);
   }
@@ -46,7 +46,8 @@ export class ApexKit{
       items.forEach(([m,color],i)=>{mesh.setMatrixAt(i,m);mesh.setColorAt(i,this.color.setHex(color));});
       mesh.receiveShadow=kind!=='lamp';mesh.castShadow=kind!=='crowd' && kind!=='lamp';
       mesh.userData.crowd=kind==='crowd';mesh.userData.capacity=items.length;mesh.computeBoundingSphere();
-      mesh.userData.range=kind==='crowd'?340:kind==='lamp'?780:Infinity;
+      mesh.userData.range=kind==='crowd'?340:kind==='lamp'?520:kind==='fabric'?480:kind==='glass'?850:1600;
+      mesh.matrixAutoUpdate=false;
       this.group.add(mesh);this.meshes.push(mesh);
     }
     this.batches.clear();

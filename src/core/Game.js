@@ -204,7 +204,10 @@ export class Game {
       const { HollowAdventure } = await import('../game/HollowAdventure.js');
       this.adventure = new HollowAdventure(this);
     }
-    if(this.world.apex){const {ApexMeeting}=await import('../game/ApexMeeting.js');this.apexMeeting=new ApexMeeting(this);await this.apexMeeting.grid.ready;}
+    if (this.world.apex) {
+      const {ApexPractice} = await import('../game/ApexPractice.js');
+      this.apexPractice = new ApexPractice(this);
+    }
     this.createNetwork();
     this.applySettings(this.settings, { save: false });
     this.meta.refreshAll();
@@ -395,7 +398,8 @@ export class Game {
       return;
     }
     this.applyQuality();
-    this.atmosphere.setTimeOfDay(this.map.id === 'tokyo' ? 'night' : this.map.id === 'fujimi' ? 'day' : this.settings.timeOfDay);
+    this.atmosphere.setTimeOfDay(this.map.id === 'tokyo' ? 'night' : (this.map.id === 'fujimi' || this.world.apex) ? 'day' : this.settings.timeOfDay);
+    if (this.world.apex) this.atmosphere.sky.material.uniforms.cloudCoverage.value = 0;
     this.roads.setNight?.(this.atmosphere.isNight);
     this.landmarks?.setNight(this.atmosphere.isNight, this.atmosphere.timeOfDay === 'sunset' || this.atmosphere.timeOfDay === 'dawn');
     this.terrain?.setSun?.(this.atmosphere.sunDirection, this.atmosphere.sunColor, this.atmosphere.ambientColor);
@@ -446,7 +450,7 @@ export class Game {
 
   /** Switch time of day and remember it (the daily challenge can ask for night). */
   applyTimeOfDay(name) {
-    if (this.settings.timeOfDay !== name) this.applySettings({ ...this.settings, timeOfDay: name });
+    if (!this.world.apex && this.settings.timeOfDay !== name) this.applySettings({ ...this.settings, timeOfDay: name });
   }
 
   // ---------------------------------------------------------------- state changes
@@ -458,7 +462,7 @@ export class Game {
     this.meta?.leaveRoom();
     this.state = 'menu';
     this.session = null;
-    this.apexMeeting?.reset();
+    this.apexPractice?.reset();
     this.audio.silence();
     this.input.setTouchStaged?.(false);
     this.input.setDrivingEnabled(false);
@@ -483,7 +487,9 @@ export class Game {
    *   instead of the usual 3 s (party races start everyone together). party: this is a party round.
    */
   beginRun(modeId, options = {}) {
-    const mode = this.apexMeeting && modeId==='apex-meeting' ? this.apexMeeting.mode() : this.modes?.find(m=>m.id===modeId) || getMode(modeId);
+    const listed = this.modes?.find(mode => mode.id === modeId);
+    if (this.world.apex && !listed) return false;
+    const mode = listed || getMode(modeId);
     const route = this.world.routes[mode.route];
     if (!route) {
       this.hud.toast(`${mode.label} is not on ${this.map.label}`, 'warn');
@@ -496,7 +502,7 @@ export class Game {
     this.partyRace?.onRunStart(modeId, options);
     this.audio.unlock();
     this.mode = mode;
-    this.session = new RaceSession({ world: this.world, mode: this.mode, records: mode.id==='apex-meeting'?(this.apexMeeting.sessionType==='timeTrial'?this.apexMeeting.trialRecords(mode.route):{}):this.records });
+    this.session = new RaceSession({ world: this.world, mode: this.mode, records: this.records });
     const spawn=this.session.getStartPose(this.pose);
     if(mode.id==='roam' && this.world.sites){
       const p=this.world.sites.garage;
@@ -505,9 +511,8 @@ export class Game {
     }
     this.vehicle.teleport(spawn);
     this.adventure?.runStart(modeId);
-    this.apexMeeting?.start(this.mode,options.party);
-    if(mode.id==='apex-meeting'){this.meta.leaveRun();this.apexMeeting.beginTrial();}
-    if(mode.id!=='apex-meeting')this.meta.beginRun(this.mode.id, this.settings.timeOfDay);
+    this.apexPractice?.reset();
+    this.meta.beginRun(this.mode.id, this.atmosphere.timeOfDay);
     this.meta.joinRoom(this.mode.id);
     this.drift.reset();
     this.effects.clear();
@@ -673,13 +678,11 @@ export class Game {
     this.hud.setRecords(this.records);
     this.hud.setCountdown('');
     this.adventure?.finishRace();
-    this.apexMeeting?.finish();
-    const rewards = this.mode.id==='apex-meeting'?null:this.meta.finish(result);
+    const rewards = this.meta.finish(result);
     if (result?.isRecord || rewards?.medal?.tier === 'gold') {
       this.platform?.happytime();
     }
     this.hud.showFinish(result, rewards);
-    this.apexMeeting?.showClassification();
     this.partyRace?.onFinish(result);
     this.cameraRig.startBlend();
   }
@@ -811,7 +814,7 @@ export class Game {
     const car = getCar(this.carId);
     const upgrades = this.career?.carUpgrades?.(this.carId);
     const nitroStats = effectiveNitroStats(CONFIG.nitro, upgrades);
-    const boosting = !this.apexMeeting?.gt && hasCarNitro(car, upgrades) && input.boost && input.throttle > 0.1 && this.nitro > 0.5;
+    const boosting = hasCarNitro(car, upgrades) && input.boost && input.throttle > 0.1 && this.nitro > 0.5;
     // Crash damage: a crushed nose loses power, bent front suspension pulls to one side.
     controls.throttle = input.throttle * this.damage.powerFactor;
     controls.brake = input.brake;
@@ -820,7 +823,6 @@ export class Game {
     controls.boost = boosting;
     controls.shift = input.shift;
 
-    this.apexMeeting?.inputs(controls,this.vehicle.getState());
     const bridge = this.world.bridge;
     if (bridge) {
       const wasLoaded = bridge.loaded;
@@ -872,7 +874,7 @@ export class Game {
     else if (drift.event === 'wipeout') this.hud.toast('Drift lost', 'warn');
 
     const events = this.session.update(dt, state, drift);
-    this.apexMeeting?.update(dt,state);
+    this.apexPractice?.update(dt,state);
     for (let i = 0; i < events.length; i += 1) this.handleSessionEvent(events[i]);
     if (this.state === 'running') this.meta.frame(dt, state, drift, this.session.hud.elapsed, this.cameraRig.camera, this.session.hud);
 
@@ -951,7 +953,7 @@ export class Game {
     frame.brake = state.brake;
     const upgrades = this.career?.carUpgrades?.(this.carId);
     const cap = Math.max(1, this.nitroCapacity || effectiveNitroStats(CONFIG.nitro, upgrades).capacity);
-    frame.boost = !this.apexMeeting?.gt && hasCarNitro(getCar(this.carId), upgrades) ? (this.nitro / cap) * 100 : null; // null: this car has no nitrous
+    frame.boost = hasCarNitro(getCar(this.carId), upgrades) ? (this.nitro / cap) * 100 : null; // null: this car has no nitrous
     frame.boosting = state.boosting;
     frame.ghostDelta = this.meta?.ghostDelta ?? null;
     frame.surface = SURFACE_PROPS[state.surface]?.name || 'asphalt';
@@ -986,13 +988,12 @@ export class Game {
     const rawMs = now - this.lastTime;
     const dt = clamp(rawMs / 1000, 0, 0.1);
     this.lastTime = now;
-    if (this.settings.quality === 'Auto' && stepRenderScale(this.renderScale, rawMs)) this.applyPixelRatio();
+    if (this.usesDynamicResolution() && stepRenderScale(this.renderScale, rawMs)) this.applyPixelRatio();
     if (dt > 0) this.fps += (1 / dt - this.fps) * 0.05;
 
     const input = this.input.update();
     this.handleGlobalInput(input);
     this.adventure?.visibility();
-    this.apexMeeting?.visibility();
 
     let state;
     const paused = this.state === 'paused';
@@ -1029,8 +1030,8 @@ export class Game {
     } else if (this.state === 'finished') this.cameraRig.orbit(dt, state.position, { radius: 8, height: 2.6, speed: 0.22 });
     else if (!paused) this.cameraRig.follow(dt, state, input);
 
-    if(this.apexMeeting)this.renderer.toneMappingExposure=this.atmosphere.preset.exposure;
-    const photoCamera=this.apexMeeting?.photoCamera() || this.adventure?.previewCamera?.(state);
+    if(this.world.apex)this.renderer.toneMappingExposure=this.atmosphere.preset.exposure;
+    const photoCamera=this.adventure?.previewCamera?.(state);
     const camera = photoCamera || this.cameraRig.camera;
     if(this.map.id==='tokyo')this.renderer.toneMappingExposure=this.atmosphere.preset.exposure*(photoCamera?Number(this.adventure.exposure.value):1);
     if (this.state !== 'running') this.meta.idle(camera, state.position);
@@ -1051,7 +1052,7 @@ export class Game {
     this.landmarks?.update?.(camera);
     this.roads.jungle?.update(camera.position);
     this.updateHud(state);
-    if(!this.apexMeeting?.renderPhoto(camera))this.renderer.render(this.scene, camera);
+    this.renderer.render(this.scene, camera);
   }
 
   /** On a player's first three drives, show the controls until they get moving. */
@@ -1100,9 +1101,14 @@ export class Game {
     }
   }
 
-  /** Preset pixel ratio, scaled down by dynamic resolution while frames run slow (Auto quality only). */
+  usesDynamicResolution() {
+    return this.settings.quality === 'Auto' ||
+      (this.map.id === 'apex' && ['Low','Medium'].includes(this.settings.quality));
+  }
+
+  /** Preserve the native interface while reducing the 3D buffer under sustained load. */
   applyPixelRatio(quality = getQualityPreset(this.settings.quality, this.autoQuality)) {
-    const scale = this.settings.quality === 'Auto' ? this.renderScale.scale : 1;
+    const scale = this.usesDynamicResolution() ? this.renderScale.scale : 1;
     const dpr = Math.max(0.5, Math.min(window.devicePixelRatio || 1, quality.pixelRatio) * scale);
     if (Math.abs(this.renderer.getPixelRatio() - dpr) < 1e-3) return;
     this.renderer.setPixelRatio(dpr);
@@ -1160,7 +1166,6 @@ export class Game {
     this.partyRace?.dispose();
     this.remotePlayers?.dispose();
     this.net?.dispose();
-    this.apexMeeting?.dispose();
     this.adventure?.dispose();
     this.audio?.dispose();
     this.damage?.dispose();

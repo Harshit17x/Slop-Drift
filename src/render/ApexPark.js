@@ -100,6 +100,12 @@ export class ApexPark extends ApexWoodland{
       sign(num,u,28.56,4.08,2.1,.63,'left','dark');
       block(u,30.58,6.4,.16,.25,3,IVORY,'steel');
       block(u,28.1,5.24,7.93,.10,.12,STEEL,'steel');block(u-3.8,28.1,5.00,.11,.12,.7,STEEL,'steel');
+      // Box corners and rubber scuffs mark where to stop parallel to the garages.
+      for (const end of [-1,1]) {
+        block(u+end*2.7,22,.024,.10,2.4,.018,0xc6b374);
+        block(u+end*2.35,23.2,.024,.8,.10,.018,0xc6b374);
+      }
+      for(const v of [21.2,22.8])block(u-.35,v,.018,3.8,.23,.012,0x484846);
       block(u+3.5,24.2,.038,.11,6.6,.04,0xe4cf87);
       block(u,27.4,.038,7.0,.13,.04,0xe4cf87);
       if(i%4===0)transporter(a,u,62,c);
@@ -236,10 +242,10 @@ export class ApexPark extends ApexWoodland{
     this.board.position.copy(a.p(176.91,-25,17));this.board.rotation.y=Math.PI/2;this.group.add(this.board);
     this.timing(0,0,0);
   }
-  timing(elapsed,lap,pos){
-    const second=Math.floor(elapsed),key=second+'-'+lap+'-'+pos;if(key===this.boardKey)return;this.boardKey=key;
+  timing(elapsed,lap,speed){
+    const second=Math.floor(elapsed),key=second+'-'+lap+'-'+speed;if(key===this.boardKey)return;this.boardKey=key;
     const ctx=this.boardCtx;ctx.fillStyle='#151817';ctx.fillRect(0,0,160,480);ctx.textAlign='center';
-    for(const [s,v,y] of [['APEX','GP',47],['LAP',lap||'—',178],['POS',pos||'—',305]]){
+    for(const [s,v,y] of [['APEX','GP',47],['LAP',lap||'—',178],['KM/H',speed,305]]){
       ctx.font='bold 27px Arial';ctx.fillStyle='#e3e0d4';ctx.fillText(s,80,y);ctx.font='bold 63px monospace';ctx.fillStyle='#f9ad48';ctx.fillText(v,80,y+65);
     }
     ctx.font='bold 39px monospace';ctx.fillStyle='#e4b56e';ctx.fillText(Math.floor(second/60)+':'+String(second%60).padStart(2,'0'),80,451);this.boardMap.needsUpdate=true;

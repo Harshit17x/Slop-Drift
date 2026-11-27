@@ -43,13 +43,20 @@ export class ApexWoodland{
       if(y<world.waterLevel+1.3 || (ridge<-.15 && rnd()>.10) || world.isReserved(x,z,6))continue;
       // Preserve sightlines at the skyline and keep the spectator terraces open.
       if(z>start.z-185 && z<start.z+160 && x>-470 && x<540)continue;
-      if(world.physicalRoads.some(r=>r.locate(x,z,hit)&&hit.distance<hit.halfWidth+16+(hit.lateral<0?r.escapeLeft?.[hit.index]??0:r.escapeRight?.[hit.index]??0)))continue;
+      const nearby = world.apex.roadsAt(x,z);
+      let roadside = false;
+      const onTrack = nearby.some(road => {
+        if (!road.locate(x,z,hit)) return false;
+        roadside = true;
+        return hit.distance < hit.halfWidth + 16 + road.escapeAt(hit);
+      });
+      if (onTrack) continue;
       const sector=Math.floor(x/380)+':'+Math.floor(z/380);
       if(!groups.has(sector))groups.set(sector,{positions:[],species:[]});
       const g=groups.get(sector),h=(12+rnd()*11)*(y>280?.8:1);
       const species=rnd()<(y>95?.84:.62)?Math.floor(rnd()*2):2+Math.floor(rnd()*2);
       g.positions.push(x,y-.36,z,h);g.species.push(species,.74+.34*rnd());
-      if(world.physicalRoads.some(r=>r.locate(x,z,hit)))solid.push(x,z,.31);
+      if(roadside)solid.push(x,z,.31);
     }
     for(const {positions,species} of groups.values()){
       const geo=new T.InstancedBufferGeometry();geo.index=base.index;geo.attributes.position=base.attributes.position;geo.attributes.uv=base.attributes.uv;
@@ -61,8 +68,24 @@ export class ApexWoodland{
     }
     this.quad=base;world.setObstacles(solid);this.setQuality(quality);
   }
-  setQuality(q){const fraction=Math.min(1,.32+.64*(q?.trees??1));for(const mesh of this.forestTiles)mesh.geometry.instanceCount=Math.ceil(mesh.userData.count*fraction);}
-  update(view,dt,night){this.canopy.uniforms.wind.value+=dt*.95;this.canopy.uniforms.light.value=night?.09:this.skyLight??1.2;}
+  setQuality(q) {
+    this.treeFraction = Math.min(1,.32+.64*(q?.trees??1));
+    this.lastForestView = null;
+    for (const tile of this.forestTiles) tile.geometry.instanceCount = Math.ceil(tile.userData.count*this.treeFraction);
+  }
+  update(view,dt,night) {
+    this.canopy.uniforms.wind.value += dt*.95;
+    this.canopy.uniforms.light.value = night ? .09 : this.skyLight ?? 1.2;
+    if (this.lastForestView && this.lastForestView.distanceToSquared(view)<16**2) return;
+    (this.lastForestView ??= new T.Vector3()).copy(view);
+    for (const tile of this.forestTiles) {
+      const sphere = tile.geometry.boundingSphere;
+      const distance = Math.max(0,sphere.center.distanceTo(view)-sphere.radius);
+      // Keep the trackside canopy dense. Distant ridges need only the silhouette.
+      const density = 1-.70*T.MathUtils.smoothstep(distance,240,1400);
+      tile.geometry.instanceCount = Math.ceil(tile.userData.count*this.treeFraction*density);
+    }
+  }
   dispose(){for(const tree of this.forestTiles)tree.geometry.dispose();this.quad.dispose();this.atlas.dispose();this.canopy.dispose();}
 }
 

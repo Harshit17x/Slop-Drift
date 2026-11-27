@@ -62,21 +62,6 @@ export class ApexCircuitSurface{
     this.tarmac=new T.MeshStandardMaterial({map:asphalt,bumpMap:relief,bumpScale:.015,roughness:.9,vertexColors:true,side:T.DoubleSide});
     this.paint=new T.MeshStandardMaterial({bumpMap:relief,bumpScale:.007,roughness:.79,vertexColors:true,side:T.DoubleSide});
     this.runoff=new T.MeshStandardMaterial({map:gravel,roughness:1,vertexColors:true,side:T.DoubleSide});
-    const surface=world.apex.surfaceState;
-    this.rubber=new T.DataTexture(surface.data,surface.width,surface.rows,T.RedFormat);
-    this.rubber.magFilter=T.LinearFilter;this.rubber.minFilter=T.LinearFilter;this.rubber.needsUpdate=true;
-    this.textures.push(this.rubber);
-    this.water={value:0};
-    this.tarmac.onBeforeCompile=shader=>{
-      shader.uniforms.courseWet=this.water;shader.uniforms.rubberField={value:this.rubber};
-      shader.vertexShader='attribute vec3 course; varying vec3 vCourse;\n'+shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\n vCourse=course;');
-      shader.fragmentShader='uniform sampler2D rubberField; uniform float courseWet; varying vec3 vCourse;\n'+shader.fragmentShader
-        .replace('#include <color_fragment>',`#include <color_fragment>
-          float rubber = texture2D(rubberField,vCourse.xy).r * (1.-smoothstep(0.,2.8,abs(vCourse.z)));
-          float standing = courseWet * smoothstep(1.3,5.,abs(vCourse.z)) * (.65+.35*sin(vCourse.x*141.));
-          diffuseColor.rgb *= (1.-rubber*.28)*(1.-standing*.21);`)
-        .replace('#include <roughnessmap_fragment>','#include <roughnessmap_fragment>\n roughnessFactor=max(.13,roughnessFactor-standing*.23);');
-    };
     this.runoff.onBeforeCompile=shader=>{
       shader.vertexShader='varying vec2 apronUV;\n'+shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\n apronUV=uv;');
       shader.fragmentShader='varying vec2 apronUV;\n'+shader.fragmentShader.replace('#include <color_fragment>',`#include <color_fragment>
@@ -163,13 +148,16 @@ export class ApexCircuitSurface{
       }
       for(const [buf,mat] of [[asphalt,this.tarmac],[paint,this.paint],[gravel,this.runoff]]){
         if(!buf.triangleCount)continue;const g=buf.build(),m=new T.Mesh(g,mat);if(mat===this.tarmac){
-          const uv=g.attributes.uv,course=new Float32Array(uv.count*3);
+          // Bake dry rubber into the existing colour bands. The darker line is
+          // strongest in loaded corners, with a lighter strip on the unused edges.
+          const uv=g.attributes.uv, colors=g.attributes.color;
           for(let n=0;n<uv.count;n++){
-            const s=uv.getY(n)*4,i=Math.min(r.count-1,Math.max(0,Math.round(s/r.spacing)));
-            course[n*3]=s/r.length;course[n*3+1]=(r.id+.5)/this.world.physicalRoads.length;
-            course[n*3+2]=uv.getX(n)*4-groove(r,i);
+            const i=Math.min(r.count-1,Math.max(0,Math.round(uv.getY(n)*4/r.spacing)));
+            const offset=Math.abs(uv.getX(n)*4-groove(r,i));
+            const use=Math.max(0,1-offset/2.5);
+            const darken=1-use*(.07+Math.min(.15,Math.abs(r.curvature[i])*4));
+            colors.setXYZ(n,colors.getX(n)*darken,colors.getY(n)*darken,colors.getZ(n)*darken);
           }
-          g.setAttribute('course',new T.BufferAttribute(course,3));
         }
         m.receiveShadow=true;this.geometries.push(g);this.group.add(m);
       }
@@ -200,7 +188,6 @@ export class ApexCircuitSurface{
     }
     this.guide=new T.Mesh(buf.build(),new T.MeshBasicMaterial({color:0x96bda9,side:T.DoubleSide}));this.group.add(this.guide);
   }
-  setWet(w){this.water.value=w;const field=this.world.apex.surfaceState;if(field.dirty){this.rubber.needsUpdate=true;field.dirty=false;}this.tarmac.roughness=.9-.57*w;this.tarmac.color.setScalar(1-.32*w);this.paint.roughness=.79-.28*w;}
   dispose(){this.setRoute(null);for(const r of [...this.geometries,...this.textures,this.tarmac,this.paint,this.runoff])r.dispose();}
 }
 
