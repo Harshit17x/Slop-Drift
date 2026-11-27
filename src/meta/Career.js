@@ -259,6 +259,27 @@ export class Career {
     return { tier, target: targets[tier], kind: targets.kind, text: `${MEDAL_LABELS[tier]} ${formatTarget(targets.kind, targets[tier])}` };
   }
 
+  /** The closest locked level reward (for the results screen's "up next" line), or null. */
+  nextUnlock() {
+    const locked = UNLOCKS.filter((def) => def.requires?.level && !this.isUnlocked(def))
+      .sort((a, b) => a.requires.level - b.requires.level)[0];
+    if (!locked) return null;
+    const level = locked.requires.level;
+    return { label: locked.label, slot: locked.slot, level, xpToGo: Math.max(0, Math.ceil(xpForLevel(level) - this.profile.xp)) };
+  }
+
+  /**
+   * Event to suggest after `modeId`: the first one in menu order still without a medal (menu order runs
+   * short to long, so new drivers are not sent to a long climb), else simply the one after it.
+   */
+  nextEvent(modeId) {
+    const ranked = this.rankedModes();
+    const fresh = ranked.find((id) => id !== modeId && !this.profile.medals[this.trackKey(id)]);
+    if (fresh) return fresh;
+    const i = ranked.indexOf(modeId);
+    return ranked.length > 1 ? ranked[(i + 1) % ranked.length] : null;
+  }
+
   /** { [modeId]: { medal, next } } for the event cards, on the current map. */
   medalBoard() {
     const board = {};

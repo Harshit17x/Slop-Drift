@@ -400,6 +400,7 @@ export class MetaLayer {
     const beatGhost = this.ghost?.kind === 'leaderboard' && (modeId === 'drift' ? result.score > this.ghost.data.score : result.time < this.ghost.data.time);
     if (beatGhost) this.career.onBeatGhost();
     const rewards = this.career.finishRun(result);
+    if (rewards) rewards.upNext = this.upNext(modeId);
     const ghost = this.recorder.active ? this.recorder.finish(result.time, result.score) : null;
     if (ghost && result.isRecord) {
       saveLocalGhost(this.trackKey(modeId), ghost);
@@ -409,6 +410,13 @@ export class MetaLayer {
     this.flushEvents();
     this.refreshAll();
     return rewards;
+  }
+
+  /** What the results screen offers next: another event, the daily challenge or streak, the closest unlock. */
+  upNext(modeId) {
+    const nextId = this.career.nextEvent(modeId);
+    const mode = nextId ? this.game.modes?.find((entry) => entry.id === nextId) : null;
+    return { modeId: mode ? mode.id : null, modeLabel: mode?.label || null, daily: this.career.daily(), unlock: this.career.nextUnlock() };
   }
 
   async submit(modeId, result, ghost) {

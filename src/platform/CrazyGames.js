@@ -13,6 +13,10 @@ export class CrazyGamesPlatform {
     this.lastAdTime = 0;
     // CrazyGames recommends at least 3 minutes between midgame ads
     this.adCooldown = 180000;
+    // No interstitial in a session's first minutes: new players were getting one on their very first
+    // finish, right where most of them decide whether to keep playing.
+    this.sessionStart = Date.now();
+    this.firstAdDelay = 360000;
     this._muteListeners = new Set();
     this._settingsListener = null;
     this._loadingState = null; // 'start' | 'stop'
@@ -134,6 +138,15 @@ export class CrazyGamesPlatform {
     }
   }
 
+  /**
+   * The SDK's data module (saves follow the player's CrazyGames account) when it is available, else null.
+   * Only a synchronous getItem/setItem pair is accepted; anything else leaves progress in localStorage.
+   */
+  get dataStorage() {
+    const data = this.initialized ? this.sdk?.data : null;
+    return data && typeof data.getItem === 'function' && typeof data.setItem === 'function' ? data : null;
+  }
+
   /** Read an invite query parameter via SDK when running inside CrazyGames. */
   getInviteParam(key) {
     if (!this.initialized) return null;
@@ -172,7 +185,7 @@ export class CrazyGamesPlatform {
       return;
     }
 
-    if (now - this.lastAdTime < this.adCooldown) {
+    if (now - this.lastAdTime < this.adCooldown || now - this.sessionStart < this.firstAdDelay) {
       onFinish?.();
       return;
     }

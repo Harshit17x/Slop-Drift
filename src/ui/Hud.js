@@ -515,6 +515,7 @@ export class Hud {
       <aside class="sdh-panel sdh-panel-finish" data-panel="finish" aria-label="Results">
         <div class="sdh-finish-body"></div>
         <footer class="sdh-panel-foot sdh-finish-foot">
+          <button type="button" class="sdh-btn sdh-btn-primary" data-act="finish-next" hidden>${ICON.play}<span>Next event</span></button>
           <button type="button" class="sdh-btn sdh-btn-primary" data-act="restart">${ICON.restart}<span>Race again</span></button>
           <button type="button" class="sdh-btn" data-act="race-ghost">${ICON.ghost}<span>Race your ghost</span></button>
           <button type="button" class="sdh-btn" data-act="finish-leaderboard">${ICON.trophy}<span>Leaderboard</span></button>
@@ -818,6 +819,7 @@ export class Hud {
         case 'daily': this.onStartDaily(); break;
         case 'ghost': this.onToggleGhost(); break;
         case 'race-ghost': this.onRaceGhost(); break;
+        case 'finish-next': if (this.finishNextMode) this.onStart(this.finishNextMode); break;
         case 'title-start': this.onTitleStart('garage'); break;
         case 'title-maps': this.onTitleStart('map'); break;
         case 'title-roam': this.onTitleRoam(); break;
@@ -1389,11 +1391,18 @@ export class Hud {
         ${hero}${compare}
         ${stats.length ? `<dl class="sdh-stats">${stats.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd class="sdh-num">${esc(v)}</dd></div>`).join('')}</dl>` : ''}
         ${this.rewardsMarkup(rewards, result.modeId)}
+        ${this.upNextMarkup(rewards?.upNext)}
         ${lapRows}
         <div class="sdh-ticket-foot">Valid for one descent only · Keep left · Use horn on blind bends</div>
       </div>
       <div class="sdh-ticket-chai">${CHAI_GLASS}</div>`;
     this.finishModeId = result.modeId;
+    // "Next event" leads when there is one, so the next goal is a single click away.
+    this.finishNextMode = rewards?.upNext?.modeId || null;
+    const next = this.q('[data-act="finish-next"]');
+    next.hidden = !this.finishNextMode;
+    next.querySelector('span').textContent = this.finishNextMode ? `Next: ${rewards.upNext.modeLabel}` : 'Next event';
+    this.q('[data-act="restart"]').classList.toggle('sdh-btn-primary', !this.finishNextMode);
     this.q('[data-act="race-ghost"]').hidden = kind === 'none';
     this.q('[data-act="finish-leaderboard"]').hidden = kind === 'none';
     this.q('[data-panel="finish"]').classList.toggle('is-record', Boolean(result.isRecord));
@@ -2050,6 +2059,23 @@ export class Hud {
     const daily = r.daily && r.daily.completed ? `
       <div class="sdh-daily-done">${ICON.check}<span>Daily challenge complete</span><span class="sdh-streak">${ICON.flame}<b class="sdh-num">${r.daily.streak}</b></span></div>` : '';
     return `<section class="sdh-rewards">${medal}${xp}${daily}${unlocks}${ach}</section>`;
+  }
+
+  /** Results screen: the daily challenge or streak and the closest unlock, so there is a reason to come back. */
+  upNextMarkup(up) {
+    if (!up) return '';
+    const rows = [];
+    const daily = up.daily;
+    if (daily && !daily.done) {
+      const keep = daily.streak > 0 ? ` · keep your ${daily.streak}-day streak` : '';
+      rows.push(`<li><button type="button" class="sdh-upnext-row" data-act="daily">${ICON.flame}<span><b>Daily challenge</b><small>${esc(daily.text)} · +${formatInt(daily.xp)} XP${keep}</small></span></button></li>`);
+    } else if (daily?.done) {
+      rows.push(`<li><div class="sdh-upnext-row">${ICON.flame}<span><b>${daily.streak}-day streak</b><small>Come back tomorrow for a new challenge and day ${daily.streak + 1}</small></span></div></li>`);
+    }
+    if (up.unlock) {
+      rows.push(`<li><div class="sdh-upnext-row">${ICON.lock}<span><b>Next unlock: ${esc(up.unlock.label)}</b><small>Level ${up.unlock.level} · ${formatInt(up.unlock.xpToGo)} XP to go</small></span></div></li>`);
+    }
+    return rows.length ? `<div class="sdh-section-label">Up next</div><ul class="sdh-upnext">${rows.join('')}</ul>` : '';
   }
 
   animateRewards(r) {

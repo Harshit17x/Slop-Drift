@@ -8,6 +8,7 @@ import { nextFrame } from './yield.js';
 import { World } from '../world/World.js';
 import { getMap, loadMapData, MAPS } from '../world/maps.js';
 import { RENDER_SCALE, createRenderScale, stepRenderScale } from './renderScale.js';
+import { mirroredStorage } from '../platform/progressStorage.js';
 import { Vehicle } from '../vehicle/Vehicle.js';
 import { DriftScorer } from '../vehicle/DriftScorer.js';
 import { RaceSession } from '../game/RaceSession.js';
@@ -86,7 +87,7 @@ export class Game {
 
   async init() {
     this.platform.loadingStart();
-    this.platform.init().catch(() => {});
+    const platformReady = this.platform.init().catch(() => {});
     this.createRenderer();
     this.career = new Career();
     this.hud = new Hud(this.root, { settings: this.settings, modes: MODES, records: this.records });
@@ -137,6 +138,9 @@ export class Game {
       mark(label);
       this.hud.showLoading(fraction * 0.72, label);
     });
+    // The SDK has had the whole world build to start; give it a little longer, then move progress to its cloud save.
+    await Promise.race([platformReady, new Promise((resolve) => setTimeout(resolve, 2500))]);
+    this.useCloudSave();
     // Only the events this map has roads for (no Nag Tibba events on Alpine).
     this.modes = modesForWorld(this.world);
     this.hud.setModes(this.modes);
@@ -587,11 +591,32 @@ export class Game {
     return done;
   }
 
-  /** First launch: once the driver has a name, go straight onto the mountain instead of a menu. */
+  /** Keep the career in the CrazyGames data module (follows the player's account) as well as localStorage. */
+  useCloudSave() {
+    const cloud = this.platform.dataStorage;
+    if (!cloud) return;
+    this.career.storage = mirroredStorage(cloud, this.career.storage);
+    this.career.load();
+    this.career.knownUnlocks = this.career.unlockedIds();
+  }
+
+  /**
+   * First launch: once the driver has a name, go straight into a short scored event (a clear goal, a
+   * medal and XP inside two minutes, then "Next event" on the results) rather than open free roam.
+   */
   startFirstDrive() {
-    this.beginRun('roam');
-    if(this.map.id==='hollow'){this.hud.toast('Garage radio opens the Hollow Creek dispatch board.', 'info');return;}
-    this.hud.toast('Explore the mountain. Esc opens the events board.', 'info');
+    if(this.map.id==='hollow'){this.beginRun('roam');this.hud.toast('Garage radio opens the Hollow Creek dispatch board.', 'info');return;}
+    const first = ['drift', 'sprint'].find((id) => this.modes.some((mode) => mode.id === id));
+    if (!first) {
+      this.beginRun('roam');
+      this.hud.toast('Explore the mountain. Esc opens the events board.', 'info');
+      return;
+    }
+    this.beginRun(first);
+    const bronze = this.career.targetsFor(first)?.bronze;
+    this.hud.toast(first === 'drift'
+      ? `First challenge: slide through the corners with the handbrake. ${bronze ? `Score ${bronze.toLocaleString('en-US')} for bronze.` : ''}`
+      : 'First challenge: one lap against the clock. Beat the bronze time to earn your first medal.', 'info');
   }
 
   pause() {
