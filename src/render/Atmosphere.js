@@ -108,13 +108,25 @@ const JUNGLE_OVERRIDES = Object.freeze({
   }),
 });
 
+// Fujimi Rally runs in clear morning light: the sun in the east-south-east lights the face of
+// Mount Fuji seen from the course (build_fujimi.py bakes Fuji with the same sun), and the haze is thin.
+const FUJIMI_OVERRIDES = Object.freeze({
+  day: Object.freeze({
+    skyElevation: 38, lightElevation: 38, azimuth: 115,
+    turbidity: 1.8, rayleigh: 1.2, mie: 0.003, mieG: 0.8,
+    fogDensity: 0.00016, clouds: 0.22, cloudDensity: 0.32,
+  }),
+});
+
 /** Resolve sky and lighting preset for a time of day and map id (Mussoorie gets Himalayan Winterline lighting). */
 export function resolveAtmospherePreset(name, mapId = null) {
   const key = PRESETS[name] ? name : 'day';
   const base = PRESETS[key];
   const overrides = mapId === 'mussoorie' ? MUSSOORIE_OVERRIDES
     : mapId === 'jungle' ? JUNGLE_OVERRIDES
+    : mapId === 'fujimi' ? FUJIMI_OVERRIDES
     : null;
+  if(mapId==='apex')return {...base,exposure:base.exposure*.83,sunIntensity:base.sunIntensity*.81,envIntensity:base.envIntensity*.51,hemiIntensity:base.hemiIntensity*.83,lightElevation:key==='day'?36:base.lightElevation,skyElevation:key==='day'?36:base.skyElevation};
   if (!overrides) return base;
   return Object.freeze({ ...base, ...(overrides[key] || {}) });
 }
@@ -292,7 +304,9 @@ export class Atmosphere {
     this.cloudsEnabled = quality?.clouds !== false;
     const shadow = this.sun.shadow;
     this.sun.castShadow = size > 0;
-    shadow.autoUpdate = size > 0;
+    this.shadowInterval=this.world?.apex && size===1024?1/25:0;
+    this.shadowClock=0;shadow.autoUpdate=size>0&&!this.shadowInterval;
+    shadow.needsUpdate=size>0;
     if (size > 0 && (shadow.mapSize.x !== size || !this.shadowMapSize)) {
       shadow.mapSize.set(size, size);
       shadow.map?.dispose();
@@ -307,6 +321,7 @@ export class Atmosphere {
 
   applyClouds() {
     const uniforms = this.sky.material.uniforms;
+    if(this.world?.apex)uniforms.cloudScale.value=.00065;
     uniforms.cloudCoverage.value = this.cloudsEnabled ? this.preset.clouds : 0;
     uniforms.cloudDensity.value = this.preset.cloudDensity;
   }
@@ -480,6 +495,12 @@ export class Atmosphere {
       const alongUp = focus.dot(scratchUp);
       focus.addScaledVector(scratchRight, Math.round(alongRight / texel) * texel - alongRight);
       focus.addScaledVector(scratchUp, Math.round(alongUp / texel) * texel - alongUp);
+    }
+    if(this.shadowInterval && this.sun.castShadow){
+      this.shadowClock+=dt;
+      if(this.shadowClock>=this.shadowInterval || !dt){
+        this.sun.shadow.needsUpdate=true;this.shadowClock=0;
+      }
     }
     this.sun.target.position.copy(focus);
     this.sun.position.copy(focus).addScaledVector(this.sunDirection, SHADOW_DISTANCE);

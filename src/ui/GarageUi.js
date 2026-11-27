@@ -34,6 +34,7 @@ export const MAP_SUBTITLES = {
   mussoorie: '<span lang="hi">मसूरी</span> · Mussoorie · Landour',
   alpine: 'Alpine Peak · High Summit Hairpins',
   jungle: 'Monsoon Run · Emerald Valley Pass',
+  apex: 'APEX Grand Prix · International Motorsport Park',
 };
 
 export function mapSubtitleMarkup(mapId, map = null) {
@@ -126,6 +127,9 @@ export function hubHeaderMarkup(uid, chaiGlass) {
           <button type="button" class="sdh-hub-stat" data-act="hub-tab" data-hub-tab="achievements" title="Medals earned">
             ${ICON.trophy}<span class="sdh-num" data-hub="medalCount">0</span>
           </button>
+          <button type="button" class="sdh-hub-stat sdh-hub-credits" data-act="hub-tab" data-hub-tab="garage" title="Chai Credits — spend in Garage Upgrades">
+            ${ICON.chai}<span class="sdh-num" data-p="credits">150</span><small>CR</small>
+          </button>
           <div class="sdh-hub-xpbox" title="Driver XP progress">
             <div class="sdh-hub-xprow">
               <span class="sdh-num" data-hub="xpFraction">0 / 150 XP</span>
@@ -166,6 +170,7 @@ export function garageHubMarkup() {
           <span class="sdh-pill-count">${CARS.length} CARS AVAILABLE</span>
           <div class="sdh-garage-subtabs" role="group" aria-label="Garage mode">
             <button type="button" class="sdh-subpill is-on" data-act="garage-mode" data-gmode="view">VIEW CARS</button>
+            <button type="button" class="sdh-subpill" data-act="garage-mode" data-gmode="upgrades">${ICON.spanner}<span>UPGRADES</span></button>
             <button type="button" class="sdh-subpill" data-act="garage-mode" data-gmode="customize">${ICON.paint}<span>SKINS &amp; LOOK</span></button>
           </div>
         </div>
@@ -193,8 +198,17 @@ export function garageHubMarkup() {
               <span class="sdh-cat-badge" data-g="category">DRIFT SPEC</span>
             </div>
             <p class="sdh-car-blurb" data-g="blurb"></p>
+            <div class="sdh-car-lock-note" data-g="lockNote" hidden></div>
             <div class="sdh-stat-list" data-g="stats"></div>
             <div class="sdh-car-specs" data-g="specs" hidden></div>
+          </div>
+
+          <div class="sdh-garage-upgrades" data-gpanel="upgrades" hidden>
+            <div class="sdh-custom-head">
+              <span class="sdh-eyebrow" data-g="upgradesTitle">TUNING · RALLY HATCH</span>
+              <span class="sdh-upgrades-cr"><b class="sdh-num" data-p="credits">150</b> CR</span>
+            </div>
+            <div class="sdh-upgrades-list" data-g="upgradesList"></div>
           </div>
 
           <div class="sdh-garage-custom" data-gpanel="customize" hidden>
@@ -203,12 +217,14 @@ export function garageHubMarkup() {
               <button type="button" class="sdh-subpill" data-act="garage-mode" data-gmode="view">DONE</button>
             </div>
             <div class="sdh-custom-scroll">
-              <div class="sdh-group-label">Car skins <small class="sdh-group-hint">custom image wraps · any car</small></div>
+              <div class="sdh-group-label">PPF studio wraps <small class="sdh-group-hint">custom-fitted per body</small></div>
               <div class="sdh-cos-grid" data-slot-grid="paint"></div>
               <div class="sdh-group-label">Rims</div>
               <div class="sdh-cos-grid" data-slot-grid="rim"></div>
               <div class="sdh-group-label">Neon underglow <small class="sdh-group-hint">shines at night · G toggles</small></div>
               <div class="sdh-cos-grid" data-slot-grid="neon"></div>
+              <div class="sdh-group-label">Tyre drift smoke <small class="sdh-group-hint">unlocks at Level 3+</small></div>
+              <div class="sdh-cos-grid" data-slot-grid="smoke"></div>
               <div class="sdh-group-label">Door number</div>
               <label class="sdh-number-field">
                 <input class="sdh-number-input sdh-num" type="text" inputmode="numeric" maxlength="2" pattern="[0-9]{1,2}" aria-label="Door number">
@@ -231,6 +247,12 @@ export function garageHubMarkup() {
             </button>
             <button type="button" class="sdh-btn sdh-garage-quick" data-act="garage-quick-drive">
               ${ICON.play}<span>QUICK FREE ROAM</span>
+            </button>
+            <button type="button" class="sdh-btn sdh-btn-primary sdh-garage-buy-car" data-act="car-buy-early" hidden>
+              ${ICON.lock}<span>UNLOCK EARLY</span>
+            </button>
+            <button type="button" class="sdh-btn sdh-garage-trial" data-act="car-test-drive" hidden>
+              ${ICON.play}<span>TEST DRIVE (1 RUN)</span>
             </button>
           </div>
           <div class="sdh-drive-unit">

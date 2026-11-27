@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { PAINT_MODES, patchCarPaint, setCarPaintUniforms } from './carPaintShader.js';
+import { computeCarPaintBounds, PAINT_MODES, patchCarPaint, setCarPaintUniforms } from './carPaintShader.js';
 import { patchUnderglow } from './underglowLight.js';
 import { rallyLivery, rallyPart, textureRallySurface, tyreCoat } from './RallyKit.js';
 import { SURFACE } from '../config.js';
@@ -226,6 +226,10 @@ export class ProceduralCar extends THREE.Group {
     rallyLivery(trim, false);
     this.tailMaterial = tail;
     this.reverseLampMaterial = reverse;
+    // Headlamp lenses: a soft daytime-running glow until CarLights switches the beams on.
+    lamp.emissiveIntensity = 0.55;
+    lamp.userData.idleEmissive = 0.55;
+    this.lensMaterials = [lamp];
 
     this.chassis = new THREE.Group();
     this.chassis.name = 'CarChassis';
@@ -519,6 +523,7 @@ export class ProceduralCar extends THREE.Group {
       node.geometry.dispose();
     });
     this.paintMeshes = [];
+    this.stripeMeshes = [];
     byMaterial.forEach((geometries, material) => {
       const merged = mergeGeometries(geometries, false);
       geometries.forEach((geometry) => geometry.dispose());
@@ -529,6 +534,12 @@ export class ProceduralCar extends THREE.Group {
       mesh.receiveShadow = true;
       this.chassis.add(mesh);
       if (material === this.bodyMaterial) this.paintMeshes.push(mesh);
+      if (material === this.stripeMaterial) this.stripeMeshes.push(mesh);
+    });
+    this.paintBounds = computeCarPaintBounds(this.paintMeshes);
+    setCarPaintUniforms(this.bodyMaterial, {
+      carBoundsMin: this.paintBounds.min,
+      carBoundsSize: this.paintBounds.size,
     });
   }
 
@@ -641,14 +652,22 @@ export class ProceduralCar extends THREE.Group {
     return true;
   }
 
-  /** Paint finish: { color, metalness?, roughness?, clearcoat?, creviceColor?, flopColor?, flake?, blend? } (an entry of PAINT_OPTIONS). */
+  /** Paint finish: { color, metalness?, roughness?, clearcoat?, clearcoatRoughness?, creviceColor?, flopColor?, flake?, blend? } (an entry of PAINT_OPTIONS). */
   setPaint(paint) {
-    if (paint.id === 'pearl') paint = { ...paint, color: 0xf0e5cc, creviceColor: 0xb8a98c, flopColor: 0xfff8e8, roughness: 0.31 };
     this.setColor(paint.color);
     this.bodyMaterial.metalness = paint.metalness ?? 0.35;
     this.bodyMaterial.roughness = paint.roughness ?? 0.2;
     if ('clearcoat' in this.bodyMaterial) this.bodyMaterial.clearcoat = paint.clearcoat ?? 0.9;
-    setCarPaintUniforms(this.bodyMaterial, { paint });
+    if ('clearcoatRoughness' in this.bodyMaterial) {
+      this.bodyMaterial.clearcoatRoughness = paint.clearcoatRoughness ?? (this.bodyMaterial.roughness > 0.28 ? 0.28 : 0.05);
+    }
+    const showFactoryStripes = !paint?.skinUrl;
+    for (const mesh of this.stripeMeshes || []) mesh.visible = showFactoryStripes;
+    setCarPaintUniforms(this.bodyMaterial, {
+      paint,
+      carBoundsMin: this.paintBounds?.min,
+      carBoundsSize: this.paintBounds?.size,
+    });
     return this;
   }
 

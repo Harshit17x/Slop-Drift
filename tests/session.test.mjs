@@ -705,7 +705,7 @@ test('engineSynth: an even engine has only firing orders, staggered headers add 
 });
 
 test('engineSynth: every car has its own engine character', () => {
-  const ids = ['hatch', 'gt', 'thar', 'tokyo'];
+  const ids = ['hatch', 'gt', 'thar', 'tokyo', 'raijin'];
   const w = {};
   for (const id of ids) {
     const sound = carSound(id);

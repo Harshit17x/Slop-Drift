@@ -43,7 +43,7 @@ export function loadSkinTexture(url, onReady) {
     tex.wrapT = THREE.RepeatWrapping;
     tex.minFilter = THREE.LinearMipmapLinearFilter;
     tex.magFilter = THREE.LinearFilter;
-    tex.anisotropy = 4;
+    tex.anisotropy = 8;
     entry.tex = tex;
   }
   if (entry.ready) {
@@ -55,11 +55,57 @@ export function loadSkinTexture(url, onReady) {
 }
 
 export const PAINT_MODES = Object.freeze({
-  SOLID_PAINT: 0, // Solid paint slot (Thar_Paint, ProceduralCar body)
+  SOLID_PAINT: 0, // Solid paint slot (Thar_Paint, Tokyo_Paint, RJ_Paint, ProceduralCar body)
   MASKED_BODY: 1, // Track GT3 GT_Body (map.a = body paint mask, ORM G/B = carbon/glass/underbody)
   MASKED_RIM: 2,  // Track GT3 GT_Wheel (map.a = alloy spoke/lip mask, 0 = tire rubber)
   TRIM_ONLY: 3,   // Non-paint parts receiving Vertex AO strength / molded micro-grain
 });
+
+export const SKIN_FINISHES = Object.freeze({
+  GLOSS: 0,
+  SATIN: 1,
+  CARBON: 2,
+  BRUSHED: 3,
+});
+
+/**
+ * Compute shared chassis-local bounding box across a vehicle's paintable body meshes so
+ * `sampleCarSkin` maps front-to-rear & spine-to-rocker proportionally on every silhouette.
+ */
+export function computeCarPaintBounds(meshesOrRoot, predicate = null) {
+  const box = new THREE.Box3();
+  const meshBox = new THREE.Box3();
+  const rootInv = new THREE.Matrix4();
+  const relMat = new THREE.Matrix4();
+  const items = Array.isArray(meshesOrRoot) ? meshesOrRoot : [];
+  if (!Array.isArray(meshesOrRoot) && meshesOrRoot?.traverse) {
+    meshesOrRoot.updateMatrixWorld?.(true);
+    rootInv.copy(meshesOrRoot.matrixWorld).invert();
+    meshesOrRoot.traverse((node) => {
+      if (node.isMesh && (!predicate || predicate(node))) items.push(node);
+    });
+  }
+  for (const mesh of items) {
+    if (!mesh?.geometry) continue;
+    if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+    if (!mesh.geometry.boundingBox) continue;
+    meshBox.copy(mesh.geometry.boundingBox);
+    if (!Array.isArray(meshesOrRoot) && meshesOrRoot?.matrixWorld) {
+      relMat.multiplyMatrices(rootInv, mesh.matrixWorld);
+      meshBox.applyMatrix4(relMat);
+    }
+    box.union(meshBox);
+  }
+  if (box.isEmpty()) {
+    return { min: [-1.05, 0.12, -2.35], size: [2.10, 1.30, 4.70] };
+  }
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  return {
+    min: [box.min.x, box.min.y, box.min.z],
+    size: [Math.max(0.2, size.x), Math.max(0.2, size.y), Math.max(0.4, size.z)],
+  };
+}
 
 /**
  * Derive rich Crevice (deep curve/shadow) and Fresnel Flop (grazing highlight) colours from any
@@ -107,6 +153,12 @@ varying vec3 vCarLocalNormal;
 uniform float uPaintMode;
 uniform sampler2D uSkinMap;
 uniform float uSkinMix;
+uniform vec3 uCarBoundsMin;
+uniform vec3 uCarBoundsSize;
+uniform float uSkinScale;
+uniform float uSkinIridescence;
+uniform float uSkinFinish;
+uniform float uClearcoatRough;
 uniform vec3 uPaintBase;
 uniform vec3 uPaintCrevice;
 uniform vec3 uPaintFlop;
@@ -135,15 +187,43 @@ float carHash31( vec3 p ) {
   return fract( ( p.x + p.y ) * p.z );
 }
 
+// Smooth conformal car-shell wrap mapping anchored strictly to each car's physical bounds:
+// x = nose (-Z) to tail (+Z) with bumper-face wrap; y = bilateral spine (0.5) to lower skirts (0 / 1).
+vec2 carWrapUv( vec3 pos, vec3 nrm ) {
+  vec3 sz = max( uCarBoundsSize, vec3( 0.1 ) );
+  vec3 c  = uCarBoundsMin + sz * 0.5;
+  vec3 nn = normalize( nrm );
+  float nx = ( pos.x - c.x ) / max( sz.x * 0.5, 0.05 );
+  float ny = clamp( ( pos.y - uCarBoundsMin.y ) / max( sz.y, 0.05 ), 0.0, 1.0 );
+  float nz = clamp( ( pos.z - uCarBoundsMin.z ) / max( sz.z, 0.05 ), 0.0, 1.0 );
+
+  float noseDrop = max( 0.0, -nn.z ) * smoothstep( 0.62, 0.0, ny ) * 0.14;
+  float tailDrop = max( 0.0,  nn.z ) * smoothstep( 0.62, 0.0, ny ) * 0.14;
+  float uLong = clamp( nz - noseDrop + tailDrop, 0.002, 0.998 );
+
+  float dy = ny + 0.42;
+  float halfAngle = atan( nx * 0.92, dy );
+  float vGirth = clamp( 0.5 + halfAngle / 2.28, 0.002, 0.998 );
+
+  if ( uSkinScale > 1.01 ) {
+    return vec2( fract( uLong * uSkinScale ), clamp( 0.5 + ( vGirth - 0.5 ) * uSkinScale, 0.002, 0.998 ) );
+  }
+  return vec2( uLong, vGirth );
+}
+
 vec3 sampleCarSkin( vec3 pos, vec3 nrm ) {
-  vec3 w = pow( max( abs( normalize( nrm ) ), vec3( 0.001 ) ), vec3( 5.0 ) );
-  w /= ( w.x + w.y + w.z );
-  vec2 uvSide = vec2( -pos.z * 0.27 + 0.5, pos.y * 0.62 + 0.06 );
-  vec2 uvTop  = vec2( pos.x * 0.44 + 0.5, -pos.z * 0.27 + 0.5 );
-  vec2 uvEnd  = vec2( pos.x * 0.48 + 0.5, pos.y * 0.62 + 0.06 );
-  return texture2D( uSkinMap, uvSide ).rgb * w.x
-       + texture2D( uSkinMap, uvTop  ).rgb * w.y
-       + texture2D( uSkinMap, uvEnd  ).rgb * w.z;
+  return texture2D( uSkinMap, carWrapUv( pos, nrm ) ).rgb;
+}
+
+vec3 applyPpfIridescence( vec3 baseCol, vec3 flopCol, vec3 nrm, float dotNV ) {
+  if ( uSkinIridescence <= 0.005 ) return baseCol;
+  float grazing = pow( clamp( 1.0 - dotNV, 0.0, 1.0 ), 1.25 );
+  float iriPhase = grazing * 1.42 + dot( normalize( nrm ), vec3( 0.31, 0.54, 0.24 ) ) * 0.28;
+  vec3 spectral = 0.5 + 0.5 * cos( 6.28318 * ( iriPhase * 0.72 + vec3( 0.00, 0.33, 0.67 ) ) );
+  vec3 iriTint = mix( flopCol, spectral * max( length( flopCol ) * 0.85, 0.72 ), 0.62 );
+  float baseLuma = clamp( dot( baseCol, vec3( 0.299, 0.587, 0.114 ) ), 0.08, 1.0 );
+  vec3 shifted = mix( baseCol * iriTint * 1.55, baseCol * 0.55 + iriTint * ( 0.32 + 0.42 * baseLuma ), 0.55 );
+  return mix( baseCol, clamp( shifted, 0.0, 1.0 ), uSkinIridescence * grazing );
 }
 `;
 
@@ -166,6 +246,26 @@ if ( uPaintMode > 0.5 && uPaintMode < 1.5 ) {
   roughnessFactor = mix( roughnessFactor, uPaintRoughness, carZoneMask );
 } else if ( uPaintMode > 1.5 && uPaintMode < 2.5 ) {
   roughnessFactor = mix( roughnessFactor, uRimRoughness, carZoneMask );
+}
+if ( uSkinMix > 0.005 && uPaintMode < 1.5 ) {
+  float ppfMask = uPaintMode < 0.5 ? 1.0 : carZoneMask;
+  float carDistPpf = length( vViewPosition );
+  float ppfFade = 1.0 / ( 1.0 + carDistPpf * 0.16 );
+  vec2 wuv = carWrapUv( vCarLocalPos, vCarLocalNormal );
+  if ( uSkinFinish > 2.5 ) {
+    // Brushed metallic foil: anisotropic longitudinal grain modulation
+    float brush = sin( wuv.y * 1900.0 + sin( wuv.x * 90.0 ) * 2.5 ) * 0.5 + 0.5;
+    roughnessFactor = mix( roughnessFactor, clamp( roughnessFactor + ( brush - 0.5 ) * 0.12 * ppfFade, 0.06, 0.68 ), ppfMask );
+  } else if ( uSkinFinish > 1.5 ) {
+    // 2x2 diagonal twill carbon weave specular micro-relief
+    float tw = step( 2.0, mod( floor( wuv.x * 460.0 ) + floor( wuv.y * 460.0 ), 4.0 ) );
+    float weaveMod = mix( -0.07, 0.14, tw ) * ppfFade;
+    roughnessFactor = mix( roughnessFactor, clamp( roughnessFactor + weaveMod, 0.08, 0.85 ), ppfMask );
+  } else if ( uSkinFinish > 0.5 ) {
+    // Satin stealth PPF: silky velvet sheen with subtle micro-pebble dispersion
+    float satinGrain = ( carHash31( floor( vCarLocalPos * 260.0 ) ) - 0.5 ) * 0.05 * ppfFade;
+    roughnessFactor = mix( roughnessFactor, clamp( max( roughnessFactor, 0.34 ) + satinGrain, 0.24, 0.78 ), ppfMask );
+  }
 }
 if ( uGrainStrength > 0.001 ) {
   float carDist = length( vViewPosition );
@@ -190,20 +290,22 @@ const FRAGMENT_BEFORE_LIGHTING = /* glsl */ `
   float detailFade = 1.0 / ( 1.0 + carDist * 0.25 );
 
   if ( uPaintMode < 0.5 ) {
-    // Solid / skinned car bodywork (Hatch, Thar, Tokyo): 3-stop shading + image-gen triplanar vinyl wrap
-    float flopT = pow( 1.0 - dotNV, 2.4 ) * uPaintBlend;
-    float crownT = smoothstep( 0.32, 0.94, dotNV );
-    vec3 coatColor = mix( uPaintCrevice, uPaintBase, mix( 0.42, 1.0, crownT ) );
+    // Solid / skinned car bodywork (Hatch, Thar, Tokyo, Raijin): normalized conformal PPF wrap
+    float flopT = pow( 1.0 - dotNV, 2.3 ) * uPaintBlend;
+    float crownT = smoothstep( 0.22, 0.94, dotNV );
+    vec3 coatColor = mix( uPaintCrevice, uPaintBase, mix( 0.48, 1.0, crownT ) );
     if ( uSkinMix > 0.005 ) {
       vec3 skinTex = sampleCarSkin( vCarLocalPos, vCarLocalNormal );
-      coatColor = mix( coatColor, skinTex * mix( 0.58, 1.06, crownT ), uSkinMix );
+      coatColor = mix( coatColor, skinTex * mix( 0.92, 1.08, crownT ), uSkinMix );
     }
-    vec3 flopTarget = mix( uPaintFlop, coatColor * 1.18 + vec3( 0.04 ), uSkinMix * 0.62 );
+    vec3 skinFlop = mix( coatColor * 1.12 + vec3( 0.02 ), mix( coatColor * 0.75 + uPaintFlop * 0.38, max( uPaintFlop * 0.58 + coatColor * 0.48, coatColor * 1.06 ), clamp( dot( coatColor, vec3( 0.33 ) ) + 0.25, 0.0, 1.0 ) ), uSkinIridescence * 0.85 );
+    vec3 flopTarget = mix( uPaintFlop, skinFlop, uSkinMix * 0.85 );
     coatColor = mix( coatColor, flopTarget, flopT );
+    coatColor = applyPpfIridescence( coatColor, uPaintFlop, vCarLocalNormal, dotNV );
     if ( uPaintFlake > 0.001 ) {
       float f1 = carHash31( floor( vCarLocalPos * 230.0 ) );
       float sparkle = smoothstep( 0.80, 0.99, f1 ) * uPaintFlake * detailFade * ( 0.35 + 0.65 * dotNV );
-      coatColor = mix( coatColor, flopTarget * 1.14 + vec3( 0.04 ), sparkle );
+      coatColor = mix( coatColor, flopTarget * 1.14 + vec3( 0.05 ), sparkle );
     }
     vec3 aoOnly = vec3( 1.0 );
     #if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
@@ -211,22 +313,24 @@ const FRAGMENT_BEFORE_LIGHTING = /* glsl */ `
     #endif
     diffuseColor.rgb = serviceStripes(coatColor) * aoOnly;
   } else if ( uPaintMode < 1.5 ) {
-    // Track GT3 GT_Body: halo-free trim separation + triplanar custom skin wrap on masked body panels
-    vec3 cleanTrim = max( diffuseColor.rgb - vec3( carZoneMask * 0.72 ), vec3( 0.0 ) );
-    float panelAo = clamp( mix( 0.74, 1.0, diffuseColor.g / max( carZoneMask, 0.35 ) ), 0.68, 1.02 );
-    float flopT = pow( 1.0 - dotNV, 2.4 ) * uPaintBlend;
-    float crownT = smoothstep( 0.30, 0.94, dotNV );
-    vec3 coatColor = mix( uPaintCrevice, uPaintBase, mix( 0.46, 1.0, crownT ) );
+    // Track GT3 GT_Body: halo-free trim separation + normalized conformal PPF wrap on painted panels
+    vec3 cleanTrim = diffuseColor.rgb * clamp( 1.0 - carZoneMask * mix( 0.88, 1.05, uSkinMix ), 0.0, 1.0 );
+    float panelAo = clamp( mix( 0.82, 1.02, diffuseColor.g / max( carZoneMask, 0.35 ) ), 0.76, 1.02 );
+    float flopT = pow( 1.0 - dotNV, 2.3 ) * uPaintBlend;
+    float crownT = smoothstep( 0.22, 0.94, dotNV );
+    vec3 coatColor = mix( uPaintCrevice, uPaintBase, mix( 0.48, 1.0, crownT ) );
     if ( uSkinMix > 0.005 ) {
       vec3 skinTex = sampleCarSkin( vCarLocalPos, vCarLocalNormal );
-      coatColor = mix( coatColor, skinTex * mix( 0.62, 1.06, crownT ), uSkinMix );
+      coatColor = mix( coatColor, skinTex * mix( 0.92, 1.08, crownT ), uSkinMix );
     }
-    vec3 flopTarget = mix( uPaintFlop, coatColor * 1.18 + vec3( 0.04 ), uSkinMix * 0.62 );
+    vec3 skinFlop = mix( coatColor * 1.12 + vec3( 0.02 ), mix( coatColor * 0.75 + uPaintFlop * 0.38, max( uPaintFlop * 0.58 + coatColor * 0.48, coatColor * 1.06 ), clamp( dot( coatColor, vec3( 0.33 ) ) + 0.25, 0.0, 1.0 ) ), uSkinIridescence * 0.85 );
+    vec3 flopTarget = mix( uPaintFlop, skinFlop, uSkinMix * 0.85 );
     coatColor = mix( coatColor, flopTarget, flopT );
+    coatColor = applyPpfIridescence( coatColor, uPaintFlop, vCarLocalNormal, dotNV );
     if ( uPaintFlake > 0.001 ) {
       float f1 = carHash31( floor( vCarLocalPos * 230.0 ) );
       float sparkle = smoothstep( 0.80, 0.99, f1 ) * uPaintFlake * detailFade * ( 0.35 + 0.65 * dotNV );
-      coatColor = mix( coatColor, flopTarget * 1.14 + vec3( 0.04 ), sparkle );
+      coatColor = mix( coatColor, flopTarget * 1.14 + vec3( 0.05 ), sparkle );
     }
     diffuseColor.rgb = cleanTrim + serviceStripes(coatColor) * ( panelAo * carZoneMask );
   } else if ( uPaintMode < 2.5 ) {
@@ -244,10 +348,13 @@ const FRAGMENT_BEFORE_LIGHTING = /* glsl */ `
 
 const FRAGMENT_CLEARCOAT_AFTER = /* glsl */ `
 #ifdef USE_CLEARCOAT
-if ( uPaintMode > 0.5 && uPaintMode < 1.5 ) {
+if ( uPaintMode < 0.5 ) {
+  material.clearcoatRoughness = clamp( uClearcoatRough, 0.03, 0.65 );
+} else if ( uPaintMode > 0.5 && uPaintMode < 1.5 ) {
   // Track GT3: full lacquer clearcoat on paint & optical glass (low roughness), satin coat on woven carbon
   float trimCoat = roughnessFactor < 0.08 ? 0.90 : ( roughnessFactor < 0.45 ? 0.28 : 0.04 );
   material.clearcoat = saturate( mix( trimCoat, uPaintClearcoat, carZoneMask ) );
+  material.clearcoatRoughness = clamp( mix( material.clearcoatRoughness, uClearcoatRough, carZoneMask ), 0.03, 0.65 );
 } else if ( uPaintMode > 1.5 && uPaintMode < 2.5 ) {
   material.clearcoat = saturate( mix( 0.0, 0.42, carZoneMask ) );
 }
@@ -266,11 +373,19 @@ export function patchCarPaint(material, options = {}) {
   }
 
   const mode = options.mode ?? PAINT_MODES.TRIM_ONLY;
+  const boundsMin = options.carBoundsMin ?? [-1.05, 0.12, -2.35];
+  const boundsSize = options.carBoundsSize ?? [2.10, 1.30, 4.70];
   const paintUniforms = {
     uPaintMode: { value: mode },
     uSaltline: {value:0},
     uSkinMap: { value: fallbackSkinTexture() },
     uSkinMix: { value: 0 },
+    uCarBoundsMin: { value: new THREE.Vector3(boundsMin[0], boundsMin[1], boundsMin[2]) },
+    uCarBoundsSize: { value: new THREE.Vector3(boundsSize[0], boundsSize[1], boundsSize[2]) },
+    uSkinScale: { value: options.skinScale ?? 1.0 },
+    uSkinIridescence: { value: options.iridescence ?? 0.0 },
+    uSkinFinish: { value: options.finishMode ?? 0.0 },
+    uClearcoatRough: { value: options.clearcoatRoughness ?? material.clearcoatRoughness ?? 0.06 },
     uPaintBase: { value: new THREE.Color(0xe9eef5) },
     uPaintCrevice: { value: new THREE.Color(0x8a95a6) },
     uPaintFlop: { value: new THREE.Color(0xffffff) },
@@ -306,7 +421,7 @@ export function patchCarPaint(material, options = {}) {
   };
   material.customProgramCacheKey = function customProgramCacheKey() {
     const prev = previousKey ? previousKey.call(this) : '';
-    return `${prev}|car-paint-skin-v2`;
+    return `${prev}|car-paint-skin-v3`;
   };
   material.needsUpdate = true;
   return material;
@@ -317,6 +432,8 @@ export function setCarPaintUniforms(material, options = {}) {
   const u = material?.userData?.carPaintUniforms;
   if (!u) return;
   if (options.mode !== undefined) u.uPaintMode.value = options.mode;
+  if (options.carBoundsMin) u.uCarBoundsMin.value.set(options.carBoundsMin[0], options.carBoundsMin[1], options.carBoundsMin[2]);
+  if (options.carBoundsSize) u.uCarBoundsSize.value.set(options.carBoundsSize[0], options.carBoundsSize[1], options.carBoundsSize[2]);
   if (options.paint !== undefined) {
     u.uSaltline.value=options.paint?.id==='saltline'?1:0;
     derivePaintColors(options.paint, u.uPaintBase.value, u.uPaintCrevice.value, u.uPaintFlop.value);
@@ -327,6 +444,10 @@ export function setCarPaintUniforms(material, options = {}) {
       if (options.paint.metalness !== undefined) u.uPaintMetalness.value = options.paint.metalness;
       if (options.paint.roughness !== undefined) u.uPaintRoughness.value = options.paint.roughness;
       if (options.paint.clearcoat !== undefined) u.uPaintClearcoat.value = options.paint.clearcoat;
+      u.uSkinScale.value = options.paint.skinScale ?? 1.0;
+      u.uSkinIridescence.value = options.paint.iridescence ?? 0.0;
+      u.uSkinFinish.value = options.paint.finishMode ?? 0.0;
+      u.uClearcoatRough.value = options.paint.clearcoatRoughness ?? (options.paint.roughness > 0.28 ? 0.28 : 0.05);
       const skinUrl = options.paint.skinUrl || null;
       u._wantedSkinUrl = skinUrl;
       if (skinUrl) {
@@ -357,6 +478,10 @@ export function setCarPaintUniforms(material, options = {}) {
     u.uSaltline.value=0;
     derivePaintColors(options.color, u.uPaintBase.value, u.uPaintCrevice.value, u.uPaintFlop.value);
   }
+  if (options.skinScale !== undefined) u.uSkinScale.value = options.skinScale;
+  if (options.iridescence !== undefined) u.uSkinIridescence.value = options.iridescence;
+  if (options.finishMode !== undefined) u.uSkinFinish.value = options.finishMode;
+  if (options.clearcoatRoughness !== undefined) u.uClearcoatRough.value = options.clearcoatRoughness;
   if (options.flake !== undefined) u.uPaintFlake.value = options.flake;
   if (options.blend !== undefined) u.uPaintBlend.value = options.blend;
   if (options.paintMetalness !== undefined) u.uPaintMetalness.value = options.paintMetalness;

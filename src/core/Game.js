@@ -7,6 +7,8 @@ import { clamp } from './math.js';
 import { nextFrame } from './yield.js';
 import { World } from '../world/World.js';
 import { getMap, loadMapData, MAPS } from '../world/maps.js';
+import { RENDER_SCALE, createRenderScale, stepRenderScale } from './renderScale.js';
+import { mirroredStorage } from '../platform/progressStorage.js';
 import { Vehicle } from '../vehicle/Vehicle.js';
 import { DriftScorer } from '../vehicle/DriftScorer.js';
 import { RaceSession } from '../game/RaceSession.js';
@@ -31,6 +33,7 @@ import { RemotePlayers } from '../render/RemotePlayers.js';
 import { patchUnderglowTree, underglowFrame } from '../render/underglowLight.js';
 import { loadCarModels, hasCarModel, trimCarModels } from '../render/ModelCar.js';
 import { getCar } from '../vehicle/cars.js';
+import { applyCarUpgrades, effectiveNitroStats, hasCarNitro } from '../vehicle/upgradeTuning.js';
 import { PartyRace } from '../game/PartyRace.js';
 import { CrazyGamesPlatform } from '../platform/CrazyGames.js';
 
@@ -57,7 +60,7 @@ export class Game {
     this.countdownShown = '';
     this.goTimer = 0;
     this.stuckTimer = 0;
-    this.headlightsWanted = false;
+    this.headlightsWanted = 0; // 0 off, 1 low beam, 2 high beam (H)
     this.debugVisible = false;
     this.garageOrbit = { yaw: 0, pitch: 0.08, dragging: false };
     this.pendingRoamOnName = false;
@@ -70,7 +73,7 @@ export class Game {
     this.hudFrame = {
       speedKmh: 0, gear: 'N', rpm: 0, rpmMax: 7200, throttle: 0, brake: 0, boost: 100, boosting: false,
       surface: 'asphalt', position: { x: 0, z: 0 }, heading: 0, altitude: 0, grade: 0,
-      drift: null, session: null, camera: 'CHASE', debug: '',
+      drift: null, session: null, ghostDelta: null, camera: 'CHASE', debug: '',
     };
     this.onFrame = this.onFrame.bind(this);
     this.onResize = this.onResize.bind(this);
@@ -85,7 +88,7 @@ export class Game {
 
   async init() {
     this.platform.loadingStart();
-    this.platform.init().catch(() => {});
+    const platformReady = this.platform.init().catch(() => {});
     this.createRenderer();
     this.career = new Career();
     this.hud = new Hud(this.root, { settings: this.settings, modes: MODES, records: this.records });
@@ -114,6 +117,7 @@ export class Game {
     // Pick starting Auto quality from hardware capabilities; refined further once WebGL initializes & samples FPS.
     this.autoQuality = detectInitialQuality(null);
     this.autoSample = { time: 0, frames: 0 };
+    this.renderScale = createRenderScale();
     this.contextLost = false;
     const quality = getQualityPreset(this.settings.quality, this.autoQuality);
     // The map is chosen once per page load; switching maps from the homepage reloads the page.
@@ -135,6 +139,9 @@ export class Game {
       mark(label);
       this.hud.showLoading(fraction * 0.72, label);
     });
+    // The SDK has had the whole world build to start; give it a little longer, then move progress to its cloud save.
+    await Promise.race([platformReady, new Promise((resolve) => setTimeout(resolve, 2500))]);
+    this.useCloudSave();
     // Only the events this map has roads for (no Nag Tibba events on Alpine).
     this.modes = modesForWorld(this.world);
     this.hud.setModes(this.modes);
@@ -142,15 +149,15 @@ export class Game {
     // Views are built one per frame so the progress bar keeps moving.
     const activeQuality = getQualityPreset(this.settings.quality, this.autoQuality);
     const stages = [
-      ['Shaping the terrain', () => { if(this.map.id==='tokyo') return; this.terrain = new TerrainView({ world: this.world, quality: activeQuality }); this.scene.add(this.terrain.group); }],
+      ['Shaping the terrain', () => { if(this.map.id==='tokyo'||this.map.id==='fujimi') return; this.terrain = new TerrainView({ world: this.world, quality: activeQuality }); this.scene.add(this.terrain.group); }],
       ['Filling the lake', async () => {
         const { WaterView } = await import('../render/WaterView.js');
         this.water = new WaterView({ world: this.world });
         this.scene.add(this.water.group);
       }],
-      ['Paving the roads', () => { this.roads = new RoadView({ world: this.world, quality: activeQuality, anisotropy: activeQuality.anisotropy ?? 8 }); this.scene.add(this.roads.group); }],
+      ['Paving the roads', async () => { const RoadRenderer=this.world.apex?(await import('../render/ApexCircuitSurface.js')).ApexCircuitSurface:RoadView; this.roads = new RoadRenderer({ world: this.world, quality: activeQuality, anisotropy: activeQuality.anisotropy ?? 8 }); this.scene.add(this.roads.group); }],
       ['Building the town', async () => {
-        if (!this.map.assets) return;
+        if (!this.map.assets?.props) return;
         const { Landmarks } = await import('../render/Landmarks.js');
         this.landmarks = new Landmarks({ world: this.world, quality: activeQuality });
         try {
@@ -164,10 +171,12 @@ export class Game {
       ['Building roadside scenery', async () => {
         let Forest;
         if (this.map.id === 'tokyo') ({ TokyoCity: Forest } = await import('../render/TokyoCity.js'));
+        else if (this.map.id === 'fujimi') ({ FujimiScene: Forest } = await import('../render/FujimiScene.js'));
         else if (this.map.id === 'hollow') ({ HollowCreekTown: Forest } = await import('../render/HollowCreekTown.js'));
         else if (this.world.bridge) ({ JungleCanopy: Forest } = await import('../render/JungleCanopy.js'));
+        else if (this.world.apex) ({ApexPark:Forest}=await import('../render/ApexPark.js'));
         else Forest = Scenery;
-        this.scenery = new Forest({ world: this.world, quality: activeQuality });
+        this.scenery = new Forest({ world: this.world, quality: activeQuality, cutRock:this.terrain?.cutRock });
         this.scene.add(this.scenery.group);
         if (this.scenery.towerReady) await this.scenery.towerReady;
         if (this.map.id === 'hollow') await this.scenery.loadCoupe(this.world);
@@ -195,6 +204,7 @@ export class Game {
       const { HollowAdventure } = await import('../game/HollowAdventure.js');
       this.adventure = new HollowAdventure(this);
     }
+    if(this.world.apex){const {ApexMeeting}=await import('../game/ApexMeeting.js');this.apexMeeting=new ApexMeeting(this);await this.apexMeeting.grid.ready;}
     this.createNetwork();
     this.applySettings(this.settings, { save: false });
     this.meta.refreshAll();
@@ -235,7 +245,7 @@ export class Game {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.shadowMap.enabled = activeQuality.shadowMapSize > 0;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap; // PCFSoft was removed in r180: three swaps it on the first frame and recompiles every shader
     this.onContextLost = (event) => {
       event.preventDefault();
       this.contextLost = true;
@@ -324,7 +334,8 @@ export class Game {
     hud.onToggleStartGate = (enabled) => {
       this.applySettings({ ...this.settings, startGate: Boolean(enabled) });
     };
-    hud.onHubTabChange = () => {
+    hud.onHubTabChange = (tab) => {
+      if (tab !== 'garage') this.meta?.applyLook?.(this.car);
       this.cameraRig?.startBlend();
     };
     hud.onGarageOrbit = (dx, dy, dragging) => {
@@ -339,7 +350,7 @@ export class Game {
       this.audio.ui();
     };
     hud.onGaragePreviewLights = () => {
-      this.headlightsWanted = !this.car.headlightsOn;
+      this.headlightsWanted = this.car.headlightsOn ? 0 : 1;
       this.car.setHeadlights(this.headlightsWanted);
       this.audio.ui();
       return this.car.headlightsOn;
@@ -384,7 +395,7 @@ export class Game {
       return;
     }
     this.applyQuality();
-    this.atmosphere.setTimeOfDay(this.map.id === 'tokyo' ? 'night' : this.settings.timeOfDay);
+    this.atmosphere.setTimeOfDay(this.map.id === 'tokyo' ? 'night' : this.map.id === 'fujimi' ? 'day' : this.settings.timeOfDay);
     this.roads.setNight?.(this.atmosphere.isNight);
     this.landmarks?.setNight(this.atmosphere.isNight, this.atmosphere.timeOfDay === 'sunset' || this.atmosphere.timeOfDay === 'dawn');
     this.terrain?.setSun?.(this.atmosphere.sunDirection, this.atmosphere.sunColor, this.atmosphere.ambientColor);
@@ -394,7 +405,9 @@ export class Game {
       this.water.setSun();
     }
     this.meta?.applyLook(this.car);
-    this.car.setHeadlights(this.atmosphere.isNight || this.headlightsWanted);
+    // At night the low beams come on by themselves; the driver can still pick high beam (H).
+    this.car.setHeadlights(this.headlightsWanted || (this.atmosphere.isNight ? 1 : 0));
+    this.car.setNight(this.atmosphere.isNight);
     if (this.hud) {
       this.hud.headlightsOn = this.car.headlightsOn;
       this.hud.syncGarageLightsButton?.();
@@ -402,7 +415,7 @@ export class Game {
     this.car.setNeon({ level: neonLevel(this.settings.timeOfDay) });
     this.remotePlayers?.setNeonLevel(neonLevel(this.settings.timeOfDay));
     this.remotePlayers?.setNight?.(this.atmosphere.isNight || this.atmosphere.timeOfDay === 'sunset' || this.atmosphere.timeOfDay === 'dawn');
-    this.vehicle.setHandling(this.settings.handling, getCar(this.carId).tuning);
+    this.applyActiveVehicleTuning();
     this.vehicle.setAssists({ driftAssist: this.settings.driftAssist, abs: this.settings.abs, transmission: this.settings.transmission });
     this.input.setManualShift(this.settings.transmission === 'manual');
     this.input.setTouchSteer?.(this.settings.touchSteer);
@@ -423,6 +436,10 @@ export class Game {
       this.hud.toast(`Already driving ${map.label}`, 'good');
       return false;
     }
+    if (this.career && !this.career.isMapUnlocked(map.id)) {
+      this.hud.toast(`${map.label} unlocks at ${this.career.mapRequirementText(map.id)}`, 'warn');
+      return false;
+    }
     this.applySettings({ ...this.settings, map: map.id });
     return true;
   }
@@ -441,6 +458,7 @@ export class Game {
     this.meta?.leaveRoom();
     this.state = 'menu';
     this.session = null;
+    this.apexMeeting?.reset();
     this.audio.silence();
     this.input.setTouchStaged?.(false);
     this.input.setDrivingEnabled(false);
@@ -465,7 +483,7 @@ export class Game {
    *   instead of the usual 3 s (party races start everyone together). party: this is a party round.
    */
   beginRun(modeId, options = {}) {
-    const mode = this.modes?.find(m=>m.id===modeId) || getMode(modeId);
+    const mode = this.apexMeeting && modeId==='apex-meeting' ? this.apexMeeting.mode() : this.modes?.find(m=>m.id===modeId) || getMode(modeId);
     const route = this.world.routes[mode.route];
     if (!route) {
       this.hud.toast(`${mode.label} is not on ${this.map.label}`, 'warn');
@@ -473,10 +491,12 @@ export class Game {
     }
     this.platform?.gameplayStart();
     this.enterMobileLandscape();
+    this.meta?.applyLook?.(this.car);
+    this.applyActiveVehicleTuning();
     this.partyRace?.onRunStart(modeId, options);
     this.audio.unlock();
     this.mode = mode;
-    this.session = new RaceSession({ world: this.world, mode: this.mode, records: this.records });
+    this.session = new RaceSession({ world: this.world, mode: this.mode, records: mode.id==='apex-meeting'?(this.apexMeeting.sessionType==='timeTrial'?this.apexMeeting.trialRecords(mode.route):{}):this.records });
     const spawn=this.session.getStartPose(this.pose);
     if(mode.id==='roam' && this.world.sites){
       const p=this.world.sites.garage;
@@ -485,12 +505,18 @@ export class Game {
     }
     this.vehicle.teleport(spawn);
     this.adventure?.runStart(modeId);
-    this.meta.beginRun(this.mode.id, this.settings.timeOfDay);
+    this.apexMeeting?.start(this.mode,options.party);
+    if(mode.id==='apex-meeting'){this.meta.leaveRun();this.apexMeeting.beginTrial();}
+    if(mode.id!=='apex-meeting')this.meta.beginRun(this.mode.id, this.settings.timeOfDay);
     this.meta.joinRoom(this.mode.id);
     this.drift.reset();
     this.effects.clear();
     this.damage.reset();
-    this.nitro = CONFIG.nitro.capacity;
+    const upgrades = this.career?.carUpgrades?.(this.carId);
+    const nitroStats = effectiveNitroStats(CONFIG.nitro, upgrades);
+    this.nitroCapacity = nitroStats.capacity;
+    this.nitro = nitroStats.capacity;
+    this.fujimiClipsHit = new Set();
     this.stuckTimer = 0;
     this.world.bridge?.reset();
     this.world.washout?.reset();
@@ -521,6 +547,14 @@ export class Game {
     return true;
   }
 
+  /** Apply stock + garage upgrade tuning for the currently equipped car. */
+  applyActiveVehicleTuning() {
+    const car = getCar(this.carId);
+    const upgrades = this.career?.carUpgrades?.(car.id);
+    this.vehicle.setHandling(this.settings.handling, applyCarUpgrades(car, upgrades));
+    this.input.setNitroAvailable?.(hasCarNitro(car, upgrades));
+  }
+
   /**
    * Drive another car (an id from src/vehicle/cars.js): its own physics tuning, body and interior.
    * The caller (MetaLayer.applyLook) paints it afterwards.
@@ -530,18 +564,17 @@ export class Game {
     if (car.id === this.carId) return;
     this.carId = car.id;
     const pose = this.vehicle.getState();
-    this.vehicle.setHandling(this.settings.handling, car.tuning);
+    this.applyActiveVehicleTuning();
     // New ride height and wheelbase: put the car back down where it was.
     this.vehicle.teleport({ position: pose.position, quaternion: pose.quaternion });
     this.buildCarVisual();
-    this.input.setNitroAvailable?.(Boolean(car.nitro));
     this.audio.setProfile(car.sound || null);
     // Picked before its model finished downloading: drive the stand-in, swap the body in when it lands.
     if (!hasCarModel(car.id)) {
       loadCarModels([car.id]).then(() => {
         if (this.carId === car.id && hasCarModel(car.id)) {
           this.buildCarVisual();
-          this.meta?.applyLook(this.car);
+          this.meta?.applyLook(this.car, car.id); // keep a locked car's garage preview, not the equipped car
         }
       });
     }
@@ -552,7 +585,8 @@ export class Game {
     const old = this.car;
     this.car = new CarVisual({ wheelLayout: this.vehicle.wheelLayout, carId: this.carId });
     this.scene.add(this.car.group);
-    this.car.setHeadlights(old.headlightsOn);
+    this.car.setHeadlights(old.headlightMode);
+    this.car.setNight(old.night);
     this.car.setNeon({ level: old.neonLevel, on: old.neonWanted });
     old.dispose();
     this.damage?.attach(this.car);
@@ -581,11 +615,32 @@ export class Game {
     return done;
   }
 
-  /** First launch: once the driver has a name, go straight onto the mountain instead of a menu. */
+  /** Keep the career in the CrazyGames data module (follows the player's account) as well as localStorage. */
+  useCloudSave() {
+    const cloud = this.platform.dataStorage;
+    if (!cloud) return;
+    this.career.storage = mirroredStorage(cloud, this.career.storage);
+    this.career.load();
+    this.career.knownUnlocks = this.career.progressionUnlockedIds();
+  }
+
+  /**
+   * First launch: once the driver has a name, go straight into a short scored event (a clear goal, a
+   * medal and XP inside two minutes, then "Next event" on the results) rather than open free roam.
+   */
   startFirstDrive() {
-    this.beginRun('roam');
-    if(this.map.id==='hollow'){this.hud.toast('Garage radio opens the Hollow Creek dispatch board.', 'info');return;}
-    this.hud.toast('Explore the mountain. Esc opens the events board.', 'info');
+    if(this.map.id==='hollow'){this.beginRun('roam');this.hud.toast('Garage radio opens the Hollow Creek dispatch board.', 'info');return;}
+    const first = ['drift', 'sprint'].find((id) => this.modes.some((mode) => mode.id === id));
+    if (!first) {
+      this.beginRun('roam');
+      this.hud.toast('Explore the mountain. Esc opens the events board.', 'info');
+      return;
+    }
+    this.beginRun(first);
+    const bronze = this.career.targetsFor(first)?.bronze;
+    this.hud.toast(first === 'drift'
+      ? `First challenge: slide through the corners with the handbrake. ${bronze ? `Score ${bronze.toLocaleString('en-US')} for bronze.` : ''}`
+      : 'First challenge: one lap against the clock. Beat the bronze time to earn your first medal.', 'info');
   }
 
   pause() {
@@ -618,11 +673,13 @@ export class Game {
     this.hud.setRecords(this.records);
     this.hud.setCountdown('');
     this.adventure?.finishRace();
-    const rewards = this.meta.finish(result);
+    this.apexMeeting?.finish();
+    const rewards = this.mode.id==='apex-meeting'?null:this.meta.finish(result);
     if (result?.isRecord || rewards?.medal?.tier === 'gold') {
       this.platform?.happytime();
     }
     this.hud.showFinish(result, rewards);
+    this.apexMeeting?.showClassification();
     this.partyRace?.onFinish(result);
     this.cameraRig.startBlend();
   }
@@ -698,8 +755,9 @@ export class Game {
     if (this.state !== 'running' && this.state !== 'countdown') return;
     if (input.camera) this.cameraRig.cycle();
     if (input.headlights) {
-      this.headlightsWanted = !this.car.headlightsOn;
-      this.car.setHeadlights(this.headlightsWanted);
+      // The lamp switch: off, dipped (low) beam, main (high) beam.
+      this.headlightsWanted = this.car.cycleHeadlights();
+      this.hud.toast(['Headlights off', 'Low beam', 'High beam'][this.headlightsWanted], 'info');
       this.audio.ui();
     }
     if (input.neon) {
@@ -750,7 +808,10 @@ export class Game {
 
   updateRunning(dt, input) {
     const controls = this.controls;
-    const boosting = Boolean(getCar(this.carId).nitro) && input.boost && input.throttle > 0.1 && this.nitro > 0.5;
+    const car = getCar(this.carId);
+    const upgrades = this.career?.carUpgrades?.(this.carId);
+    const nitroStats = effectiveNitroStats(CONFIG.nitro, upgrades);
+    const boosting = !this.apexMeeting?.gt && hasCarNitro(car, upgrades) && input.boost && input.throttle > 0.1 && this.nitro > 0.5;
     // Crash damage: a crushed nose loses power, bent front suspension pulls to one side.
     controls.throttle = input.throttle * this.damage.powerFactor;
     controls.brake = input.brake;
@@ -759,6 +820,7 @@ export class Game {
     controls.boost = boosting;
     controls.shift = input.shift;
 
+    this.apexMeeting?.inputs(controls,this.vehicle.getState());
     const bridge = this.world.bridge;
     if (bridge) {
       const wasLoaded = bridge.loaded;
@@ -781,17 +843,38 @@ export class Game {
       }
     }
     const drift = this.drift.update(dt, state, controls);
+    // Fujimi's clipping zones: a drift through one pays a bonus into the running drift.
+    const clip = this.scenery.clipZone?.(state, drift);
+    if (clip) {
+      this.drift.score += clip.bonus;
+      this.hud.toast(`${clip.name} · clip +${clip.bonus}`, 'good');
+      this.hud.flashStyleCallout?.({ kind: 'clip', label: clip.name.toUpperCase(), bonus: clip.bonus });
+      this.audio.stylePing?.('transition');
+      if (this.fujimiClipsHit && this.scenery.zones) {
+        this.fujimiClipsHit.add(clip.name);
+        if (this.fujimiClipsHit.size >= this.scenery.zones.length) this.meta?.career?.onFujimiAllClips?.();
+      }
+    }
 
-    const nitro = CONFIG.nitro;
-    if (boosting) this.nitro = Math.max(0, this.nitro - nitro.drainPerSecond * dt);
-    else this.nitro = Math.min(nitro.capacity, this.nitro + (nitro.refillPerSecond + (drift.active ? nitro.driftRefill : 0)) * dt);
+    if (drift.styleEvent) {
+      this.hud.flashStyleCallout?.(drift.styleEvent);
+      this.audio.stylePing?.(drift.styleEvent.kind);
+      if (drift.styleEvent.kind === 'wallTap') {
+        this.effects.sparkShower(state, 16, 1.1);
+        this.nitro = Math.min(nitroStats.capacity, this.nitro + 12);
+      }
+    }
+
+    if (boosting) this.nitro = Math.max(0, this.nitro - nitroStats.drainPerSecond * dt);
+    else this.nitro = Math.min(nitroStats.capacity, this.nitro + (nitroStats.refillPerSecond + (drift.active ? nitroStats.driftRefill : 0)) * dt);
 
     if (drift.event === 'drift_end' && drift.lastDriftScore > 0) this.hud.toast(`Drift +${drift.lastDriftScore.toLocaleString()}`, 'good');
     else if (drift.event === 'wipeout') this.hud.toast('Drift lost', 'warn');
 
     const events = this.session.update(dt, state, drift);
+    this.apexMeeting?.update(dt,state);
     for (let i = 0; i < events.length; i += 1) this.handleSessionEvent(events[i]);
-    if (this.state === 'running') this.meta.frame(dt, state, drift, this.session.hud.elapsed, this.cameraRig.camera);
+    if (this.state === 'running') this.meta.frame(dt, state, drift, this.session.hud.elapsed, this.cameraRig.camera, this.session.hud);
 
     this.effects.emit(dt, state);
     this.damage.update(dt, state);
@@ -808,12 +891,13 @@ export class Game {
   }
 
   handleSessionEvent(event) {
+    if (event.type === 'apexLimit') this.hud.toast('Track limits · lap invalid' + (event.penalty ? ' · +' + event.penalty + ' s total' : ''), 'warn');
     this.meta.sessionEvent(event);
     if (event.type === 'checkpoint') {
       this.audio.checkpoint();
       const split = Number.isFinite(event.split) ? event.split : null;
       if (this.hud.showCheckpoint) {
-        this.hud.showCheckpoint({ index: event.index, total: event.total, split, label: 'CHECKPOINT', km: this.distanceToNextGate(event) });
+        this.hud.showCheckpoint({ index: event.index, total: event.total, split, label: this.world.apex && (event.index===3 || event.index===7) ? 'SECTOR '+(event.index===3?1:2) : 'CHECKPOINT', km: this.distanceToNextGate(event) });
       } else {
         this.hud.toast(`Checkpoint ${event.index + 1}/${event.total}${split === null ? '' : `  ${formatDelta(split)}`}`, split !== null && split > 0 ? 'warn' : 'good');
       }
@@ -865,8 +949,11 @@ export class Game {
     frame.rpmMax = state.rpmMax;
     frame.throttle = state.throttle;
     frame.brake = state.brake;
-    frame.boost = getCar(this.carId).nitro ? this.nitro : null; // null: this car has no nitrous
+    const upgrades = this.career?.carUpgrades?.(this.carId);
+    const cap = Math.max(1, this.nitroCapacity || effectiveNitroStats(CONFIG.nitro, upgrades).capacity);
+    frame.boost = !this.apexMeeting?.gt && hasCarNitro(getCar(this.carId), upgrades) ? (this.nitro / cap) * 100 : null; // null: this car has no nitrous
     frame.boosting = state.boosting;
+    frame.ghostDelta = this.meta?.ghostDelta ?? null;
     frame.surface = SURFACE_PROPS[state.surface]?.name || 'asphalt';
     frame.position.x = state.position.x;
     frame.position.z = state.position.z;
@@ -896,13 +983,16 @@ export class Game {
   onFrame(now) {
     if (this.contextLost) return;
     this.frameHandle = requestAnimationFrame(this.onFrame);
-    const dt = clamp((now - this.lastTime) / 1000, 0, 0.1);
+    const rawMs = now - this.lastTime;
+    const dt = clamp(rawMs / 1000, 0, 0.1);
     this.lastTime = now;
+    if (this.settings.quality === 'Auto' && stepRenderScale(this.renderScale, rawMs)) this.applyPixelRatio();
     if (dt > 0) this.fps += (1 / dt - this.fps) * 0.05;
 
     const input = this.input.update();
     this.handleGlobalInput(input);
     this.adventure?.visibility();
+    this.apexMeeting?.visibility();
 
     let state;
     const paused = this.state === 'paused';
@@ -939,7 +1029,8 @@ export class Game {
     } else if (this.state === 'finished') this.cameraRig.orbit(dt, state.position, { radius: 8, height: 2.6, speed: 0.22 });
     else if (!paused) this.cameraRig.follow(dt, state, input);
 
-    const photoCamera=this.adventure?.previewCamera?.(state);
+    if(this.apexMeeting)this.renderer.toneMappingExposure=this.atmosphere.preset.exposure;
+    const photoCamera=this.apexMeeting?.photoCamera() || this.adventure?.previewCamera?.(state);
     const camera = photoCamera || this.cameraRig.camera;
     if(this.map.id==='tokyo')this.renderer.toneMappingExposure=this.atmosphere.preset.exposure*(photoCamera?Number(this.adventure.exposure.value):1);
     if (this.state !== 'running') this.meta.idle(camera, state.position);
@@ -960,7 +1051,7 @@ export class Game {
     this.landmarks?.update?.(camera);
     this.roads.jungle?.update(camera.position);
     this.updateHud(state);
-    this.renderer.render(this.scene, camera);
+    if(!this.apexMeeting?.renderPhoto(camera))this.renderer.render(this.scene, camera);
   }
 
   /** On a player's first three drives, show the controls until they get moving. */
@@ -987,8 +1078,7 @@ export class Game {
   /** The graphics preset (settings.quality, or the level Auto resolved to) applied to every view. */
   applyQuality() {
     const quality = getQualityPreset(this.settings.quality, this.autoQuality);
-    const dpr = Math.min(window.devicePixelRatio || 1, quality.pixelRatio);
-    this.renderer.setPixelRatio(dpr);
+    this.applyPixelRatio(quality);
     const shadows = quality.shadowMapSize > 0;
     if (this.renderer.shadowMap.enabled !== shadows) {
       this.renderer.shadowMap.enabled = shadows;
@@ -1002,11 +1092,21 @@ export class Game {
     this.effects?.setQuality?.(quality);
     this.car?.setQuality?.(quality);
     this.remotePlayers?.setQuality?.(quality);
-    this.cameraRig?.setQuality?.(quality);
+    // Fujimi's Mount Fuji stands 3.4 km out: keep it inside the far plane on Low too.
+    this.cameraRig?.setQuality?.(this.map?.id === 'fujimi' ? { ...quality, farClip: Math.max(quality?.farClip ?? 0, 5200) } : quality);
     if (!shadows || this.autoQuality === 'Low' || this.settings.quality === 'Low') {
       const keep = new Set([this.carId, ...(this.remotePlayers?.cars ? Array.from(this.remotePlayers.cars.values(), (e) => e.carId) : [])]);
       trimCarModels(keep);
     }
+  }
+
+  /** Preset pixel ratio, scaled down by dynamic resolution while frames run slow (Auto quality only). */
+  applyPixelRatio(quality = getQualityPreset(this.settings.quality, this.autoQuality)) {
+    const scale = this.settings.quality === 'Auto' ? this.renderScale.scale : 1;
+    const dpr = Math.max(0.5, Math.min(window.devicePixelRatio || 1, quality.pixelRatio) * scale);
+    if (Math.abs(this.renderer.getPixelRatio() - dpr) < 1e-3) return;
+    this.renderer.setPixelRatio(dpr);
+    this.onResize();
   }
 
   /**
@@ -1017,6 +1117,12 @@ export class Game {
   sampleAutoQuality(dt) {
     if (this.settings.quality !== 'Auto' || dt > 0.25 || dt <= 0) return;
     const sample = this.autoSample;
+    // Resolution drops first; the preset only steps down once resolution is already at its floor.
+    if (this.renderScale.scale > RENDER_SCALE.min) {
+      sample.time = 0;
+      sample.frames = 0;
+      return;
+    }
     sample.time += dt;
     sample.frames += 1;
     if (sample.time < 3.5) return;
@@ -1027,6 +1133,7 @@ export class Game {
     sample.frames = 0;
     if (next === this.autoQuality) return;
     this.autoQuality = next;
+    this.renderScale = createRenderScale();
     this.applyQuality();
     this.onResize();
     this.hud.toast(`Graphics lowered to ${next} for smoother driving`, 'info');
@@ -1047,11 +1154,13 @@ export class Game {
     document.removeEventListener('visibilitychange', this.onVisibility);
     if (this.onContextLost) this.canvas?.removeEventListener('webglcontextlost', this.onContextLost);
     if (this.onContextRestored) this.canvas?.removeEventListener('webglcontextrestored', this.onContextRestored);
+    this.platform?.dispose();
     this.input?.destroy();
     this.meta?.dispose();
     this.partyRace?.dispose();
     this.remotePlayers?.dispose();
     this.net?.dispose();
+    this.apexMeeting?.dispose();
     this.adventure?.dispose();
     this.audio?.dispose();
     this.damage?.dispose();

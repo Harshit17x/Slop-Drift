@@ -40,6 +40,16 @@ const HAS_URL = typeof import.meta.url === 'string';
  * `clip` a short silent flyover, both captured from the built world in the game.
  */
 export const MAPS = Object.freeze({
+  apex: Object.freeze({
+    id:'apex', label:'APEX Grand Prix', tagline:'International Motorsport Park · Forest, ridge and stadium',
+    highlights:['Skyline Ridge','Thunder Bowl','Endurance pit lane'],
+    routes:['loop','gp','ridge','international','bowl','academy'], assets:null,
+    preview: HAS_URL ? new URL('../assets/maps/previews/apex.jpg',import.meta.url).href : null,
+    config:{...WORLD,map:'apex',seed:62025,grid:{size:513,cell:8},
+      mountain:{...WORLD.mountain,waterLevel:12,valleyFloor:20,snowLine:580,treeLine:470,lake:null},
+      road:{...WORLD.road,halfWidth:7,shoulder:5,verge:3,vergeDrop:.14,railOffset:4,railHeight:1.22,
+        bedMargin:3,bankGain:5,maxBank:.075}}
+  }),
   mussoorie: Object.freeze({
     id: 'mussoorie',
     label: 'Mussoorie',
@@ -63,6 +73,21 @@ export const MAPS = Object.freeze({
     config:{...WORLD,map:'tokyo',seed:81086,grid:{size:257,cell:40},
       mountain:{...WORLD.mountain,waterLevel:-30,valleyFloor:0,lake:null},
       road:{...WORLD.road,shoulder:.45,verge:.5,vergeDrop:.12,railHeight:1.4}},
+  }),
+  fujimi: Object.freeze({
+    id: 'fujimi', label: 'Fujimi Rally', tagline: '富士見 · A compact bayside drift and rally course under Mount Fuji',
+    highlights: Object.freeze(['Waterfront straight to Fuji', 'Container Snake', '8 clipping zones']),
+    routes: Object.freeze(['loop']),
+    preview: HAS_URL ? new URL('../assets/maps/previews/fujimi.jpg', import.meta.url).href : null,
+    // Authored in Blender (tools/blender/fujimi): the layout is the map data, the GLB is the scenery.
+    assets: Object.freeze({
+      json: HAS_URL ? new URL('../assets/maps/fujimi/layout.json', import.meta.url).href : null,
+      scenery: HAS_URL ? new URL('../assets/maps/fujimi/fujimi.glb', import.meta.url).href : null,
+    }),
+    config: Object.freeze({ ...WORLD, map: 'fujimi', seed: 2611, grid: Object.freeze({ size: 129, cell: 16 }),
+      mountain: Object.freeze({ ...WORLD.mountain, waterLevel: -30, valleyFloor: 0, lake: null }),
+      road: Object.freeze({ ...WORLD.road, halfWidth: 7, hairpinExtraWidth: 0, maxBank: 0, shoulder: 0.6, railOffset: 0.55,
+        verge: 0.5, vergeDrop: 0.05, railHeight: 1.1 }) }),
   }),
   hollow: Object.freeze({
     id: 'hollow', label: 'Hollow Creek', tagline: 'Three circuits through a town abandoned to the fog',
@@ -128,10 +153,11 @@ export async function loadMapData(map) {
       if (!response.ok) throw new Error(`map.json: HTTP ${response.status}`);
       return response.json();
     }),
-    fetch(map.assets.terrain).then((response) => {
+    // A flat authored map (Fujimi) has no terrain file: its layout is the whole map data.
+    !map.assets.terrain ? null : fetch(map.assets.terrain).then((response) => {
       if (!response.ok) throw new Error(`terrain.bin: HTTP ${response.status}`);
       return response.arrayBuffer();
     }),
   ]);
-  return parseMapData(json, terrain);
+  return terrain ? parseMapData(json, terrain) : json;
 }

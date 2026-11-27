@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { hasRallyKit, loadRallyKit } from './RallyKit.js';
 import { ProceduralCar } from './ProceduralCar.js';
-import { PAINT_MODES, patchCarPaint, setCarPaintUniforms } from './carPaintShader.js';
+import { computeCarPaintBounds, PAINT_MODES, patchCarPaint, setCarPaintUniforms } from './carPaintShader.js';
 import { patchUnderglow } from './underglowLight.js';
 import { CARS, getCar } from '../vehicle/cars.js';
 
@@ -256,7 +256,7 @@ export class ModelCar extends ProceduralCar {
     this.chassis.add(body);
     this.bodyMesh = body;
     // Exterior cabin sits behind the glass. CarVisual swaps it for the animated driver layout.
-    const exteriorCabin = template.getObjectByName('ROXX_cabin') || template.getObjectByName('GT3R_ExteriorCabin') || template.getObjectByName('Tokyo_ExteriorCabin');
+    const exteriorCabin = template.getObjectByName('ROXX_cabin') || template.getObjectByName('GT3R_ExteriorCabin') || template.getObjectByName('Tokyo_ExteriorCabin') || template.getObjectByName('RJ_ExteriorCabin');
     if (exteriorCabin) this.chassis.add(instance(exteriorCabin));
     this.paintable = false;
     this.bodyMaterial = new THREE.MeshStandardMaterial();
@@ -264,6 +264,17 @@ export class ModelCar extends ProceduralCar {
     if (this.paintSlot) {
       this.bodyMaterial = this.paintSlot;
       this.paintable = true;
+    }
+    this.paintBounds = computeCarPaintBounds(body, (node) => {
+      const mats = Array.isArray(node.material) ? node.material : [node.material];
+      return mats.some((m) => m?.userData?.paintMode !== undefined && m.userData.paintMode < PAINT_MODES.MASKED_RIM);
+    });
+    const paintTargets = this.paintMaterials?.length ? this.paintMaterials : [this.bodyMaterial];
+    for (const mat of paintTargets) {
+      setCarPaintUniforms(mat, {
+        carBoundsMin: this.paintBounds.min,
+        carBoundsSize: this.paintBounds.size,
+      });
     }
     // Lamps the model does not have as separate parts (the scanned car's tail-light bar).
     for (const [x, y, z, w, h] of car.lamps?.tail || []) {
@@ -303,6 +314,7 @@ export class ModelCar extends ProceduralCar {
       const metalness = paint.metalness ?? defs.defaultMetalness ?? defs.metalness ?? 0.35;
       const roughness = paint.roughness ?? defs.defaultRoughness ?? defs.roughness ?? 0.18;
       const clearcoat = paint.clearcoat ?? defs.clearcoat ?? 0.9;
+      const clearcoatRoughness = paint.clearcoatRoughness ?? defs.clearcoatRoughness ?? (roughness > 0.28 ? 0.28 : 0.05);
       if (mat.userData.paintMode === PAINT_MODES.MASKED_BODY) {
         // Keep scalar color/metalness/roughness at 1 on GT_Body so ORM & carbon/glass maps remain untouched.
         setCarPaintUniforms(mat, {
@@ -310,12 +322,21 @@ export class ModelCar extends ProceduralCar {
           paintMetalness: metalness,
           paintRoughness: roughness,
           paintClearcoat: clearcoat,
+          clearcoatRoughness,
+          carBoundsMin: this.paintBounds?.min,
+          carBoundsSize: this.paintBounds?.size,
         });
       } else {
         mat.metalness = metalness;
         mat.roughness = roughness;
         if ('clearcoat' in mat) mat.clearcoat = clearcoat;
-        setCarPaintUniforms(mat, { paint });
+        if ('clearcoatRoughness' in mat) mat.clearcoatRoughness = clearcoatRoughness;
+        setCarPaintUniforms(mat, {
+          paint,
+          clearcoatRoughness,
+          carBoundsMin: this.paintBounds?.min,
+          carBoundsSize: this.paintBounds?.size,
+        });
       }
     }
     return this;

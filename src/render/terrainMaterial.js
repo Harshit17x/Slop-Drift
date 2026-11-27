@@ -36,6 +36,9 @@ uniform float uTreeLine;
 uniform float uWaterLevel;
 uniform float uValleyFloor;
 uniform float uRainforest;
+ #ifdef APEX_CUTS
+uniform sampler2D uCutRock;
+#endif
 #ifdef HOLLOW_YARDS
 uniform sampler2D uYardGravel;
 #endif
@@ -71,8 +74,13 @@ const FRAGMENT_COLOR = /* glsl */ `
   triWeights /= triWeights.x + triWeights.y + triWeights.z;
   vec4 nBroad = texture2D(uNoise, wp.xz / 620.0);
   vec4 nMid = terrainTriplanar(wp + vec3(nBroad.x, 0.0, nBroad.y) * 25.0, triWeights, 71.0);
-  vec4 nFine = terrainTriplanar(wp, triWeights, 9.3);
-  vec4 nMicro = terrainTriplanar(wp, triWeights, 1.9);
+  #ifdef APEX_CUTS
+    vec4 nFine = viewDistance<950. ? terrainTriplanar(wp,triWeights,9.3) : nMid;
+    vec4 nMicro = viewDistance<160. ? texture2D(uNoise,wp.xz/1.9) : nFine;
+  #else
+    vec4 nFine = terrainTriplanar(wp, triWeights, 9.3);
+    vec4 nMicro = terrainTriplanar(wp, triWeights, 1.9);
+  #endif
   float nearFade = 1.0 - smoothstep(40.0, 160.0, viewDistance);
   float midFade = 1.0 - smoothstep(350.0, 1400.0, viewDistance);
 
@@ -118,6 +126,16 @@ const FRAGMENT_COLOR = /* glsl */ `
   rock *= 1.0 - seams * 0.38;
 
   vec3 albedo = mix(cover, earth, scree);
+  #ifdef APEX_CUTS
+    float cut = smoothstep(.09,.21,slopeRaw) * smoothstep(48.,90.,wp.y);
+    if(cut>.005){
+      vec2 axis = nW.x*nW.x>nW.z*nW.z?wp.zy:wp.xy;
+      vec3 faces = texture2D(uCutRock,axis*.19+nBroad.xy*.5).rgb;
+      vec3 ledges = texture2D(uCutRock,wp.xz*.14).rgb;
+      rock=mix(rock,mix(faces,ledges,triWeights.y*.67),.85);
+      steep=max(steep,cut*.83);
+    }
+  #endif
   albedo = mix(albedo, rock, steep);
   float rockSheen = mix(0.88, 0.64, smoothstep(0.45, 0.85, nFine.b) * nearFade);
   float rough = mix(mix(0.96, 0.93, scree), rockSheen, steep);
@@ -211,6 +229,7 @@ export function createTerrainUniforms({ control, noise, sunShade, grid, mountain
 /** One material per level of detail: they share a program and differ only in three uniforms. */
 export function createTerrainMaterial(shared, { heightMap, lodStep, skirtDepth }) {
   const material = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0 });
+  if(shared.uCutRock)material.defines={APEX_CUTS:1};
   if(shared.uYardGravel)material.defines={HOLLOW_YARDS:1};
   const own = {
     uHeightMap: { value: heightMap },

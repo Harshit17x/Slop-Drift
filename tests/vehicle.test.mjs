@@ -732,7 +732,7 @@ function testCars() {
     const contacts = s.wheels.filter((w) => w.contact).length;
     check(`${car.id} settles on four wheels`, contacts === 4 && Math.abs(s.position.y) < 0.05 && s.speed < 0.2, `y ${s.position.y.toFixed(3)}`);
     // Standing starts on flat dry asphalt, with the same assists for all selectable cars.
-    const target = { hatch: [100, 4, 9], gt: [100, 2.6, 4.2], thar: [60, 3.8, 6.5], tokyo: [100, 2.8, 5.4] }[car.id];
+    const target = { hatch: [100, 4, 9], gt: [100, 2.6, 4.2], thar: [60, 3.8, 6.5], tokyo: [100, 2.8, 5.4], raijin: [100, 2.6, 3.6] }[car.id];
     let reached = null;
     s = run(v, 12, (time, st) => {
       if (reached === null && st.speed * 3.6 >= target[0]) reached = time;
@@ -743,6 +743,14 @@ function testCars() {
     if (car.id === 'tokyo') {
       check('Tokyo Sedan wheelbase, 6-speed gearbox, nitro and twin exhaust tips',
         Math.abs(v.wheelbase - 2.70) < 1e-6 && v.drivetrain.gearCount === 6 && car.nitro === true && car.exhaustTips?.length === 2);
+    }
+    if (car.id === 'raijin') {
+      // R35-class benchmarks: 2.78 m wheelbase, six-speed dual-clutch, quad exhausts, 565-600 PS.
+      let peakKW = 0;
+      for (let rpm = 1500; rpm <= 7300; rpm += 10) peakKW = Math.max(peakKW, v.drivetrain.torqueAt(rpm) * rpm * Math.PI / 30000);
+      check('Raijin GT wheelbase, 6-speed DCT, quad exhausts and 557-605 PS peak', Math.abs(v.wheelbase - 2.78) < 1e-6
+        && v.drivetrain.gearCount === 6 && car.exhaustTips?.length === 4 && peakKW > 410 && peakKW < 445, `${peakKW.toFixed(0)} kW`);
+      check('Raijin GT staggered 20 in tyres on all-wheel drive', v.wheels.every((w) => Math.abs(w.radius - 0.355) < 1e-6 && w.driven));
     }
     if (car.id === 'gt') {
       check('GT3 R wheelbase and staggered slick radii', Math.abs(v.wheelbase - 2.507) < 1e-6 &&
@@ -762,6 +770,42 @@ function testCars() {
   }
 }
 
+function testGtCombinedGrip() {
+  const tune = CARS.find(car => car.id === 'gt').tuning;
+  function stop(grip, steer) {
+    const world = { waterLevel: -Infinity, sampleGround: (x, z, o) => fillGround(o, 0, 0, 1, 0, 0, grip) };
+    const car = makeVehicle(world, 'Balanced', { driftAssist: 0 });
+    car.setHandling('Balanced', tune);
+    run(car, 1, () => controls());
+    car.velocity.set(0, 0, -100 / 3.6);
+    let distance = 0, peakUse = 0, lateral = 0;
+    for (let i = 0; i < 600; i++) {
+      const before = car.position.clone();
+      const state = car.step(DT, controls({ brake: 1, steer }));
+      distance += horizDist(before, car.position);
+      for (const w of car.wheels) {
+        if (!w.contact || w.blend < 1 || w.muN < 10) continue;
+        const use = Math.hypot(w.fx + w.accX / DT, w.fy + w.accY / DT) / w.muN;
+        peakUse = Math.max(peakUse, use);
+        lateral = Math.max(lateral, Math.abs(w.fy));
+      }
+      if (state.speed < 0.1) {
+        const temperatures = car.wheels.map(wheel => wheel.temperature);
+        return { distance, peakUse, lateral, spread: Math.max(...temperatures) - Math.min(...temperatures) };
+      }
+    }
+    throw new Error('GT3 failed to stop');
+  }
+  const dry = stop(1, 0), damp = stop(0.7, 0), trail = stop(1, 0.65);
+  check('GT3 slick temperatures diverge during a turning stop', trail.spread > 0.1, trail.spread.toFixed(2) + ' °C spread');
+  check('GT3 stops farther on reduced-grip asphalt', damp.distance > dry.distance * 1.2,
+    dry.distance.toFixed(1) + ' m dry, ' + damp.distance.toFixed(1) + ' m reduced grip');
+  check('GT3 trail braking shares longitudinal and lateral grip', trail.lateral > 500 &&
+    trail.peakUse <= 1.001 && trail.distance > dry.distance,
+    trail.distance.toFixed(1) + ' m turning, ' + trail.peakUse.toFixed(3) + ' peak utilisation');
+}
+
+testGtCombinedGrip();
 testBarrier();
 testReverse();
 testNaNRecovery();

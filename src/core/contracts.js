@@ -143,10 +143,11 @@
  * @property {number} heading     Yaw in radians; 0 faces -Z (north on the map), positive turns toward +X (east).
  * @property {number} altitude    Metres above the valley floor.
  * @property {number} grade       Road grade under the car in percent (+ uphill in the driving direction).
- * @property {{active:boolean, angleDeg:number, score:number, bank:number, multiplier:number, comboTimer:number, comboWindow:number}} drift
+ * @property {{active:boolean, angleDeg:number, score:number, bank:number, multiplier:number, comboTimer:number, comboWindow:number, styleEvent?:({kind:string,label:string,bonus:number}|null)}} drift
  * @property {{modeId:string, modeLabel:string, lap:number, laps:number, elapsed:number, lapTime:number,
  *   bestLap:(number|null), lastLap:(number|null), progress:number, timeLeft:(number|null),
  *   wrongWay:boolean, offRoad:boolean}} session
+ * @property {number|null} [ghostDelta]  Seconds vs active ghost at current progress (- ahead, + behind).
  * @property {string} camera      Camera mode label.
  * @property {string} debug       Multi-line debug text (shown only when the debug panel is open).
  */

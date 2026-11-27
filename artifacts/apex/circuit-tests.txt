@@ -1,0 +1,22 @@
+World build 164 ms
+loop 8192.3 m, worst contact error 0.003 m
+gp 5879.2 m, worst contact error 0.185 m
+ridge 4075.0 m, worst contact error 0.191 m
+international 3650.3 m, worst contact error 0.184 m
+bowl 2736.9 m, worst contact error 0.166 m
+academy 1557.1 m, worst contact error 0.000 m
+Maximum sampled pavement/contact discrepancy 0.046 m
+Maximum rendered junction/contact discrepancy 0.017 m
+Track-limit recovery, invalid lap, missed gate, penalties, flag states and rubber-dependent grip passed
+loop three AI finished two laps; pit stops 3
+gp three AI finished two laps; pit stops 3
+ridge three AI finished two laps; pit stops 0
+international three AI finished two laps; pit stops 3
+bowl three AI finished two laps; pit stops 3
+academy three AI finished two laps; pit stops 0
+loop GT3 physics lap 332.90 s, max lateral 0.91 m, airborne frames 0
+gp GT3 physics lap 236.90 s, max lateral 0.87 m, airborne frames 0
+ridge GT3 physics lap 182.08 s, max lateral 1.63 m, airborne frames 0
+international GT3 physics lap 148.58 s, max lateral 1.19 m, airborne frames 0
+bowl GT3 physics lap 112.68 s, max lateral 1.32 m, airborne frames 0
+academy GT3 physics lap 69.74 s, max lateral 0.68 m, airborne frames 0

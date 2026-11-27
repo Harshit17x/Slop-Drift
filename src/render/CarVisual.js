@@ -4,6 +4,7 @@ import { Cockpit, cockpitEye } from './Cockpit.js';
 import { createCarModel } from './ModelCar.js';
 import { getCar } from '../vehicle/cars.js';
 import { bodyPoseTarget, smoothBodyPose } from './bodyPose.js';
+import { CarLights } from './CarLights.js';
 
 const WHEEL_KEYS = ['frontLeft', 'frontRight', 'rearLeft', 'rearRight'];
 
@@ -30,16 +31,9 @@ export class CarVisual {
       this.model.add(this.nitroJets);
       this.model.materials.push(this.nitroJets.material);
     }
-    this.headlights = [];
-    for (const side of [-1, 1]) {
-      const light = new THREE.SpotLight(0xfff1d6, 0, 90, THREE.MathUtils.degToRad(26), 0.55, 1.4);
-      light.position.set(side * 0.6, 0.72, -2.05);
-      light.target.position.set(side * 0.9, 0.1, -30);
-      light.castShadow = false;
-      this.model.add(light, light.target);
-      this.headlights.push(light);
-    }
-    this.headlightsOn = false;
+    // Headlights (off / low / high), tail, brake, high-mounted stop and reversing lamps, fitted to the model.
+    this.lights = new CarLights(this.model, this.carId);
+    this.night = false;
 
     // A soft contact patch keeps the car planted on asphalt and pavement.
     // It is cheaper than a second shadow-casting light and survives every quality tier.
@@ -141,10 +135,27 @@ export class CarVisual {
     return Boolean(this.model.underglow.option);
   }
 
+  /** true / false, or a mode: 0 off, 1 low beam, 2 high beam. */
   setHeadlights(on) {
-    this.headlightsOn = Boolean(on);
-    for (const light of this.headlights) light.intensity = this.headlightsOn ? 260 : 0;
-    this.model.setHeadlamps?.(this.headlightsOn);
+    this.lights.setHeadlights(on === true ? 1 : on === false ? 0 : on);
+  }
+
+  /** The lamp switch: off, low, high, off. Returns the new mode. */
+  cycleHeadlights() {
+    return this.lights.cycle();
+  }
+
+  get headlightsOn() {
+    return this.lights.mode > 0;
+  }
+
+  get headlightMode() {
+    return this.lights.mode;
+  }
+
+  /** Tail lamps stay lit at night even with the headlights switched off. */
+  setNight(night) {
+    this.night = Boolean(night);
   }
 
   /**
@@ -156,8 +167,7 @@ export class CarVisual {
     this.model.quaternion.copy(state.quaternion);
     this.model.setSteering(state.steerAngle);
     const reversing = state.gear === 'R';
-    this.model.setBraking(state.brake > 0.05 && !reversing);
-    this.model.setReversing(reversing);
+    this.lights.update({ braking: state.brake > 0.05 && !reversing, reversing, night: this.night }, dt);
     for (let i = 0; i < 4; i += 1) {
       const wheel = state.wheels[i];
       this.model.setSuspension(WHEEL_KEYS[i], wheel.compression);
@@ -189,6 +199,7 @@ export class CarVisual {
   }
 
   dispose() {
+    this.lights.dispose();
     this.cockpit.dispose();
     this.contactShadow.geometry.dispose();
     this.contactShadow.material.map.dispose();

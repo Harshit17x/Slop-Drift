@@ -82,8 +82,8 @@ export class RoadView {
     const mapId = world.config?.map || 'alpine';
     this.isAlpine = !world.config?.map || world.config.map === 'alpine';
     this.isMussoorie = mapId === 'mussoorie';
-    const roadTexUrl = mapId === 'hollow' ? new URL('../assets/maps/hollow-road.webp', import.meta.url).href : this.isMussoorie ? MUSSOORIE_ROAD_URL : (this.isAlpine ? ALPINE_ROAD_URL : null);
-    const shoulderTexUrl = this.isMussoorie ? MUSSOORIE_SHOULDER_URL : (this.isAlpine ? ALPINE_SHOULDER_URL : null);
+    const roadTexUrl = mapId === 'hollow' ? new URL('../assets/maps/hollow-road.webp', import.meta.url).href : this.isMussoorie || mapId === 'fujimi' ? MUSSOORIE_ROAD_URL : (this.isAlpine ? ALPINE_ROAD_URL : null);
+    const shoulderTexUrl = this.isMussoorie ? MUSSOORIE_SHOULDER_URL : (this.isAlpine || mapId === 'fujimi' ? ALPINE_SHOULDER_URL : null);
     this.hasPhotoRoad = Boolean(roadTexUrl);
     this.hasPhotoShoulder = Boolean(shoulderTexUrl);
     this.disposables = [];
@@ -110,6 +110,11 @@ export class RoadView {
       this.buildMarkings();
       this.buildRails();
       finishTokyoRoads(this);
+    } else if (mapId === 'fujimi') {
+      // Barriers, kerbs and lights are Blender props; the road is asphalt, paint and one gravel sector.
+      this.buildSurfaces();
+      this.finishFujimi();
+      this.buildMarkings();
     } else if (mapId === 'hollow') {
       this.buildSurfaces();
       this.asphaltMesh.material[0].color.setHex(0x999d95);
@@ -346,6 +351,27 @@ export class RoadView {
   }
 
   /** Gravel shoulder, verge and a short skirt below the verge edge, for both sides of one road. */
+  /** Fujimi: a slightly polished night asphalt, and loose gravel over the rally sector. */
+  finishFujimi() {
+    const asphalt = this.asphaltMesh.material;
+    asphalt.roughness = 0.62;
+    asphalt.metalness = 0.08;
+    const range = this.world.gravel;
+    if (!range) return;
+    const road = this.world.roads[0];
+    const gravel = this.track(new THREE.MeshStandardMaterial({ map: this.textures.grain, bumpMap: this.textures.grain, bumpScale: 0.16,
+      color: 0x9a8f7c, roughness: 0.93 }));
+    const begin = Math.floor(range[0] / road.spacing) * 24;
+    const end = Math.ceil(range[1] / road.spacing) * 24;
+    const total = road.segments * 24;
+    const geo = this.asphaltMesh.geometry;
+    geo.clearGroups();
+    geo.addGroup(0, begin, 0);
+    geo.addGroup(begin, end - begin, 1);
+    geo.addGroup(end, total - end, 0);
+    this.asphaltMesh.material = [asphalt, gravel];
+  }
+
   buildSoftEdges(road, soft) {
     const config = this.config;
     const vergeDrop = config.vergeDrop - VERGE_CLEARANCE;
@@ -480,7 +506,8 @@ export class RoadView {
       }
       for (let i = 0; i < road.segments; i += 1) {
         const j = (i + 1) % count;
-        if (centreClear[i] && centreClear[j]) {
+        // A closed drift course has edge lines only, no public-road centre line.
+        if (centreClear[i] && centreClear[j] && world.config.map !== 'fujimi') {
           if (solid[i] && solid[j]) {
             strip(road, i, j, -0.11, -0.11, 0.1, YELLOW);
             strip(road, i, j, 0.11, 0.11, 0.1, YELLOW);
@@ -488,8 +515,9 @@ export class RoadView {
             strip(road, i, j, 0, 0, 0.14, YELLOW);
           }
         }
+        const loose = world.gravel && i * road.spacing >= world.gravel[0] && i * road.spacing <= world.gravel[1];
         for (let s = 0; s < 2; s += 1) {
-          if (!edgeClear[s][i] || !edgeClear[s][j]) continue;
+          if (loose || !edgeClear[s][i] || !edgeClear[s][j]) continue;
           const sign = s === 0 ? -1 : 1;
           strip(road, i, j, sign * (road.halfWidth[i] - 0.24), sign * (road.halfWidth[j] - 0.24), 0.12, WHITE);
         }

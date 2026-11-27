@@ -629,7 +629,7 @@ export class TitleFx {
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = p.exposure;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap; // PCFSoft was removed in r180: three swaps it on the first frame and recompiles every shader
     this.renderer = renderer;
     const maxAniso = Math.min(8, renderer.capabilities.getMaxAnisotropy?.() || 4);
 

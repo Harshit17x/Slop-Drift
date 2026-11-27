@@ -3,6 +3,18 @@ import { clamp, smoothstep } from '../core/math.js';
 const HASH_CELL = 40; // metres; locate() searches the 3x3 cells around a point
 const HASH_OFFSET = 512;
 
+// Broad phase for venues with several overlapping timing layouts. Include the
+// same nine cells as locate(), preserving road order and both decks at flyovers.
+export function indexPhysicalRoads(roads){
+  const cells=new Map(),empty=[];
+  for(const road of roads){
+    const reaches=new Set();
+    for(const key of road.hash.keys())for(let dx=-1;dx<=1;dx++)for(let dz=-1;dz<=1;dz++)reaches.add(key+dx*2048+dz);
+    for(const key of reaches){if(!cells.has(key))cells.set(key,[]);cells.get(key).push(road);}
+  }
+  return (x,z)=>cells.get((Math.floor(x/HASH_CELL)+HASH_OFFSET)*2048+Math.floor(z/HASH_CELL)+HASH_OFFSET)||empty;
+}
+
 function gaussianSmooth(values, sigmaSamples, closed) {
   const count = values.length;
   const radius = Math.max(1, Math.ceil(sigmaSamples * 3));
@@ -181,6 +193,9 @@ export class Road {
     let bestMetric = bestDistance;
     let bestIndex = -1;
     let bestU = 0;
+    // Tokyo opts into a stronger height preference; other maps keep the
+    // original plan-distance metric their surfaces were tuned against.
+    const heightWeight = this.heightWeight === undefined ? 1 : this.heightWeight;
     for (let ox = -1; ox <= 1; ox += 1) {
       for (let oz = -1; oz <= 1; oz += 1) {
         const bucket = this.hash.get((cx + ox) * 2048 + (cz + oz));
@@ -204,7 +219,7 @@ export class Road {
           // view; a plain distance + dy^2 metric then snaps to that deck and
           // the lower carriageway loses its ground sample. Weighting the
           // height difference keeps the near-horizontal layer authoritative.
-          const metric = distanceSq + dy * dy * 9;
+          const metric = distanceSq + dy * dy * heightWeight;
           if (metric < bestMetric) {
             bestMetric = metric;
             bestDistance = distanceSq;
@@ -265,6 +280,13 @@ export class Road {
     const t = Math.min(1, beyond / verge);
     Road.profileSlope = t < 1 ? -this.config.vergeDrop / verge : 0;
     return -this.config.vergeDrop * t;
+  }
+
+  escapeAt(loc) {
+    const widths = loc.lateral < 0 ? this.escapeLeft : this.escapeRight;
+    if (!widths) return 0;
+    const i = loc.index, j = (i + 1) % this.count;
+    return widths[i] + (widths[j] - widths[i]) * loc.u;
   }
 
   /** Frame at distance s along the road (wrapped on closed roads, clamped on open ones). */

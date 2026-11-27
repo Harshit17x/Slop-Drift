@@ -1,4 +1,5 @@
-import { getMode, getNeon, getPaint, MODES } from '../config.js';
+import { getCar } from '../vehicle/cars.js';
+import { getMode, getNeon, getPaint, getSmoke, MODES } from '../config.js';
 import { RIM_OPTIONS, medalTargets } from '../meta/catalog.js';
 import { LEGACY_MAP, modeOfTrack, trackKey } from '../meta/trackKey.js';
 import { GhostRecorder } from '../ghost/GhostRecorder.js';
@@ -6,34 +7,82 @@ import { GhostPlayer } from '../ghost/GhostPlayer.js';
 import { loadLocalGhost, saveLocalGhost } from '../ghost/ghostStore.js';
 import { decodeGhost, encodeGhost } from '../ghost/ghostCodec.js';
 import { GhostCar } from '../render/GhostCar.js';
+import { RouteProgress } from './PartyRace.js';
 import * as THREE from 'three';
 
 const ghostPosition = new THREE.Vector3();
 const ghostQuaternion = new THREE.Quaternion();
+const SPLIT_BUCKETS = 100;
 
 /**
- * Everything around the driving that gives it a point: the career (XP, medals, achievements,
- * daily challenge, cosmetics), ghost replays, and the online leaderboard and players when a
- * network client is attached. Game calls the run hooks; this class talks to the HUD.
- *
- * Everything that compares runs is per map: ghosts, leaderboards and multiplayer rooms use the
- * track key (src/meta/trackKey.js) of the current map, while the HUD keeps talking in mode ids.
+ * Builds a 0..100% progress -> elapsed-seconds lookup table for a recorded ghost on a timed route.
+ * Computed once at run start so live Trackmania-style +/- split deltas cost zero locates per frame.
+ */
+export function buildGhostSplitTable(ghostData, world, mode) {
+  if (!ghostData || !world || !mode || mode.id === 'roam' || mode.id === 'drift') return null;
+  const route = world.routes?.[mode.route];
+  if (!route) return null;
+  const count = Math.max(0, Math.floor(ghostData.count || 0));
+  if (count < 2 || !ghostData.positions?.length) return null;
+  const rate = ghostData.rate > 0 ? ghostData.rate : 10;
+  const tracker = new RouteProgress(world, route, mode.laps || 1);
+  if (!(tracker.total > 0)) return null;
+
+  const times = new Float32Array(SPLIT_BUCKETS + 1);
+  times.fill(NaN);
+  times[0] = 0;
+  let maxPct = 0;
+  let prevPct = 0;
+  let prevTime = 0;
+  for (let i = 0; i < count; i += 1) {
+    const x = ghostData.positions[i * 3];
+    const y = ghostData.positions[i * 3 + 1];
+    const z = ghostData.positions[i * 3 + 2];
+    const d = tracker.update(x, z, y);
+    if (!Number.isFinite(d)) continue;
+    const pct = Math.max(0, Math.min(SPLIT_BUCKETS, (d / tracker.total) * SPLIT_BUCKETS));
+    const t = i / rate;
+    if (pct > maxPct) {
+      const startB = Math.floor(maxPct) + 1;
+      const endB = Math.floor(pct);
+      for (let b = startB; b <= endB; b += 1) {
+        const alpha = (b - prevPct) / Math.max(1e-6, pct - prevPct);
+        times[b] = prevTime + (t - prevTime) * Math.max(0, Math.min(1, alpha));
+      }
+      maxPct = pct;
+    }
+    prevPct = pct;
+    prevTime = t;
+  }
+  const endT = Number.isFinite(ghostData.time) && ghostData.time > 0 ? ghostData.time : (count - 1) / rate;
+  for (let b = Math.floor(maxPct) + 1; b <= SPLIT_BUCKETS; b += 1) {
+    times[b] = endT;
+  }
+  return times;
+}
+
+/** Interpolates ghost elapsed time at `progress` (0..1); returns null if unavailable. */
+export function ghostTimeAtProgress(table, progress) {
+  if (!table || !Number.isFinite(progress)) return null;
+  const scaled = Math.max(0, Math.min(SPLIT_BUCKETS, progress * SPLIT_BUCKETS));
+  const lo = Math.floor(scaled);
+  const hi = Math.min(SPLIT_BUCKETS, lo + 1);
+  const a = table[lo];
+  const b = table[hi];
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return a + (b - a) * (scaled - lo);
+}
+
+/**
+ * Everything around the driving that gives it a point: the career (XP, Credits, upgrades,
+ * car/map/feature unlocks, medals, achievements, daily challenge, cosmetics), ghost replays,
+ * live ghost split deltas, and the online leaderboard and players when a network client is attached.
  */
 export class MetaLayer {
-  /**
-   * @param {object} options
-   * @param {import('../meta/Career.js').Career} options.career
-   * @param {import('../ui/Hud.js').Hud} options.hud
-   * @param {THREE.Scene} options.scene
-   * @param {{x:number,y:number,z:number}[]} options.wheelLayout
-   * @param {object} options.game  Callbacks into the game: beginRun(modeId, { daily }), applyTimeOfDay(name), car.
-   * @param {string} [options.mapId]  Map being driven (src/world/maps.js); fixed for the page load.
-   */
   constructor({ career, hud, scene, wheelLayout, game, mapId = LEGACY_MAP }) {
     this.career = career;
     this.hud = hud;
     this.mapId = mapId;
-    // Players on other maps would appear at meaningless positions, so each map has its own lobby.
     this.lobby = trackKey(mapId, 'mountain');
     career.setMap?.(mapId);
     hud.setMap?.(mapId);
@@ -41,14 +90,15 @@ export class MetaLayer {
     this.game = game;
     this.wheelLayout = wheelLayout;
     this.recorder = new GhostRecorder({ rate: 10 });
-    this.ghost = null; // { player, data, kind: 'pb' | 'leaderboard', playerId }
+    this.ghost = null;
+    this.ghostSplitTable = null;
+    this.ghostDelta = null;
     this.ghostCar = null;
     this.ghostVisible = true;
-    this.pendingGhost = null; // a leaderboard ghost chosen for the next run
-    this.leaderboard = null; // attached by attachNetwork()
+    this.pendingGhost = null;
+    this.leaderboard = null;
     this.net = null;
     this.room = null;
-    /** Party room name ('party.<CODE>') while in a party (src/game/PartyRace.js), else null. */
     this.partyRoom = null;
     this.onlineTimer = 0;
     this.connection = 'offline';
@@ -57,7 +107,6 @@ export class MetaLayer {
     this.bindHud();
   }
 
-  /** Attach the online leaderboard / multiplayer client (src/net). Either may be null. */
   attachNetwork({ leaderboard = null, net = null } = {}) {
     this.leaderboard = leaderboard;
     this.net = net;
@@ -88,7 +137,6 @@ export class MetaLayer {
     this.refreshProfile();
   }
 
-  /** Players in the current room, for the HUD list. Seeing anyone else during a run is an achievement. */
   updateRoster(peers) {
     const list = [{ id: this.career.profile.id, name: this.career.profile.name, level: this.career.level, modeLabel: this.roomLabel(), isMe: true }];
     for (const [id, peer] of peers || []) {
@@ -106,7 +154,6 @@ export class MetaLayer {
     return this.room ? getMode(this.room).label : 'Menu';
   }
 
-  /** How many people are online across all rooms (menus only; it costs server requests). */
   async pollOnline() {
     if (typeof document !== 'undefined' && document.hidden) return;
     if (this.net?.status === 'connected') {
@@ -124,14 +171,12 @@ export class MetaLayer {
     }
   }
 
-  /** Track key of a mode on this map. */
   trackKey(modeId) {
     return trackKey(this.mapId, modeId);
   }
 
   joinRoom(modeId) {
     this.room = modeId;
-    // In a party the network room is the party's; the public lobby waits until the party is left.
     if (this.net && !this.partyRoom && this.net.modeId !== this.lobby) {
       this.net.join(this.lobby);
     }
@@ -145,7 +190,6 @@ export class MetaLayer {
     this.updateRoster(this.net?.peers);
   }
 
-  /** Swap the public lobby for a private party room (NetClient has one room at a time). */
   enterParty(roomName, options) {
     this.partyRoom = roomName;
     this.net?.join(roomName, options);
@@ -153,7 +197,6 @@ export class MetaLayer {
     this.updateRoster(this.net?.peers);
   }
 
-  /** Back from a party to this map's public lobby. */
   exitParty() {
     if (!this.partyRoom) return;
     this.partyRoom = null;
@@ -187,13 +230,84 @@ export class MetaLayer {
       }
       hud.setGarage(career.garage());
     };
+    hud.onPreviewCar = (carId) => this.previewGarageCar(carId);
+    hud.onBuyUpgrade = (carId, slotId) => {
+      const res = career.buyUpgrade(carId, slotId);
+      if (res.ok) {
+        this.game.audio?.purchase?.();
+        this.game.applyActiveVehicleTuning?.();
+        this.flushEvents();
+        this.refreshAll();
+        hud.toast(`${res.stage.label} installed!`, 'good');
+      } else {
+        const msg = res.reason === 'level-locked' ? `Reach Level ${res.level} for this stage`
+          : res.reason === 'insufficient-credits' ? `Need ${res.cost?.toLocaleString('en-US')} CR`
+            : res.reason === 'car-locked' ? 'Unlock this car first'
+              : 'Already maxed out';
+        hud.toast(msg, 'warn');
+      }
+    };
+    hud.onBuyCarEarly = (carId) => {
+      const res = career.buyCarEarly(carId);
+      if (res.ok) {
+        this.game.audio?.purchase?.();
+        this.applyLook(this.game.car);
+        this.syncNetProfile();
+        this.flushEvents();
+        this.refreshAll();
+        hud.toast(`${getCar(carId).label} unlocked early!`, 'good');
+      } else {
+        hud.toast(res.reason === 'insufficient-credits' ? 'Not enough Chai Credits yet' : 'Cannot unlock yet', 'warn');
+      }
+    };
+    hud.onTestDriveCar = (carId) => {
+      const activateTrial = () => {
+        if (!career.startTrialCar(carId)) return;
+        this.applyLook(this.game.car);
+        this.refreshAll();
+        hud.toast(`Test Drive active: ${getCar(carId).label} for 1 run!`, 'good');
+      };
+      if (this.game.platform?.initialized) {
+        this.game.audio?.silence?.();
+        this.game.platform.requestRewardedAd({
+          onStart: () => this.game.audio?.setAdMuted?.(true),
+          onReward: activateTrial,
+          onFinish: () => this.game.audio?.setAdMuted?.(false),
+        });
+      } else {
+        activateTrial();
+      }
+    };
+    hud.onDoubleRewards = () => {
+      const applyDouble = () => {
+        const bonus = career.claimAdDoubleBonus();
+        if (!bonus) return;
+        this.game.audio?.purchase?.();
+        this.refreshAll();
+        hud.applyAdDoubleBonus?.(bonus);
+        hud.toast(`2x Bonus! +${bonus.xpBonus} XP · +${bonus.crBonus} CR`, 'good');
+      };
+      if (this.game.platform?.initialized) {
+        this.game.audio?.silence?.();
+        this.game.platform.requestRewardedAd({
+          onStart: () => this.game.audio?.setAdMuted?.(true),
+          onReward: applyDouble,
+          onFinish: () => this.game.audio?.setAdMuted?.(false),
+        });
+      } else {
+        applyDouble();
+      }
+    };
     hud.onStartDaily = () => {
       const daily = career.daily();
       if (daily.timeOfDay) this.game.applyTimeOfDay(daily.timeOfDay);
       this.game.beginRun(daily.modeId);
     };
     hud.onRaceGhost = () => {
-      // Results screen: run the same event again against the personal best (now this run, if it was one).
+      if (career.isFeatureUnlocked && !career.isFeatureUnlocked('ghosts')) {
+        hud.toast('Ghost Rivals unlock at Level 2', 'info');
+        return;
+      }
       this.ghostVisible = true;
       this.game.beginRun(this.game.mode.id);
     };
@@ -209,15 +323,27 @@ export class MetaLayer {
 
   publicProfile() {
     const profile = this.career.profile;
-    return { id: profile.id, name: profile.name, level: this.career.level, cosmetics: { ...profile.cosmetics } };
+    return {
+      id: profile.id,
+      name: profile.name,
+      level: this.career.level,
+      cosmetics: { ...profile.cosmetics, car: this.career.activeCarId?.() ?? profile.cosmetics.car },
+    };
   }
 
   refreshProfile() {
-    this.hud.setProfile({ name: this.career.profile.name, level: this.career.levelInfo(), connection: this.connection, online: this.online });
+    this.hud.setProfile({
+      name: this.career.profile.name,
+      level: this.career.levelInfo(),
+      credits: this.career.credits ?? 0,
+      connection: this.connection,
+      online: this.online,
+      adDoubleReady: Boolean(this.game.platform?.initialized && this.career.lastReward && !this.career.lastReward.claimed && (this.career.lastReward.xpGained > 0 || this.career.lastReward.creditsGained > 0)),
+      trialCar: this.career.trialCar || null,
+    });
     this.syncNetProfile();
   }
 
-  /** Tell the network about name, level or cosmetic changes, and only then (each message costs quota). */
   syncNetProfile() {
     const profile = this.publicProfile();
     const key = `${profile.name}|${profile.level}|${profile.cosmetics.paint}|${profile.cosmetics.rim}|${profile.cosmetics.number}|${profile.cosmetics.neon}|${profile.cosmetics.car}`;
@@ -227,7 +353,6 @@ export class MetaLayer {
     this.leaderboard?.updateProfile?.(profile);
   }
 
-  /** Push every piece of career state to the HUD (after load and after each run). */
   refreshAll() {
     const { hud, career } = this;
     this.refreshProfile();
@@ -237,31 +362,36 @@ export class MetaLayer {
     hud.setGarage(career.garage());
   }
 
-  /** First launch: ask for a driver name. */
   welcome() {
     if (this.career.needsName) this.hud.promptName(this.career.profile.name);
   }
 
-  applyLook(car) {
+  applyLook(car, overrideCarId = null) {
     const cosmetics = this.career.profile.cosmetics;
-    // The local car: swap the whole car first if another one was picked, then paint the new one.
+    const activeCarId = overrideCarId || this.career.activeCarId?.() || cosmetics.car;
     if (car === this.game.car && this.game.setCar) {
-      this.game.setCar(cosmetics.car);
+      this.game.setCar(activeCarId);
       car = this.game.car;
     }
+    this.game.effects?.setSmokeColor?.(getSmoke(cosmetics.smoke).rgb);
     car.setLook({
       paint: getPaint(cosmetics.paint),
       rimColor: (RIM_OPTIONS.find((rim) => rim.id === cosmetics.rim) || RIM_OPTIONS[0]).color,
       number: cosmetics.number,
-      neon: getNeon(cosmetics.neon),
+      neon: getNeon(cosmetics.neon && cosmetics.neon !== 'off' ? cosmetics.neon : getCar(activeCarId).neon || cosmetics.neon),
     });
+  }
+
+  /** Visually showcase any car in the 3D Garage (including locked ones) without equipping it to drive. */
+  previewGarageCar(carId) {
+    if (!carId || !this.game.car) return;
+    this.applyLook(this.game.car, carId);
   }
 
   // ------------------------------------------------------------------ leaderboard
 
   async loadLeaderboard(modeId) {
     const { hud } = this;
-    // Only tracks this map ranks (no Nag Tibba board on Alpine); the server ranks the same set.
     if (!MODES.some((mode) => mode.id === modeId) || modeId === 'roam' || !medalTargets(this.trackKey(modeId))) return;
     hud.setLeaderboard(modeId, { status: 'loading', entries: [] });
     try {
@@ -272,7 +402,6 @@ export class MetaLayer {
     }
   }
 
-  /** Without a leaderboard service: this browser's best on the event, if any (game.records is this map's). */
   localBoard(modeId) {
     const record = this.game.records[modeId];
     const profile = this.career.profile;
@@ -290,6 +419,10 @@ export class MetaLayer {
   }
 
   async raceLeaderboardGhost(modeId, playerId) {
+    if (this.career.isFeatureUnlocked && !this.career.isFeatureUnlocked('ghosts')) {
+      this.hud.toast('Ghost Rivals unlock at Level 2', 'info');
+      return;
+    }
     let data = null;
     const key = this.trackKey(modeId);
     if (playerId === this.career.profile.id) {
@@ -316,29 +449,39 @@ export class MetaLayer {
   beginRun(modeId, timeOfDay) {
     this.timeOfDay = timeOfDay;
     if (this.career.run) this.career.abandonRun();
-    this.career.beginRun({ modeId, timeOfDay });
+    this.career.beginRun({
+      modeId,
+      timeOfDay,
+      carId: this.career.activeCarId?.() || this.career.profile.cosmetics?.car,
+      settings: this.game.settings,
+    });
     this.recorder.discard();
     const profile = this.career.profile;
     const key = this.trackKey(modeId);
     if (modeId !== 'roam') this.recorder.start(key, profile.name, profile.cosmetics.paint);
 
-    // Race a chosen leaderboard ghost, otherwise your own best on this event.
+    const ghostsUnlocked = this.career.isFeatureUnlocked ? this.career.isFeatureUnlocked('ghosts') : true;
     let choice = this.pendingGhost && this.pendingGhost.data.modeId === key ? this.pendingGhost : null;
     this.pendingGhost = null;
-    if (!choice && modeId !== 'roam') {
+    if (!choice && modeId !== 'roam' && ghostsUnlocked) {
       const data = loadLocalGhost(key);
       if (data) choice = { data, kind: 'pb', playerId: profile.id };
     }
-    this.setGhost(choice);
+    if (!ghostsUnlocked) choice = null;
+    this.setGhost(choice, modeId);
   }
 
-  setGhost(choice) {
+  setGhost(choice, modeId = null) {
     this.ghost = choice ? { ...choice, player: new GhostPlayer(choice.data) } : null;
+    this.ghostDelta = null;
     if (!this.ghost) {
+      this.ghostSplitTable = null;
       this.ghostCar?.setVisible(false);
       this.hud.setGhost(null);
       return;
     }
+    const mode = modeId ? getMode(modeId) : this.game.mode;
+    this.ghostSplitTable = buildGhostSplitTable(this.ghost.data, this.game.world, mode);
     const data = this.ghost.data;
     const label = this.ghost.kind === 'pb' ? 'Your best' : data.name || 'Ghost';
     if (!this.ghostCar) {
@@ -352,11 +495,16 @@ export class MetaLayer {
     this.hud.setGhost({ name: label, kind: this.ghost.kind, visible: this.ghostVisible });
   }
 
-  /** Every frame of a running event. `elapsed` is the race clock (0 at the start line). */
-  frame(dt, state, drift, elapsed, camera) {
+  frame(dt, state, drift, elapsed, camera, sessionHud = null) {
     this.career.trackFrame(dt, state, drift);
     if (this.recorder.active) this.recorder.sample(elapsed, state);
     this.updateGhost(elapsed, camera, state.position);
+    if (this.ghostSplitTable && sessionHud && elapsed > 0.2 && Number.isFinite(sessionHud.progress)) {
+      const ghostTime = ghostTimeAtProgress(this.ghostSplitTable, sessionHud.progress);
+      this.ghostDelta = ghostTime !== null ? elapsed - ghostTime : null;
+    } else {
+      this.ghostDelta = null;
+    }
     this.flushEvents();
   }
 
@@ -368,7 +516,6 @@ export class MetaLayer {
     this.ghostCar.update(camera, focus);
   }
 
-  /** Countdown and menus: keep the ghost parked on the start line and its label facing the camera. */
   idle(camera, focus) {
     if (this.ghost && this.ghostCar) this.updateGhost(0, camera, focus);
     this.flushEvents();
@@ -389,24 +536,38 @@ export class MetaLayer {
     if (this.recorder.active) this.recorder.markTeleport(elapsed, state);
   }
 
-  /**
-   * A run reached the finish. Returns the RewardSummary for the results screen.
-   * @param {import('../core/contracts.js').RunResult} result
-   */
   finish(result) {
     const modeId = result.modeId;
     const beatGhost = this.ghost?.kind === 'leaderboard' && (modeId === 'drift' ? result.score > this.ghost.data.score : result.time < this.ghost.data.time);
     if (beatGhost) this.career.onBeatGhost();
-    const rewards = this.career.finishRun(result);
+    const rewards = this.career.finishRun(result, { settings: this.game.settings, carId: this.game.carId });
+    if (rewards) rewards.upNext = this.upNext(modeId);
     const ghost = this.recorder.active ? this.recorder.finish(result.time, result.score) : null;
     if (ghost && result.isRecord) {
       saveLocalGhost(this.trackKey(modeId), ghost);
       this.submit(modeId, result, ghost);
     }
+    if (rewards?.trialEnded || this.career.clearTrialCar()) {
+      this.applyLook(this.game.car);
+      this.syncNetProfile();
+    }
     this.hideGhost();
     this.flushEvents();
     this.refreshAll();
     return rewards;
+  }
+
+  consumeTrial() {
+    if (this.career.clearTrialCar()) {
+      this.applyLook(this.game.car);
+      this.syncNetProfile();
+    }
+  }
+
+  upNext(modeId) {
+    const nextId = this.career.nextEvent(modeId);
+    const mode = nextId ? this.game.modes?.find((entry) => entry.id === nextId) : null;
+    return { modeId: mode ? mode.id : null, modeLabel: mode?.label || null, daily: this.career.daily(), unlock: this.career.nextUnlock() };
   }
 
   async submit(modeId, result, ghost) {
@@ -421,10 +582,13 @@ export class MetaLayer {
     }
   }
 
-  /** Leaving a run without finishing (menu, restart, free roam). */
   leaveRun() {
-    if (this.career.run) this.career.abandonRun();
+    const summary = this.career.run ? this.career.abandonRun() : null;
     this.recorder.discard();
+    if (summary?.trialEnded || this.career.clearTrialCar()) {
+      this.applyLook(this.game.car);
+      this.syncNetProfile();
+    }
     this.hideGhost();
     this.flushEvents();
     this.refreshAll();
@@ -432,6 +596,8 @@ export class MetaLayer {
 
   hideGhost() {
     this.ghost = null;
+    this.ghostSplitTable = null;
+    this.ghostDelta = null;
     this.ghostCar?.setVisible(false);
     this.hud.setGhost(null);
   }

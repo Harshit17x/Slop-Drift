@@ -180,6 +180,7 @@ export class Effects {
     scene.add(this.group);
     this.intensity = 1;
     this.time = 0;
+    this.smokeColor = [0.9, 0.9, 0.91];
 
     // --- particles
     this.positions = new Float32Array(MAX_PARTICLES * 3);
@@ -323,6 +324,15 @@ export class Effects {
     this.particleMaterial.uniforms.uLight.value.copy(color);
   }
 
+  /** Set RGB [0..1, 0..1, 0..1] tint for tyre smoke and wisp particles. */
+  setSmokeColor(rgb) {
+    if (Array.isArray(rgb) && rgb.length >= 3) {
+      this.smokeColor = [clamp(rgb[0], 0, 1), clamp(rgb[1], 0, 1), clamp(rgb[2], 0, 1)];
+    } else {
+      this.smokeColor = [0.9, 0.9, 0.91];
+    }
+  }
+
   setViewport(height, fovDegrees) {
     // Converts a world-space diameter into point size in pixels.
     this.particleMaterial.uniforms.uScale.value = height / (2 * Math.tan(THREE.MathUtils.degToRad(fovDegrees) / 2));
@@ -335,15 +345,16 @@ export class Effects {
     this.cursor = (this.cursor + 1) % this.maxParticles;
     if (this.life[i] <= 0) this.particlesAlive += 1;
     const jitter = 0.7 + Math.random() * 0.6;
+    const customSmoke = kind === 'smoke' || kind === 'wisp';
     this.positions[i * 3] = x;
     this.positions[i * 3 + 1] = y;
     this.positions[i * 3 + 2] = z;
     this.velocities[i * 3] = vx + (Math.random() - 0.5) * 1.2;
     this.velocities[i * 3 + 1] = vy + Math.random() * 0.8;
     this.velocities[i * 3 + 2] = vz + (Math.random() - 0.5) * 1.2;
-    this.colors[i * 4] = style[0];
-    this.colors[i * 4 + 1] = style[1];
-    this.colors[i * 4 + 2] = style[2];
+    this.colors[i * 4] = customSmoke ? this.smokeColor[0] : style[0];
+    this.colors[i * 4 + 1] = customSmoke ? this.smokeColor[1] : style[1];
+    this.colors[i * 4 + 2] = customSmoke ? this.smokeColor[2] : style[2];
     this.colors[i * 4 + 3] = 0;
     this.baseAlpha[i] = Math.min(0.98, style[3] * jitter);
     this.sizes[i] = style[4] * scale * jitter;

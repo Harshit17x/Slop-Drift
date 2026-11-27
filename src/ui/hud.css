@@ -1009,7 +1009,8 @@ span.sdh-icon-sm { width: 2.2em; }
 .sdh-cos { display: flex; flex-direction: column; align-items: center; gap: 0.2em; padding: 0.5em 0.3em 0.35em; border: 2px solid rgba(244, 241, 232, 0.45); border-radius: var(--r); background: none; color: var(--chalk); cursor: pointer; text-align: center; }
 .sdh-cos:hover { border-color: var(--chalk); }
 .sdh-cos-swatch { display: grid; place-items: center; width: 2.6em; height: 2.6em; border: var(--line) solid var(--rim); border-radius: 50%; background: var(--c); box-shadow: var(--hard-sm); }
-.sdh-cos-swatch.is-skin { position: relative; width: 100%; height: 3.1em; border-radius: var(--r); background-color: var(--c); background-size: cover; background-position: center; overflow: hidden; }
+.sdh-cos-swatch.is-skin { position: relative; width: 100%; height: 3.4em; border-radius: var(--r); background-color: var(--c); background-size: cover; background-position: center; overflow: hidden; }
+.sdh-cos-tag { position: absolute; right: 0.28em; bottom: 0.24em; font-style: normal; font-size: 0.62em; font-weight: 800; letter-spacing: 0.08em; line-height: 1; padding: 0.2em 0.36em; border-radius: 2px; background: rgba(11, 13, 18, 0.84); color: var(--chalk); border: 1px solid rgba(244, 241, 232, 0.28); pointer-events: none; }
 .sdh-cos-swatch.is-rim { background: var(--c); box-shadow: inset 0 0 0 0.55em var(--ink), inset 0 0 0 0.7em var(--c), 2px 2px 0 var(--ink); }
 .sdh-cos-swatch.is-neon { border-radius: var(--r); width: 3.2em; height: 1.5em; margin: 0.55em 0; background: var(--ink); box-shadow: inset 0 -0.35em 0 var(--c), 2px 2px 0 var(--ink); }
 .sdh-cos-swatch.is-neon.is-rainbow { box-shadow: var(--hard-sm); background: linear-gradient(var(--ink) 0 62%, transparent 62%), linear-gradient(90deg, #ff2424 0 17%, #ffa014 0 34%, #6dff2e 0 50%, #18e0ff 0 67%, #8443ff 0 84%, #ff2bd0 0); }
@@ -1141,6 +1142,13 @@ span.sdh-icon-sm { width: 2.2em; }
 .sdh-daily-done { display: flex; align-items: center; gap: 0.5em; padding: 0.4em 0.7em 0.3em; border: var(--line) solid var(--rim); background: var(--marigold); font-weight: 700; }
 .sdh-daily-done .sdh-streak { margin-left: auto; color: var(--truck-red); }
 .sdh-finish-foot { margin-top: auto; }
+.sdh-upnext { list-style: none; margin: 0 0 0.8em; padding: 0; display: grid; gap: 0.35em; }
+.sdh-upnext-row { display: flex; align-items: center; gap: 0.6em; width: 100%; padding: 0.4em 0.6em 0.3em; border: var(--line) solid var(--rim); background: transparent; color: inherit; font: inherit; text-align: left; }
+button.sdh-upnext-row { cursor: pointer; background: var(--marigold); }
+button.sdh-upnext-row:hover, button.sdh-upnext-row:focus-visible { outline: 3px solid var(--rim); outline-offset: -1px; }
+.sdh-upnext-row .sdh-ico { width: 1.3em; height: 1.3em; flex: none; }
+.sdh-upnext-row span { display: grid; gap: 0.1em; }
+.sdh-upnext-row small { font-size: 0.85em; opacity: 0.85; }
 .sdh-finish-foot [hidden] { display: none; }
 
 /* First-run name dialog: a signboard */
@@ -2844,7 +2852,7 @@ span.sdh-icon-sm { width: 2.2em; }
   .sdh-garage-main { display: flex; flex: 1 1 auto; min-height: 0; align-items: stretch; }
   .sdh-garage-stage { flex: 1 1 auto; min-height: 0; max-height: none; order: 0; }
   .sdh-garage-inspect { display: none; }
-  .sdh-garage-left:has(> .sdh-garage-custom[hidden]) { display: none; }
+  .sdh-garage-left:has(> .sdh-garage-custom[hidden]):has(> .sdh-garage-upgrades[hidden]) { display: none; }
   .sdh-garage-left { width: min(20em, 48vw); max-height: 100%; min-height: 0; overflow: hidden; padding: 0.55em 0.7em; }
   .sdh-garage-custom { max-height: 100%; min-height: 0; }
   .sdh-garage-right { flex-direction: column; align-items: stretch; justify-content: flex-end; }
@@ -2904,3 +2912,110 @@ span.sdh-icon-sm { width: 2.2em; }
 .sdh-fav-btn [data-g="favLabel"] { display: none; }
 .sdh-fav-btn { align-self: flex-start; padding: 0.35em; border-radius: 50%; }
 .sdh-stage-hint { opacity: 0.6; }
+
+/* ------------------------------------------------------------------ Credits, Upgrades, Locks & Live Style HUD */
+
+.sdh-hub-credits { color: var(--marigold); }
+.sdh-hub-credits small { font-size: 0.72em; font-weight: 700; letter-spacing: 0.08em; opacity: 0.85; }
+
+.sdh-car-lock-note {
+  padding: 0.3em 0.55em 0.22em;
+  border: var(--line) solid var(--rim);
+  background: rgba(200, 50, 30, 0.28);
+  color: var(--chalk);
+  font-size: 0.82em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.sdh-car-lock-note.is-trial { background: rgba(46, 211, 183, 0.24); border-color: var(--signal-green); color: #b7ffea; }
+
+.sdh-car-card.is-locked .sdh-car-card-img { filter: brightness(0.42) saturate(0.45); }
+.sdh-car-card-eq.is-lock { background: var(--board); color: var(--chalk); border-color: rgba(244, 241, 232, 0.5); }
+
+.sdh-forza-region.is-locked .sdh-forza-region-img { filter: brightness(0.48) saturate(0.4); }
+.sdh-forza-region-badge.is-locked { background: var(--board); color: var(--marigold); border-color: var(--marigold); }
+.sdh-map-go:disabled { opacity: 0.55; cursor: not-allowed; filter: grayscale(0.4); }
+
+.sdh-garage-upgrades { display: flex; flex-direction: column; gap: 0.55em; min-height: 0; }
+.sdh-upgrades-cr { padding: 0.14em 0.5em 0.08em; border: var(--line) solid var(--rim); background: var(--marigold); color: var(--ink); font-size: 0.86em; font-weight: 700; }
+.sdh-upgrades-list { display: flex; flex-direction: column; gap: 0.45em; }
+.sdh-upg-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 0.15em 0.55em;
+  padding: 0.42em 0.55em;
+  border: 2px solid rgba(244, 241, 232, 0.25);
+  border-radius: var(--r);
+  background: rgba(12, 12, 14, 0.48);
+}
+.sdh-upg-row.is-max { border-color: var(--signal-green); }
+.sdh-upg-head { display: flex; align-items: center; gap: 0.55em; min-width: 0; }
+.sdh-upg-head b { font-size: 0.92em; letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sdh-upg-pips { display: inline-flex; gap: 0.2em; margin-left: auto; }
+.sdh-upg-pips i { width: 0.85em; height: 0.32em; background: rgba(244, 241, 232, 0.22); }
+.sdh-upg-pips i.is-on { background: var(--marigold); }
+.sdh-upg-row.is-max .sdh-upg-pips i.is-on { background: var(--signal-green); }
+.sdh-upg-desc { grid-column: 1; font-size: 0.78em; opacity: 0.82; line-height: 1.2; }
+.sdh-upg-btn { grid-column: 2; grid-row: 1 / 3; align-self: center; min-width: 5.5em; justify-content: center; }
+.sdh-upg-btn.is-buy { border-color: var(--ink); background: var(--marigold); color: var(--ink); }
+.sdh-upg-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.sdh-upgrade-locked { padding: 0.8em; border: 2px dashed rgba(244, 241, 232, 0.35); font-size: 0.9em; line-height: 1.35; opacity: 0.9; }
+
+.sdh-cos-swatch.is-smoke {
+  background: radial-gradient(circle at 38% 38%, #ffffff 0%, var(--c) 45%, rgba(20, 17, 13, 0.55) 100%);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--c) 65%, transparent), var(--hard-sm);
+}
+
+.sdh-cr-total { font-size: 1.35em; color: var(--deodar); margin-right: 0.2em; }
+.sdh-btn-bonus { background: var(--signal-green-ink); color: var(--chalk); border-color: var(--ink); }
+
+.sdh-ghost-delta {
+  display: none;
+  align-items: baseline;
+  gap: 0.45em;
+  margin-top: 0.22em;
+  padding: 0.14em 0.55em 0.08em;
+  border-radius: var(--r);
+  background: rgba(12, 12, 14, 0.72);
+  border-left: 3px solid var(--chalk);
+}
+.sdh-ghost-delta.is-on { display: inline-flex; }
+.sdh-ghost-delta .sdh-k { font-size: 0.72em; letter-spacing: 0.12em; opacity: 0.8; }
+.sdh-ghost-delta-v { font-size: 1.35em; line-height: 1; }
+.sdh-ghost-delta.is-ahead { border-left-color: var(--signal-green); color: #7dffb8; }
+.sdh-ghost-delta.is-behind { border-left-color: var(--truck-red); color: #ff8b7b; }
+
+.sdh-drift-style {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.45em;
+  margin-bottom: 0.2em;
+  padding: 0.16em 0.65em 0.1em;
+  background: var(--marigold);
+  color: var(--ink);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transform: skewX(-12deg) scale(0.8);
+  opacity: 0;
+  transition: opacity 0.16s ease, transform 0.2s var(--snap);
+  pointer-events: none;
+}
+.sdh-drift-style[data-kind="wallTap"] { background: #ff4f3b; color: var(--chalk); }
+.sdh-drift-style[data-kind="backward"] { background: #22e8ff; color: var(--ink); }
+.sdh-drift-style[data-kind="clip"] { background: #ff3cb4; color: var(--chalk); }
+.sdh-drift-style em { font-style: normal; font-family: var(--font-num); font-size: 1.25em; }
+.sdh-drift-style.is-on { opacity: 1; transform: skewX(-12deg) scale(1); }
+
+.sdh-speedfx {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(ellipse at 50% 54%, transparent 56%, rgba(255, 255, 255, 0.08) 88%, rgba(242, 176, 30, 0.16) 100%);
+  transition: opacity 0.3s ease;
+}
+.sdh-race.is-fast .sdh-speedfx { opacity: 1; }

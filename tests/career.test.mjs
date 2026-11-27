@@ -1,12 +1,15 @@
 // Career (progression) tests: node tests/career.test.mjs
 import { Career, formatTarget, sanitizeName } from '../src/meta/Career.js';
 import {
-  ACHIEVEMENTS, MEDAL_TARGETS, MUSSOORIE_MEDAL_TARGETS, TRACK_MEDAL_TARGETS, UNLOCKS, XP, levelForXp, medalTargets, xpForLevel,
+  ACHIEVEMENTS, CAR_UNLOCKS, CREDITS, FEATURE_UNLOCKS, MAP_UNLOCKS, MEDAL_TARGETS,
+  MUSSOORIE_MEDAL_TARGETS, TRACK_MEDAL_TARGETS, UNLOCKS, XP, levelForXp, medalTargets, xpForLevel,
 } from '../src/meta/catalog.js';
 import { trackKey, parseTrackKey, modeOfTrack } from '../src/meta/trackKey.js';
 import { MAPS } from '../src/world/maps.js';
-import { PAINT_OPTIONS, MODES } from '../src/config.js';
-import { CARS } from '../src/vehicle/cars.js';
+import { PAINT_OPTIONS, SMOKE_OPTIONS, MODES } from '../src/config.js';
+import { CARS, getCar } from '../src/vehicle/cars.js';
+import { applyCarUpgrades, effectiveCarRatings, effectiveClassInfo, hasCarNitro } from '../src/vehicle/upgradeTuning.js';
+import { DriftScorer } from '../src/vehicle/DriftScorer.js';
 
 let failures = 0;
 let passes = 0;
@@ -32,20 +35,22 @@ check('xp curve starts at level 1 with 0 xp', xpForLevel(1) === 0 && levelForXp(
 check('xp curve is increasing', [2, 3, 4, 5, 10, 20].every((l) => xpForLevel(l + 1) > xpForLevel(l)));
 check('levelForXp inverts xpForLevel', [2, 5, 9, 17].every((l) => levelForXp(xpForLevel(l)) === l && levelForXp(xpForLevel(l) - 1) === l - 1));
 check('every paint unlock has a paint colour', UNLOCKS.filter((u) => u.slot === 'paint').every((u) => PAINT_OPTIONS.some((p) => p.id === u.value)));
+check('every smoke unlock has a smoke colour', UNLOCKS.filter((u) => u.slot === 'smoke').every((u) => SMOKE_OPTIONS.some((s) => s.id === u.value)));
 check('every achievement unlock requirement exists', UNLOCKS.filter((u) => u.requires.achievement).every((u) => ACHIEVEMENTS.some((a) => a.id === u.requires.achievement)));
 check('medal targets are ordered', Object.values(MEDAL_TARGETS).every((t) => (t.kind === 'time' ? t.bronze > t.silver && t.silver > t.gold && t.gold > t.author : t.bronze < t.silver && t.silver < t.gold && t.gold < t.author)));
 check('achievement ids are unique', new Set(ACHIEVEMENTS.map((a) => a.id)).size === ACHIEVEMENTS.length);
+check('every car and map has an unlock rule', CARS.every((c) => Boolean(CAR_UNLOCKS[c.id])) && Object.keys(MAPS).every((id) => Boolean(MAP_UNLOCKS[id])));
 
 // --- names
 check('sanitizeName keeps a valid name', sanitizeName('  Harsh  Drift ') === 'Harsh Drift');
 check('sanitizeName rejects junk', sanitizeName('<script>') === null && sanitizeName('a') === null);
 check('formatTarget', formatTarget('time', 168) === '2:48.0' && formatTarget('score', 8000) === '8,000');
 
-// --- profile persistence
+// --- profile persistence & legacy migration
 const storage = memoryStorage();
 let career = new Career({ storage, now });
 const id = career.profile.id;
-check('new profile is saved', storage.map.size === 1);
+check('new profile is saved with starter credits', storage.map.size === 1 && career.credits === CREDITS.starter);
 check('new profile needs a name', career.needsName);
 check('rename works', career.setName('Harsh') === 'Harsh' && !career.needsName);
 career = new Career({ storage, now });
@@ -53,17 +58,23 @@ check('profile reloads with the same id and name', career.profile.id === id && c
 const damaged = memoryStorage();
 damaged.setItem('slop-drift-profile-v1', '{"xp":-5,"medals":{"sprint":"platinum"},"name":"<b>"}');
 const repaired = new Career({ storage: damaged, now });
-check('damaged save is repaired', repaired.profile.xp === 0 && !repaired.profile.medals.sprint && repaired.profile.name.startsWith('Driver'));
+check('damaged save is repaired', repaired.profile.xp === 0 && !repaired.profile.medals.sprint && repaired.profile.name.startsWith('Driver') && repaired.credits === CREDITS.starter);
 damaged.setItem('slop-drift-profile-v1', 'not json');
 check('garbage save starts fresh', new Career({ storage: damaged, now }).profile.xp === 0);
 check('no storage still works', new Career({ storage: null, now }).level === 1);
 
-// --- distance xp and level up mid-run
+const legacy = memoryStorage();
+legacy.setItem('slop-drift-profile-v1', JSON.stringify({ xp: 1000, medals: { 'tokyo.sprint': 'silver' }, cosmetics: { car: 'tokyo' } }));
+const migrated = new Career({ storage: legacy, now });
+check('legacy save receives retroactive credits and keeps car/map access', migrated.credits > CREDITS.starter && migrated.isCarUnlocked('tokyo') && migrated.isMapUnlocked('tokyo'));
+
+// --- distance xp/credits and level up mid-run
 career = new Career({ storage: memoryStorage(), now });
 career.beginRun({ modeId: 'roam' });
 for (let i = 0; i < 60 * 60 * 10; i += 1) career.trackFrame(1 / 60, state(30), noDrift); // 10 min at 30 m/s = 18 km
 const distanceXp = Math.round(18 * XP.perKm);
 check('distance xp is paid while driving', Math.abs(career.profile.xp - distanceXp) <= 2, `${career.profile.xp} vs ${distanceXp}`);
+check('distance credits are paid while driving', career.credits > CREDITS.starter);
 const midRun = career.drainEvents();
 check('level up announced mid-run', midRun.some((e) => e.type === 'levelUp'), midRun.map((e) => e.type).join(','));
 check('level unlocks announced', midRun.some((e) => e.type === 'unlock'));
@@ -86,8 +97,8 @@ let summary = career.finishRun(result('climb', { time: t.gold - 0.5, isRecord: t
 check('first run straight to gold pays bronze+silver+gold', summary.lines.find((l) => l.label === 'Gold medal')?.xp === XP.medal.bronze + XP.medal.silver + XP.medal.gold);
 check('medal is new', summary.medal.tier === 'gold' && summary.medal.isNew);
 check('next medal is author', summary.medal.next?.tier === 'author');
-check('finish and pb xp', summary.lines.some((l) => l.label === 'Finish') && summary.lines.some((l) => l.label === 'Personal best'));
-check('achievements: finish, summit, clean, first gold', ['first-finish', 'summit', 'first-gold'].every((a) => summary.achievements.some((x) => x.id === a)), summary.achievements.map((a) => a.id).join(','));
+check('finish and pb xp and credits', summary.lines.some((l) => l.label === 'Finish') && summary.lines.some((l) => l.label === 'Personal best') && summary.creditsGained > 0);
+check('achievements: finish, summit, underdog, first gold', ['first-finish', 'summit', 'first-gold', 'underdog'].every((a) => summary.achievements.some((x) => x.id === a)), summary.achievements.map((a) => a.id).join(','));
 check('summary xp matches profile delta', summary.after.xp - summary.before.xp === summary.xpGained, `${summary.after.xp - summary.before.xp} vs ${summary.xpGained}`);
 career.beginRun({ modeId: 'climb' });
 summary = career.finishRun(result('climb', { time: t.gold - 0.2 }));
@@ -104,56 +115,119 @@ career.finishRun(result('climb', { time: MEDAL_TARGETS.climb.gold - 0.5, isRecor
 const unlockTitles = career.drainEvents().filter((e) => e.type === 'unlock').map((e) => e.title);
 check('no duplicate unlock notifications', unlockTitles.length === new Set(unlockTitles).size && unlockTitles.length > 0, unlockTitles.join(', '));
 
-// --- medal-count unlocks and all-gold
+// --- medal-count unlocks and all-gold / alpine-silver / purist-gold
 career = new Career({ storage: memoryStorage(), now });
 const before = career.unlockedIds();
 for (const modeId of ['sprint', 'circuit', 'climb']) {
   career.beginRun({ modeId });
   career.finishRun(result(modeId, { time: MEDAL_TARGETS[modeId].gold - 0.1 }));
 }
-check('3 golds unlock Sunburst', career.unlockedIds().has('paint:sunburst') && !before.has('paint:sunburst'));
+check('3 golds unlock Sunburst and Crimson smoke', career.unlockedIds().has('paint:sunburst') && career.unlockedIds().has('smoke:crimson') && !before.has('paint:sunburst'));
 for (const modeId of ['descent']) {
   career.beginRun({ modeId });
   career.finishRun(result(modeId, { time: MEDAL_TARGETS[modeId].gold - 0.1 }));
 }
-career.beginRun({ modeId: 'drift' });
+career.beginRun({ modeId: 'drift', settings: { handling: 'Sim', transmission: 'manual', abs: false, driftAssist: 0 } });
 summary = career.finishRun(result('drift', { time: 120, score: MEDAL_TARGETS.drift.gold + 10 }));
-check('gold everywhere unlocks Mountain Master', Boolean(career.profile.achievements['all-gold']));
+check('gold everywhere unlocks Mountain Master and Alpine Specialist', Boolean(career.profile.achievements['all-gold']) && Boolean(career.profile.achievements['alpine-silver']));
+check('Zero-Assist Purist achievement triggers on Sim+Manual+NoABS+0 assist gold', Boolean(career.profile.achievements['purist-gold']));
 check('Mountain Master unlocks Obsidian', career.unlockedIds().has('paint:obsidian'));
 check('5 golds unlock gold rims', career.unlockedIds().has('rim:gold'));
 
-// --- cosmetics
+// --- car/map/feature locks, early unlock, trial car, and upgrades
+career = new Career({ storage: memoryStorage(), now });
+check('only Rally Hatch and Mussoorie unlocked at Level 1', career.isCarUnlocked('hatch') && !career.isCarUnlocked('thar') && !career.isCarUnlocked('gt') && career.isMapUnlocked('mussoorie') && !career.isMapUnlocked('tokyo'));
+check('features locked at Level 1 and unlock as driver levels up', !career.isFeatureUnlocked('ghosts') && !career.isFeatureUnlocked('smoke') && FEATURE_UNLOCKS.length >= 6);
+check('cannot pick locked car directly', career.setCosmetic('car', 'gt') === false && career.activeCarId() === 'hatch');
+career.beginRun({ modeId: 'sprint' });
+check('1-run trial car temporarily equips locked car and clears on finish', career.startTrialCar('gt') && career.activeCarId() === 'gt' && career.finishRun(result('sprint', { time: 200 })) && career.activeCarId() === 'hatch');
+
+const freshEarly = new Career({ storage: memoryStorage(), now });
+freshEarly.addCredits(300, 'Test');
+const early = freshEarly.buyCarEarly('thar');
+check('early unlock buys locked car with credits', early.ok && freshEarly.isCarUnlocked('thar') && freshEarly.profile.cosmetics.car === 'thar');
+
+const upg1 = career.buyUpgrade('hatch', 'engine');
+check('stage 1 engine upgrade installs at Level 1 and unlocks First Wrench', upg1.ok && career.carUpgrades('hatch').engine === 1 && Boolean(career.profile.achievements['first-upgrade']));
+check('stage 2 engine upgrade blocked below level 4', career.buyUpgrade('hatch', 'engine').reason === 'level-locked');
+career.addXp(xpForLevel(12));
+career.addCredits(10000);
+check('all cars unlocked at level 12', CARS.every((car) => career.isCarUnlocked(car.id) && career.setCosmetic('car', car.id)));
+for (const slot of ['engine', 'tires', 'nitro', 'chassis']) {
+  while (career.canBuyUpgrade('gt', slot).ok) career.buyUpgrade('gt', slot);
+}
+check('maxing all slots unlocks Full Build and equips nitro on GT3', Boolean(career.profile.achievements['max-tune']) && hasCarNitro(getCar('gt'), career.carUpgrades('gt')));
+const gtTuned = applyCarUpgrades(getCar('gt'), career.carUpgrades('gt'));
+check('upgrades boost physics torque, grip, mass and ratings', gtTuned.drivetrain.peakTorque > getCar('gt').tuning.drivetrain.peakTorque
+  && gtTuned.tire.mu > getCar('gt').tuning.tire.mu
+  && gtTuned.mass < getCar('gt').tuning.mass
+  && effectiveClassInfo(getCar('gt'), career.carUpgrades('gt')).rank > getCar('gt').classRank
+  && effectiveCarRatings(getCar('gt'), career.carUpgrades('gt')).acceleration > getCar('gt').ratings.acceleration);
+
+// --- cosmetics & smoke
 career = new Career({ storage: memoryStorage(), now });
 check('cannot pick a locked paint', career.setCosmetic('paint', 'midnight') === false && career.profile.cosmetics.paint === 'pearl');
 check('can pick a free paint', career.setCosmetic('paint', 'ember') === true && career.profile.cosmetics.paint === 'ember');
 check('custom number locked at level 1', career.setCosmetic('number', '9') === false);
 career.addXp(xpForLevel(5));
 check('custom number after level 5', career.setCosmetic('number', '9x9') === true && career.profile.cosmetics.number === '99');
+check('smoke color locked at Lv1, unlocks by Lv5', career.setCosmetic('smoke', 'cyan') === true && career.profile.cosmetics.smoke === 'cyan');
 check('silver rims always allowed', career.setCosmetic('rim', 'silver'));
 const garage = career.garage();
-check('garage lists every unlock plus silver rims and no neon', garage.items.length === UNLOCKS.length + 2 + CARS.length && garage.items.some((i) => i.id === 'rim:silver') && garage.items.some((i) => i.id === 'neon:off'));
+check('garage lists every unlock plus silver rims, no neon, white smoke and cars', garage.items.length === UNLOCKS.length + 3 + CARS.length
+  && garage.items.some((i) => i.id === 'rim:silver') && garage.items.some((i) => i.id === 'neon:off') && garage.items.some((i) => i.id === 'smoke:white'));
 check('neon is off by default and always switchable off', garage.selected.neon === 'off' && career.setCosmetic('neon', 'off'));
 check('cyan neon fits at level 5', career.setCosmetic('neon', 'cyan') && career.profile.cosmetics.neon === 'cyan');
 check('ice neon locked until level 12', career.setCosmetic('neon', 'ice') === false && career.profile.cosmetics.neon === 'cyan');
 check('rainbow neon needs the night achievement', career.setCosmetic('neon', 'rainbow') === false);
 check('unknown neon rejected', career.setCosmetic('neon', 'plaid') === false);
 check('rally hatch is the default car', garage.selected.car === 'hatch');
-check('every car can be picked', CARS.every((car) => career.setCosmetic('car', car.id)) && career.profile.cosmetics.car === CARS.at(-1).id);
-check('unknown car rejected', career.setCosmetic('car', 'tank') === false && career.profile.cosmetics.car === CARS.at(-1).id);
+check('unknown car rejected', career.setCosmetic('car', 'tank') === false);
 check('favorite car toggles and persists', career.toggleFavoriteCar('gt') === true && career.garage().favorites.includes('gt') && career.toggleFavoriteCar('gt') === false && !career.garage().favorites.includes('gt'));
 check('unknown favorite car rejected', career.toggleFavoriteCar('tank') === false);
 check('garage locked items explain why', garage.items.filter((i) => !i.unlocked).every((i) => i.requirement.length > 0));
 
-// --- drifting and air
+// --- drifting, style events and air
 career = new Career({ storage: memoryStorage(), now });
 career.beginRun({ modeId: 'drift' });
+career.trackFrame(1 / 60, state(25), { active: true, event: null, lastDriftScore: 0, multiplier: 2, styleEvent: { kind: 'wallTap', label: 'WALL TAP', bonus: 180 } });
+career.trackFrame(1 / 60, state(25), { active: true, event: null, lastDriftScore: 0, multiplier: 2, styleEvent: { kind: 'backward', label: 'REVERSE ENTRY', bonus: 120 } });
 career.trackFrame(1 / 60, state(25), { active: false, event: 'drift_end', lastDriftScore: 1200, multiplier: 5 });
-check('drift achievements', ['first-drift', 'combo-1k', 'multiplier-5'].every((a) => career.profile.achievements[a]));
+check('drift and style achievements', ['first-drift', 'combo-1k', 'multiplier-5', 'wall-tap', 'backward-entry'].every((a) => career.profile.achievements[a]));
 check('drift xp', career.run.lines.get('Drifting') === Math.floor(1200 * XP.perDriftPoints));
 for (let i = 0; i < 70; i += 1) career.trackFrame(1 / 60, state(25, 0), noDrift);
 check('airtime achievement after a second airborne', Boolean(career.profile.achievements.air));
 
-// --- daily challenge
+// --- DriftScorer wall tap & reverse entry detection
+{
+  const scorer = new DriftScorer();
+  const s = (angDeg, speed = 26, scrape = 0) => {
+    const r = (angDeg * Math.PI) / 180;
+    return {
+      velocity: { x: Math.sin(r) * speed, z: -Math.cos(r) * speed },
+      forward: { x: 0, z: -1 },
+      right: { x: 1, z: 0 },
+      steerAngle: -0.35,
+      handbrake: true,
+      surface: 0,
+      airborne: false,
+      upsideDown: false,
+      impact: 0,
+      scrape,
+    };
+  };
+  for (let i = 0; i < 15; i += 1) scorer.update(1 / 60, s(32, 26), { handbrake: true, steer: -0.5 });
+  let backwardStyle = null;
+  for (let i = 0; i < 8; i += 1) {
+    const snap = scorer.update(1 / 60, s(58, 26), { handbrake: true, steer: -0.5 });
+    if (snap.styleEvent?.kind === 'backward') backwardStyle = snap.styleEvent;
+  }
+  check('DriftScorer fires Reverse Entry on deep high-speed slip', backwardStyle?.kind === 'backward');
+  const tap = scorer.update(1 / 60, s(35, 24, 4.5), { handbrake: true, steer: -0.5 });
+  check('DriftScorer fires Wall Tap on gentle barrier scrape', tap.styleEvent?.kind === 'wallTap');
+}
+
+// --- daily challenge & 2x rewarded bonus
 career = new Career({ storage: memoryStorage(), now });
 const daily = career.daily();
 check('daily is deterministic for a date', JSON.stringify(daily) === JSON.stringify(new Career({ storage: memoryStorage(), now }).daily()));
@@ -162,6 +236,9 @@ const passing = daily.kind === 'score' ? { score: daily.target + 1, time: 120 } 
 career.beginRun({ modeId: daily.modeId, timeOfDay: daily.timeOfDay || 'day' });
 summary = career.finishRun(result(daily.modeId, passing));
 check('completing the daily pays out and starts a streak', summary.daily?.completed && summary.daily.streak === 1 && career.daily().done);
+const beforeDbl = career.credits;
+const dbl = career.claimAdDoubleBonus();
+check('2x reward bonus pays once per finished run', dbl && career.credits === beforeDbl + summary.creditsGained && career.claimAdDoubleBonus() === null);
 career.beginRun({ modeId: daily.modeId, timeOfDay: daily.timeOfDay || 'day' });
 summary = career.finishRun(result(daily.modeId, passing));
 check('daily pays only once a day', summary.daily === null);
@@ -191,7 +268,7 @@ check('respawn denies the clean-lap achievement', !career.profile.achievements['
 check('night finish achievement', Boolean(career.profile.achievements['night-run']));
 check('respawn stat', career.profile.stats.respawns === 1);
 
-// --- track keys: progress is per map, Alpine keeps the bare mode ids
+// --- track keys
 check('alpine track key is the bare mode id', trackKey('alpine', 'climb') === 'climb' && trackKey(undefined, 'climb') === 'climb');
 check('other maps are namespaced', trackKey('mussoorie', 'climb') === 'mussoorie.climb');
 check('parseTrackKey inverts trackKey', ['alpine', 'mussoorie'].every((mapId) => MODES.every((m) => {
@@ -200,7 +277,7 @@ check('parseTrackKey inverts trackKey', ['alpine', 'mussoorie'].every((mapId) =>
 })));
 check('modeOfTrack', modeOfTrack('mussoorie.drift') === 'drift' && modeOfTrack('drift') === 'drift');
 check('mussoorie targets are ordered', Object.values(MUSSOORIE_MEDAL_TARGETS).every((t) => (t.kind === 'time' ? t.bronze > t.silver && t.silver > t.gold && t.gold > t.author : t.bronze < t.silver && t.silver < t.gold && t.gold < t.author)));
-check('mussoorie timed targets are quicker than alpine (shorter tracks)', ['sprint', 'circuit', 'climb', 'descent'].every((m) => MUSSOORIE_MEDAL_TARGETS[m].gold < MEDAL_TARGETS[m].gold));
+check('mussoorie timed targets are quicker than alpine', ['sprint', 'circuit', 'climb', 'descent'].every((m) => MUSSOORIE_MEDAL_TARGETS[m].gold < MEDAL_TARGETS[m].gold));
 check('track targets resolve through the track key', medalTargets('sprint') === MEDAL_TARGETS.sprint && medalTargets('mussoorie.sprint') === MUSSOORIE_MEDAL_TARGETS.sprint);
 check('unranked tracks have no targets', medalTargets('roam') === null && medalTargets('mussoorie.roam') === null && medalTargets('toString') === null);
 const expectedTracks = Object.values(MAPS).flatMap(map => MODES

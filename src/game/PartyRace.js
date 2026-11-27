@@ -513,6 +513,7 @@ export class PartyRace {
       // without sessionStorage the player rejoins by hand
     }
     this.hud.toast?.(`This party races on ${MAPS[state.mapId].label}. Driving there…`, 'info');
+    this.meta?.career?.grantMapAccess?.(state.mapId);
     const code = this.code;
     this.leave({ quiet: true });
     this.code = code;

@@ -1,6 +1,5 @@
 // Drift detection and scoring. Reads the vehicle state; never feeds anything back into the physics.
-// Ported from the scoring / combo logic of src/procedural/DriftModel.js (grip, torque and boost
-// side effects removed).
+// Tracks angle quality, side-to-side transitions, reverse-entry slip spikes, and wall taps.
 
 import { SURFACE, SURFACE_PROPS } from '../config.js';
 import { clamp, wrapAngle, DEG2RAD, RAD2DEG } from '../core/math.js';
@@ -26,6 +25,11 @@ export class DriftScorer {
     this.spinTime = options.spinTime ?? 0.3;
     this.idealAngle = (options.idealAngleDeg ?? 38) * DEG2RAD;
     this.angleWidth = (options.angleWidthDeg ?? 26) * DEG2RAD;
+    this.backwardAngle = (options.backwardAngleDeg ?? 52) * DEG2RAD;
+    this.backwardMinSpeed = options.backwardMinSpeed ?? 22;
+    this.backwardBonus = options.backwardBonus ?? 120;
+    this.wallTapBonus = options.wallTapBonus ?? 180;
+    this.wallTapCooldownSeconds = options.wallTapCooldownSeconds ?? 2.5;
     this.confirmTime = options.confirmTime ?? 0.18;
     this.handbrakeConfirmTime = options.handbrakeConfirmTime ?? 0.07;
     this.graceTime = options.graceTime ?? 0.15;
@@ -41,6 +45,7 @@ export class DriftScorer {
       phase: 'idle', active: false, direction: 0, angle: 0, angleDeg: 0, angleRate: 0, driftTime: 0,
       score: 0, bank: 0, lastDriftScore: 0, multiplier: 1, multiplierExact: 1,
       comboTimer: 0, comboWindow: this.comboWindow, quality: 0, event: null,
+      transitions: 0, styleEvent: null,
     };
     this.reset();
   }
@@ -62,7 +67,11 @@ export class DriftScorer {
     this.spinTimer = 0;
     this.driftTime = 0;
     this.lastQuality = 0;
+    this.transitionCount = 0;
+    this.backwardAwarded = false;
+    this.wallTapCooldown = 0;
     this.event = null;
+    this.styleEvent = null;
     return this.snapshot();
   }
 
@@ -92,16 +101,25 @@ export class DriftScorer {
   beginDrift(angle) {
     const dir = Math.sign(angle) || 1;
     if (this.comboTimer > 0 && this.lastDirection !== 0 && dir !== this.lastDirection) {
-      this.bank += Math.round(this.transitionBonus * this.multiplier);
+      const bonus = Math.round(this.transitionBonus * this.multiplier);
+      this.bank += bonus;
       this.multiplier = Math.min(this.maxMultiplier, this.multiplier + 0.5);
+      this.transitionCount += 1;
       this.event = 'transition';
+      this.styleEvent = {
+        kind: 'transition',
+        label: this.transitionCount >= 2 ? `TRANSITION ×${this.transitionCount}` : 'TRANSITION',
+        bonus,
+      };
     } else {
+      this.transitionCount = 0;
       this.event = 'drift_start';
     }
     this.phase = PHASE_DRIFT;
     this.direction = dir;
     this.driftTime = 0;
     this.score = 0;
+    this.backwardAwarded = false;
     this.graceTimer = this.graceTime;
     this.spinTimer = 0;
     this.entryTimer = 0;
@@ -113,6 +131,7 @@ export class DriftScorer {
       this.multiplier = 1;
       this.comboTimer = 0;
       this.lastDirection = 0;
+      this.transitionCount = 0;
       this.event = 'wipeout';
     } else {
       const points = Math.round(this.score * (reason === 'slowed' ? 0.7 : 1));
@@ -128,6 +147,7 @@ export class DriftScorer {
     this.graceTimer = 0;
     this.spinTimer = 0;
     this.entryTimer = 0;
+    this.backwardAwarded = false;
     this.phase = PHASE_IDLE;
   }
 
@@ -139,6 +159,7 @@ export class DriftScorer {
   update(dt, state, controls = null) {
     state = state || {};
     const h = Number.isFinite(dt) ? clamp(dt, 0, 0.1) : 0;
+    if (this.wallTapCooldown > 0) this.wallTapCooldown = Math.max(0, this.wallTapCooldown - h);
     const velocity = state.velocity;
     const speed = velocity ? Math.hypot(finite(velocity.x), finite(velocity.z)) : 0;
     const raw = speed > 1.5 ? finite(this.angleFromState(state)) : 0;
@@ -156,6 +177,7 @@ export class DriftScorer {
     const validSurface = !state.airborne && !state.upsideDown && state.surface !== SURFACE.WATER;
     const crashed = finite(state.impact) >= this.crashImpact;
     this.event = null;
+    this.styleEvent = null;
 
     if (this.phase !== PHASE_DRIFT) {
       const candidate = validSurface && !crashed && speed >= this.minSpeed && abs <= this.maxAngle && (
@@ -196,6 +218,19 @@ export class DriftScorer {
           const brakeFactor = handbrake ? 1.1 : 1;
           this.multiplier = Math.min(this.maxMultiplier, this.multiplier + h * 0.2);
           this.score += h * this.scoreScale * speedFactor * (0.3 + 0.7 * q) * timeFactor * this.multiplier * friction * brakeFactor * inControl;
+
+          const scrape = finite(state.scrape);
+          if (scrape > 0.5 && scrape < 18 && this.wallTapCooldown <= 0) {
+            this.wallTapCooldown = this.wallTapCooldownSeconds;
+            const bonus = Math.round(this.wallTapBonus * Math.max(1, Math.floor(this.multiplier)));
+            this.score += bonus;
+            this.styleEvent = { kind: 'wallTap', label: 'WALL TAP', bonus };
+          } else if (!this.backwardAwarded && abs >= this.backwardAngle && abs <= this.spinAngle && speed >= this.backwardMinSpeed) {
+            this.backwardAwarded = true;
+            const bonus = Math.round(this.backwardBonus * Math.max(1, Math.floor(this.multiplier)));
+            this.score += bonus;
+            this.styleEvent = { kind: 'backward', label: 'REVERSE ENTRY', bonus };
+          }
         } else {
           this.graceTimer -= h;
           if (this.graceTimer <= 0) this.endDrift(speed < this.sustainSpeed ? 'slowed' : 'recovered');
@@ -211,6 +246,7 @@ export class DriftScorer {
       if (this.comboTimer <= 0) {
         this.multiplier = 1;
         this.lastDirection = 0;
+        this.transitionCount = 0;
       }
     }
     return this.snapshot();
@@ -235,6 +271,8 @@ export class DriftScorer {
     s.comboWindow = this.comboWindow;
     s.quality = this.lastQuality;
     s.event = this.event;
+    s.transitions = this.transitionCount;
+    s.styleEvent = this.styleEvent;
     return s;
   }
 }
