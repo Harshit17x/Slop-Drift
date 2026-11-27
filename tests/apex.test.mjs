@@ -14,6 +14,16 @@ import {ApexService,boxFor} from '../src/game/apexSport.js';
 const t=performance.now(),world=await new World(MAPS.apex.config).build(),{main,bridge,under,pit}=world.apex;
 console.log('World build',Math.round(performance.now()-t),'ms');
 const frame=(road,s)=>road.frameAt(s,{});
+// Menu initialization reads all road outlines before the first rendered frame.
+const mapData = world.getMapData();
+assert.equal(mapData.roads.length, world.roads.length);
+for (const route of Object.values(world.routes)) {
+  const road = mapData.roads.find(r => r.id === mapData.routeRoads[route.id]);
+  assert(road && road.points.length >= 6 && road.heights.length * 2 === road.points.length);
+  const pose = world.getSpawn(route.id, route.startS);
+  const p = pose.position;
+  assert(Math.abs(p.y - world.sampleGround(p.x,p.z,{},p.y+.45).y) < .001);
+}
 assert.equal(Object.keys(world.routes).length,6);
 assert.deepEqual(Object.keys(world.routes).filter(k=>world.routes[k].pitPath).sort(),['bowl','gp','international','loop']);
 assert(Math.max(...main.py)-Math.min(...main.py)>143);
