@@ -93,6 +93,32 @@ export class TokyoNight{
   refresh(){
     const l=this.log;
     this.panel.querySelector('small').textContent=l.found.length+'/8 districts · '+l.floors.length+'/8 decks · '+l.complete.length+'/'+Object.keys(jobs).length+' activities';
+    this.g?.refreshMapQuests?.();
+  }
+  questsSummary(){
+    const parkadeDone=this.log.complete.includes('parkade');
+    return {
+      title:'Tokyo Night Guide',
+      eyebrow:'TOKYO AFTER HOURS',
+      summary:`${this.log.found.length}/8 districts · ${this.log.floors.length}/8 decks · ${this.log.complete.length}/${Object.keys(jobs).length} done`,
+      items:Object.entries(jobs).map(([id,[title,detail]])=>({
+        id,
+        title,
+        detail,
+        done:this.log.complete.includes(id),
+        active:this.job===id,
+        locked:id==='rooftop'&&!parkadeDone,
+      })),
+    };
+  }
+  launchQuest(id){
+    if(!jobs[id])return;
+    if(id==='rooftop'&&!this.log.complete.includes('parkade')){this.g.hud.toast('Complete the eight lower decks first','info');return;}
+    if(!['rival','tandem','parkTandem'].includes(id)&&(this.g.state!=='running'||this.g.mode?.id!=='roam')){
+      this.g.beginRun('roam');
+    }
+    this.start(id);
+    this.g?.refreshMapQuests?.();
   }
   weather(){
     let w=this.g.mode?.id==='roam'?this.log.weather:'After rain';

@@ -359,12 +359,15 @@ const cc = new Career({ storage: memoryStorage(), now, mapId: 'mussoorie' });
 const pair = cc.contracts();
 check('two different contracts a day, same for everyone', pair.length === 2 && pair[0].id !== pair[1].id
   && JSON.stringify(pair) === JSON.stringify(new Career({ storage: memoryStorage(), now, mapId: 'mussoorie' }).contracts()));
-check('no clipping-zone contract on a map without zones', [...Array(40).keys()].every((d) => {
+check('all maps carry clipping-zone contracts, unknown map ids omit them', [...Array(30).keys()].some((d) => {
   clock = new Date(Date.UTC(2027, 0, d + 1, 9));
-  return new Career({ storage: memoryStorage(), now, mapId: 'tokyo' }).contracts().every((c) => c.id !== 'clips');
+  return new Career({ storage: memoryStorage(), now, mapId: 'tokyo' }).contracts().some((c) => c.id === 'clips');
+}) && [...Array(30).keys()].every((d) => {
+  clock = new Date(Date.UTC(2027, 0, d + 1, 9));
+  return new Career({ storage: memoryStorage(), now, mapId: 'unknown-map' }).contracts().every((c) => c.id !== 'clips');
 }));
 clock = new Date('2026-12-02T09:00:00Z');
-const statOf = { 'drift-points': 'driftPoints', distance: 'km', finishes: 'finishes', clean: 'cleanFinishes', clips: 'clips', style: 'styleMoves' };
+const statOf = { 'drift-points': 'driftPoints', distance: 'km', finishes: 'finishes', clean: 'cleanFinishes', clips: 'clips', style: 'styleMoves', traps: 'traps' };
 const c0 = pair[0];
 const xpBefore = cc.profile.xp;
 const crBefore = cc.credits;
@@ -408,6 +411,10 @@ check('mastery survives a reload', new Career({ storage: mc.storage, now }).mast
 const rc = new Career({ storage: memoryStorage(), now, mapId: 'mussoorie' });
 let list = rc.rivals();
 check('three rivals per region, only the first open', list.length === 3 && list.map((r) => r.state).join() === 'open,locked,locked');
+check('every map has three rivals with valid events and times', Object.keys(MAPS).every((mapId) => {
+  const mapRivals = new Career({ storage: memoryStorage(), now, mapId }).rivals();
+  return mapRivals.length === 3 && mapRivals.every((x) => x.time > 0);
+}));
 check('every rival has a real event and time on its map', RIVALS.every((r) => new Career({ storage: memoryStorage(), now, mapId: r.mapId }).rivals().some((x) => x.id === r.id && x.time > 0)));
 check('rookie is slower than challenger is slower than the boss, relative to gold', list[0].time / rc.targetsFor(list[0].modeId).gold > list[2].time / rc.targetsFor(list[2].modeId).gold);
 check('a rival is always quicker than your best on their event', (() => {
@@ -479,6 +486,18 @@ const v1 = memoryStorage();
 v1.setItem('slop-drift-profile-v1', JSON.stringify({ version: 1, xp: 900, credits: 500, medals: {} }));
 const v1c = new Career({ storage: v1, now });
 check('a v1 save keeps maps and cars its old level had opened', v1c.level < 5 && v1c.isMapUnlocked('fujimi') && v1c.isCarUnlocked('tokyo'));
+
+// --- speed traps: PBs, target clears, Radar Breaker achievement & persistence
+const st = new Career({ storage: memoryStorage(), now });
+st.beginRun({ modeId: 'sprint' });
+const missTrap = st.recordSpeedTrap({ key: 'mussoorie:r0:trap:1', name: 'Trap 1', speedKmh: 118, targetKmh: 140 });
+check('first slow trap crossing saves best without clearing target', missTrap.isPb && !missTrap.clearedNow && st.profile.speedTraps['mussoorie:r0:trap:1'] === 118);
+const hitTrap = st.recordSpeedTrap({ key: 'mussoorie:r0:trap:1', name: 'Trap 1', speedKmh: 152, targetKmh: 140 });
+check('beating target pays CR/XP once and increments cleared count', hitTrap.clearedNow && hitTrap.credits > 0 && st.profile.stats.speedTrapsCleared === 1);
+const repeatTrap = st.recordSpeedTrap({ key: 'mussoorie:r0:trap:1', name: 'Trap 1', speedKmh: 145, targetKmh: 140 });
+check('slower repeat does not re-pay or overwrite PB', !repeatTrap.clearedNow && !repeatTrap.isPb && st.profile.speedTraps['mussoorie:r0:trap:1'] === 152);
+for (let k = 2; k <= 5; k += 1) st.recordSpeedTrap({ key: `mussoorie:r0:trap:${k}`, name: `Trap ${k}`, speedKmh: 160, targetKmh: 140 });
+check('clearing 5 speed traps awards Radar Breaker and persists', Boolean(st.profile.achievements['speed-traps-5']) && new Career({ storage: st.storage, now }).profile.speedTraps['mussoorie:r0:trap:5'] === 160);
 
 console.log(`\n${passes} passed, ${failures} failed`);
 process.exit(failures ? 1 : 0);

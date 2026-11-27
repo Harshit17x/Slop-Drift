@@ -258,6 +258,7 @@ export const ACHIEVEMENTS = Object.freeze([
   { id: 'drift-total-50k', title: 'Tire Shredder', description: 'Bank 50,000 lifetime drift points.', stat: 'totalDriftPoints', value: 50000, xp: 250 },
   { id: 'drift-total-250k', title: 'Smoke Legend', description: 'Bank 250,000 lifetime drift points.', stat: 'totalDriftPoints', value: 250000, xp: 600 },
   { id: 'speed-200', title: 'Two Hundred', description: 'Reach 200 km/h.', stat: 'topSpeedKmh', value: 200, xp: 150 },
+  { id: 'speed-traps-5', title: 'Radar Breaker', description: 'Beat 5 Speed Trap target speeds across any maps.', stat: 'speedTrapsCleared', value: 5, xp: 200 },
   { id: 'distance-25', title: 'Mountain Regular', description: 'Drive 25 km in total.', stat: 'distanceKm', value: 25, xp: 150 },
   { id: 'distance-100', title: 'High Mileage', description: 'Drive 100 km in total.', stat: 'distanceKm', value: 100, xp: 400 },
   { id: 'distance-500', title: 'Highway Nomad', description: 'Drive 500 km in total.', stat: 'distanceKm', value: 500, xp: 750 },
@@ -295,6 +296,7 @@ export const CONTRACT_TEMPLATES = Object.freeze([
   { id: 'clean', stat: 'cleanFinishes', goal: 2, text: 'Finish 2 events without a reset' },
   { id: 'clips', stat: 'clips', goal: 4, text: 'Hit 4 clipping zones' },
   { id: 'style', stat: 'styleMoves', goal: 3, text: 'Land 3 wall taps or reverse entries' },
+  { id: 'traps', stat: 'traps', goal: 2, text: 'Beat 2 speed traps' },
 ]);
 /**
  * Rivals: three named drivers per region, raced one at a time (rookie, then challenger, then boss).
@@ -328,6 +330,9 @@ export const RIVALS = Object.freeze([
   { id: 'jun-arjun', mapId: 'jungle', modeId: 'sprint', tier: 'rookie', name: 'Arjun "Mudguard" Nair', paint: 'summit', bio: 'Tea-estate runner who thinks puddles are a racing line.' },
   { id: 'jun-leela', mapId: 'jungle', modeId: 'circuit', tier: 'challenger', name: 'Leela "Monsoon" Varghese', paint: 'chameleon', bio: 'Waits for the heaviest rain to set her best times.' },
   { id: 'jun-bose', mapId: 'jungle', modeId: 'sprint', tier: 'boss', name: 'Captain Bose, "Flood King"', paint: 'gold-rush', bio: 'Crossed the Flood Cut before the bridge was built. Still drives like it is not there.' },
+  { id: 'apx-nico', mapId: 'apex', modeId: 'bowl', tier: 'rookie', name: 'Nico "Kerbstone" Bellini', paint: 'bayside', bio: 'Clips every painted apex inside Thunder Bowl before stepping onto the GP loop.' },
+  { id: 'apx-claire', mapId: 'apex', modeId: 'gp', tier: 'challenger', name: 'Claire "Late Brake" Moreau', paint: 'arctic-splinter', bio: 'Out-brakes everyone into the crossover hairpin and holds slick temperature all lap.' },
+  { id: 'apx-viktor', mapId: 'apex', modeId: 'sprint', tier: 'boss', name: 'Viktor "Apex" Lindqvist', paint: 'gold-rush', bio: 'Endurance loop benchmark driver. Never leaves the white lines or loses a tenth.' },
 ]);
 
 /**

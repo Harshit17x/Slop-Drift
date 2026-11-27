@@ -32,7 +32,10 @@ export function findApexes(road, count = 8, gap = 90) {
 
 export class ClipZones {
   constructor(road) {
-    this.zones = findApexes(road).map((zone) => ({ ...zone, armed: true, glow: 0 }));
+    this.zones = road?.curvature ? findApexes(road).map((zone) => ({ ...zone, armed: true, glow: 0 })) : [];
+    this.mesh = null;
+    this.color = new THREE.Color();
+    if (!this.zones.length) return;
     const geometry = new THREE.CylinderGeometry(0.11, 0.11, 1.3, 6).translate(0, 0.65, 0);
     this.mesh = new THREE.InstancedMesh(geometry, new THREE.MeshBasicMaterial({ toneMapped: false }), this.zones.length * POSTS);
     this.mesh.frustumCulled = false;
@@ -49,7 +52,8 @@ export class ClipZones {
         k += 1;
       }
     }
-    this.color = new THREE.Color();
+    this.mesh.instanceMatrix.needsUpdate = true;
+    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
   }
 
   /** Once per simulation step: returns { name, bonus } on the frame a drift passes an armed apex. */
@@ -68,6 +72,7 @@ export class ClipZones {
   }
 
   update(dt) {
+    if (!this.mesh) return;
     let dirty = false;
     this.zones.forEach((zone, n) => {
       if (zone.glow <= 0) return;
@@ -76,6 +81,11 @@ export class ClipZones {
       for (let p = 0; p < POSTS; p += 1) this.mesh.setColorAt(n * POSTS + p, this.color);
       dirty = true;
     });
-    if (dirty) this.mesh.instanceColor.needsUpdate = true;
+    if (dirty && this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+  }
+
+  dispose() {
+    this.mesh?.geometry?.dispose();
+    this.mesh?.material?.dispose();
   }
 }

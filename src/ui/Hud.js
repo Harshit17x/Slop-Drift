@@ -380,6 +380,7 @@ export class Hud {
     this.onRename = noop;
     this.onStartDaily = noop;
     this.onDuel = noop;
+    this.onStartQuest = noop;
     this.onRaceGhost = noop;
     this.onOpenLeaderboard = noop;
     this.onLeaderboardRequest = noop;
@@ -791,6 +792,10 @@ export class Hud {
                 <div class="sdh-section-label">Rivals</div>
                 <ul class="sdh-rival-list" data-rivals></ul>
               </section>
+              <section class="sdh-quests" aria-label="Map adventures" hidden>
+                <div class="sdh-quests-head"><span class="sdh-section-label" data-q="title">Map Adventures</span><em class="sdh-num" data-q="summary"></em></div>
+                <ul class="sdh-quest-list" data-quests></ul>
+              </section>
               <button type="button" class="sdh-party-entry" data-act="party">
                 <span class="sdh-party-entry-ico">${ICON.party}</span>
                 <span class="sdh-party-entry-main"><b>Race with friends</b><small data-p="partyLine">Share a 5-letter code. Up to 8 drivers.</small></span>
@@ -928,6 +933,7 @@ export class Hud {
         case 'rename': this.startRename(); break;
         case 'daily': this.onStartDaily(); break;
         case 'duel': this.onDuel(target.dataset.rival); break;
+        case 'quest-start': this.onStartQuest(target.dataset.quest); break;
         case 'goto-map': this.onSelectMap?.(target.dataset.map); break;
         case 'ghost': this.onToggleGhost(); break;
         case 'race-ghost': this.onRaceGhost(); break;
@@ -3128,6 +3134,27 @@ export class Hud {
           <button type="button" class="sdh-btn sdh-rival-go" data-act="duel" data-rival="${esc(r.id)}" ${locked ? 'disabled' : ''} aria-label="${locked ? 'Locked' : beaten ? 'Rematch' : 'Duel'} ${esc(r.name)}">${locked ? ICON.lock : beaten ? ICON.check : ICON.play}<span>${locked ? '' : beaten ? 'Again' : `+${formatInt(r.credits)}`}</span></button>
         </li>`;
     }).join('');
+  }
+
+  /** Populate map-specific story/adventure missions inside the Events hub (Tokyo Night, Hollow Radio). */
+  setMapQuests(quests) {
+    const box = this.q('.sdh-quests');
+    if (!box) return;
+    const items = Array.isArray(quests?.items) ? quests.items : [];
+    box.hidden = items.length === 0;
+    if (!items.length) return;
+    this.q('[data-q="title"]').textContent = quests.title || 'Map Adventures';
+    this.q('[data-q="summary"]').textContent = quests.summary || '';
+    this.q('[data-quests]').innerHTML = items.map((q) => `
+      <li class="sdh-quest${q.done ? ' is-done' : ''}${q.active ? ' is-active' : ''}${q.locked ? ' is-locked' : ''}" title="${esc(q.detail || '')}">
+        <div class="sdh-quest-main">
+          <b>${esc(q.title)}</b>
+          <small>${esc(q.detail || '')}</small>
+        </div>
+        <button type="button" class="sdh-btn sdh-quest-go" data-act="quest-start" data-quest="${esc(q.id)}" ${q.locked ? 'disabled' : ''}>
+          ${q.locked ? ICON.lock : q.done ? ICON.check : ICON.play}<span>${q.locked ? 'Locked' : q.done ? 'Replay' : q.active ? 'Active' : 'Start'}</span>
+        </button>
+      </li>`).join('');
   }
 
   setDaily(daily) {

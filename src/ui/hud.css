@@ -3233,3 +3233,18 @@ button.sdh-upnext-row:hover, button.sdh-upnext-row:focus-visible { outline: 3px 
 @media (max-height: 540px) {
   .sdh-lock-badge { display: none; } /* the LV chip already carries the padlock */
 }
+
+/* Map quests & adventures surfaced inside Events hub */
+.sdh-quests { display: flex; flex-direction: column; gap: 0.45em; margin-top: 0.15em; }
+.sdh-quests-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5em; }
+.sdh-quests-head em { font-style: normal; font-size: 0.78em; color: var(--mist); }
+.sdh-quest-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35em; max-height: 15.5em; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--mist) transparent; }
+.sdh-quest { display: flex; align-items: center; justify-content: space-between; gap: 0.55em; padding: 0.42em 0.55em; border-radius: var(--r); background: color-mix(in srgb, var(--chalk) 5%, var(--board)); }
+.sdh-quest.is-active { box-shadow: inset 3px 0 0 var(--marigold); }
+.sdh-quest.is-done { opacity: 0.85; }
+.sdh-quest-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 0.1em; }
+.sdh-quest-main b { font-size: 0.88em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sdh-quest-main small { font-size: 0.74em; color: var(--mist); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sdh-quest-go { flex: none; padding: 0.3em 0.55em; font-size: 0.78em; }
+.sdh-drift-style[data-kind="speedTrap"] { border-color: #c7ff52; color: #c7ff52; }
+.sdh-drift-style[data-kind="clip"] { border-color: #35e6ff; color: #35e6ff; }

@@ -4,6 +4,7 @@ import { Career } from '../src/meta/Career.js';
 import { mirroredStorage, profileXp } from '../src/platform/progressStorage.js';
 import { CrazyGamesPlatform } from '../src/platform/CrazyGames.js';
 import { ClipZones, findApexes } from '../src/render/ClipZones.js';
+import { SpeedTraps, findSpeedTraps } from '../src/render/SpeedTraps.js';
 import { judgePass, spawnTraffic, trafficPose } from '../src/game/Traffic.js';
 
 let failures = 0;
@@ -112,6 +113,27 @@ check('a car that passes the start comes back from the far end', late.s >= 40 &&
 check('side by side at speed with clear air is a near miss', judgePass(0, 3, 30) === 'nearMiss' && judgePass(1, -2.5, 25) === 'nearMiss');
 check('too slow is not a near miss', judgePass(0, 3, 15) === null);
 check('overlapping is a crash, far away is nothing', judgePass(0.5, 1, 30) === 'crash' && judgePass(0, 6, 30) === null && judgePass(8, 0.5, 30) === null);
+
+// ---- speed traps on straight segments: placement, trigger once, and re-arm
+{
+  const m = 900;
+  const sc = new Float32Array(m).fill(0);
+  for (let i = 400; i < 460; i += 1) sc[i] = 1 / 25;
+  const straightRoad = {
+    count: m, spacing: 1, length: m, closed: false, curvature: sc, grade: new Float32Array(m),
+    px: Float32Array.from({ length: m }, (_, i) => i), pz: new Float32Array(m), py: new Float32Array(m),
+    rx: new Float32Array(m), rz: new Float32Array(m).fill(1), bank: new Float32Array(m), halfWidth: new Float32Array(m).fill(5),
+  };
+  const found = findSpeedTraps(straightRoad, { count: 2, gap: 200, prefix: 'test' });
+  check('speed traps sit on straights, never in tight hairpins', found.length === 2 && found.every((t) => t.index < 380 || t.index > 500));
+  const traps = new SpeedTraps(straightRoad, { count: 2, gap: 200, prefix: 'test' });
+  const t0 = traps.traps[0];
+  check('empty ClipZones does not fail on straight road', new ClipZones({ ...straightRoad, curvature: new Float32Array(m) }).mesh === null);
+  check('speed trap fires once on crossing and re-arms after passing', traps.check({ position: { x: t0.x, z: 0 }, speedKmh: t0.targetKmh + 10 })?.speedKmh === t0.targetKmh + 10
+    && traps.check({ position: { x: t0.x + 1, z: 0 }, speedKmh: t0.targetKmh + 10 }) === null
+    && traps.check({ position: { x: t0.x + 45, z: 0 }, speedKmh: 90 }) === null
+    && traps.check({ position: { x: t0.x, z: 0 }, speedKmh: 100 })?.speedKmh === 100);
+}
 
 console.log(`\n${passes} passed, ${failures} failed`);
 if (failures > 0) process.exit(1);

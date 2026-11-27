@@ -58,8 +58,8 @@ export function sanitizeName(name) {
 }
 
 const MODE_IDS = Object.freeze(MODES.map((mode) => mode.id));
-// Maps whose roads carry clipping zones (Scenery's mountain roads and Fujimi's authored ones).
-const CLIP_MAPS = new Set(['mussoorie', 'alpine', 'fujimi']);
+// Maps whose roads carry clipping zones (Scenery/ClipZones and Fujimi's authored ones).
+const CLIP_MAPS = new Set(['mussoorie', 'alpine', 'fujimi', 'tokyo', 'hollow', 'jungle', 'apex']);
 
 /** Awards screen groups, from what the achievement is about. */
 export function achievementGroup(def) {
@@ -67,7 +67,7 @@ export function achievementGroup(def) {
   if (/rival|royalty|ghost|multiplayer|daily|streak|needle/.test(id)) return 'rivals';
   if (/drift|combo|multiplier|wall|backward|clips/.test(id)) return 'drifting';
   if (/upgrade|tune|mastery/.test(id)) return 'garage';
-  if (/distance|speed|air|tokyo-(tower|explorer)|hollow/.test(id)) return 'explorer';
+  if (/distance|speed|trap|air|tokyo-(tower|explorer)|hollow/.test(id)) return 'explorer';
   return 'racing';
 }
 
@@ -90,7 +90,8 @@ function newProfile(now) {
     stats: {
       distanceKm: 0, driveSeconds: 0, runs: 0, finishes: 0, driftsBanked: 0, bestCombo: 0,
       totalDriftPoints: 0, wallTaps: 0, cleanRuns: 0, upgradesBought: 0,
-      topSpeedKmh: 0, respawns: 0, dailyStreak: 0, dailyStreakBest: 0, dailyCompleted: 0,
+      topSpeedKmh: 0, bestTrapKmh: 0, speedTrapsCleared: 0,
+      respawns: 0, dailyStreak: 0, dailyStreakBest: 0, dailyCompleted: 0,
     },
     medals: {},
     achievements: {},
@@ -100,6 +101,7 @@ function newProfile(now) {
     contracts: { date: '', progress: {}, done: {} },
     mastery: {},
     rivals: {},
+    speedTraps: {},
   };
 }
 
@@ -137,6 +139,13 @@ function normalizeProfile(raw, now) {
   for (const rival of RIVALS) {
     const best = Number(raw.rivals?.[rival.id]);
     if (Number.isFinite(best) && best > 0) profile.rivals[rival.id] = best;
+  }
+  profile.speedTraps = {};
+  if (raw.speedTraps && typeof raw.speedTraps === 'object') {
+    for (const [k, v] of Object.entries(raw.speedTraps)) {
+      const kmh = Number(v);
+      if (typeof k === 'string' && Number.isFinite(kmh) && kmh > 0) profile.speedTraps[k] = Math.round(kmh);
+    }
   }
   const rc = raw.contracts;
   profile.contracts = rc && typeof rc === 'object' && typeof rc.date === 'string'
@@ -1070,6 +1079,47 @@ export class Career {
 
   onClip() {
     this.bumpContract('clips');
+  }
+
+  /** Record a Speed Trap crossing; rewards target clears and new trap speed records. */
+  recordSpeedTrap({ key, name, speedKmh, targetKmh = 140 } = {}) {
+    if (!key || !Number.isFinite(speedKmh) || speedKmh < 40) return null;
+    const rounded = Math.round(speedKmh);
+    const prev = this.profile.speedTraps[key] || 0;
+    const isPb = rounded > prev;
+    const clearedNow = prev < targetKmh && rounded >= targetKmh;
+    if (isPb) this.profile.speedTraps[key] = rounded;
+    if (rounded > (this.profile.stats.bestTrapKmh || 0)) this.profile.stats.bestTrapKmh = rounded;
+    if (rounded >= targetKmh) this.bumpContract('traps');
+
+    let xp = 0;
+    let credits = 0;
+    if (clearedNow) {
+      this.profile.stats.speedTrapsCleared = (this.profile.stats.speedTrapsCleared || 0) + 1;
+      xp = 20;
+      credits = 30;
+    } else if (isPb && prev > 0) {
+      xp = 8;
+      credits = 10;
+    }
+    if (xp > 0) this.addXp(xp, 'Speed traps');
+    if (credits > 0) this.addCredits(credits, 'Speed traps');
+    if (clearedNow || isPb) {
+      this.checkStatAchievements();
+      this.save();
+    }
+    return {
+      key,
+      name: name || 'Speed Trap',
+      speedKmh: rounded,
+      prevKmh: prev,
+      targetKmh,
+      isPb,
+      clearedNow,
+      alreadyCleared: prev >= targetKmh,
+      xp,
+      credits,
+    };
   }
 
   onFujimiAllClips() {

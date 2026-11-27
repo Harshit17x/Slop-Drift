@@ -20,6 +20,8 @@ import { WASHOUT, inWashout } from '../world/jungleStage.js';
 import { BRIDGE } from '../world/Jungle.js';
 import { RoadView } from '../render/RoadView.js';
 import { Scenery } from '../render/Scenery.js';
+import { ClipZones } from '../render/ClipZones.js';
+import { SpeedTraps } from '../render/SpeedTraps.js';
 import { Atmosphere } from '../render/Atmosphere.js';
 import { CarVisual } from '../render/CarVisual.js';
 import { CameraRig } from '../render/CameraRig.js';
@@ -84,11 +86,16 @@ export class Game {
     };
     this.onFrame = this.onFrame.bind(this);
     this.onResize = this.onResize.bind(this);
-    // Frames stop in a background tab; pause the race rather than let the clock jump on return.
+    this._cloudAttached = false;
+    this.disposed = false;
+    this.courseClips = [];
+    this.courseTraps = [];
+    // Frames stop in a background tab or iframe focus loss; pause so timers and audio never drift.
     this.onVisibility = () => {
       if (!document.hidden) return;
       this.pause();
     };
+    this.onWindowBlur = () => this.pause();
   }
 
   // ---------------------------------------------------------------- startup
@@ -146,9 +153,12 @@ export class Game {
       mark(label);
       this.hud.showLoading(fraction * 0.72, label);
     });
-    // The SDK has had the whole world build to start; give it a little longer, then move progress to its cloud save.
+    // The SDK has had the whole world build to start; give it a little longer, and also attach whenever init settles later.
     await Promise.race([platformReady, new Promise((resolve) => setTimeout(resolve, 2500))]);
     this.useCloudSave();
+    platformReady.then(() => {
+      if (!this._cloudAttached && !this.disposed) this.useCloudSave();
+    });
     // Only the events this map has roads for (no Nag Tibba events on Alpine).
     this.modes = modesForWorld(this.world);
     this.hud.setModes(this.modes);
@@ -216,14 +226,17 @@ export class Game {
       const {ApexPractice} = await import('../game/ApexPractice.js');
       this.apexPractice = new ApexPractice(this);
     }
+    this.buildCourseProps();
     this.createNetwork();
     this.applySettings(this.settings, { save: false });
     this.meta.refreshAll();
+    this.refreshMapQuests();
     this.enterMenu();
     this.onResize();
     window.addEventListener('resize', this.onResize);
     window.addEventListener('orientationchange', this.onResize);
     window.visualViewport?.addEventListener('resize', this.onResize);
+    window.addEventListener('blur', this.onWindowBlur);
     document.addEventListener('visibilitychange', this.onVisibility);
     this.hud.showLoading(1, 'Ready');
     await nextFrame();
@@ -310,6 +323,7 @@ export class Game {
   bindHud() {
     const hud = this.hud;
     hud.onStart = (modeId) => this.maybeShowMidgameAd(() => this.beginRun(modeId));
+    hud.onStartQuest = (questId) => this.startQuest(questId);
     hud.onPause = () => this.pause();
     hud.onResume = () => this.resume();
     hud.onRestart = () => this.maybeShowMidgameAd(() => this.beginRun(this.mode.id));
@@ -532,7 +546,7 @@ export class Game {
     this.nitro = nitroStats.capacity;
     this.fujimiClipsHit = new Set();
     this.smokeShown = null;
-    if (this.settings.traffic && mode.id !== 'apex-meeting') {
+    if (this.settings.traffic && !this.world.apex && mode.id !== 'apex-meeting') {
       this.traffic.start(this.world, mode, `${this.map.id}:${mode.id}`);
       this.traffic.update(0, { position: { x: Infinity, z: Infinity }, speed: 0 });
     } else {
@@ -638,11 +652,69 @@ export class Game {
 
   /** Keep the career in the CrazyGames data module (follows the player's account) as well as localStorage. */
   useCloudSave() {
+    if (this._cloudAttached || this.disposed) return;
     const cloud = this.platform.dataStorage;
     if (!cloud) return;
+    this._cloudAttached = true;
     this.career.storage = mirroredStorage(cloud, this.career.storage);
-    this.career.load();
-    this.career.knownUnlocks = this.career.progressionUnlockedIds();
+    if (!this.career.run) {
+      this.career.load();
+      this.career.knownUnlocks = this.career.progressionUnlockedIds();
+      if (this.meta && this.state === 'menu') {
+        this.meta.refreshAll();
+        this.meta.applyLook(this.car);
+        this.applyActiveVehicleTuning();
+      }
+    }
+  }
+
+  /** Build speed traps across every map, plus universal drift clipping zones where scenery lacks them. */
+  buildCourseProps() {
+    const mainRoads = (this.world?.roads || []).filter((road) => road.curvature && road.length >= 600).slice(0, 3);
+    this.courseTraps = [];
+    for (let i = 0; i < mainRoads.length; i += 1) {
+      const road = mainRoads[i];
+      const prefix = `${this.map?.id || 'map'}:r${road.id ?? i}`;
+      const traps = new SpeedTraps(road, { prefix, count: i === 0 ? 3 : 2 });
+      if (traps.mesh) this.scene.add(traps.mesh);
+      this.courseTraps.push(traps);
+    }
+    this.courseClips = [];
+    if (!this.scenery?.clipZone) {
+      for (const road of mainRoads.slice(0, 2)) {
+        const clips = new ClipZones(road);
+        if (clips.mesh) this.scene.add(clips.mesh);
+        this.courseClips.push(clips);
+      }
+    }
+  }
+
+  checkCourseClips(state, drift) {
+    let paid = null;
+    for (const clips of this.courseClips) paid = clips.check(state, drift) || paid;
+    return paid;
+  }
+
+  checkCourseTraps(state) {
+    let hit = null;
+    for (const traps of this.courseTraps) hit = traps.check(state) || hit;
+    if (!hit) return;
+    const res = this.career?.recordSpeedTrap(hit);
+    const label = res?.clearedNow ? `${hit.speedKmh} KM/H ★ TARGET` : `${hit.speedKmh} KM/H`;
+    this.hud.flashStyleCallout?.({ kind: 'speedTrap', label, bonus: res?.credits || 0 });
+    this.audio.stylePing?.('transition');
+    if (res?.clearedNow) this.hud.toast(`${hit.name} cleared · ${hit.speedKmh} km/h (target ${hit.targetKmh}) · +${res.credits} CR`, 'good');
+    else if (res?.isPb) this.hud.toast(`${hit.name} PB · ${hit.speedKmh} km/h (target ${hit.targetKmh})`, 'good');
+    else this.hud.toast(`${hit.name} · ${hit.speedKmh} km/h (target ${hit.targetKmh})`, 'info');
+  }
+
+  refreshMapQuests() {
+    if (!this.hud?.setMapQuests) return;
+    this.hud.setMapQuests(this.adventure?.questsSummary?.() || null);
+  }
+
+  startQuest(questId) {
+    this.adventure?.launchQuest?.(questId);
   }
 
   /**
@@ -869,8 +941,8 @@ export class Game {
       this.smokeShown = smokeId;
       this.effects.setSmokeColor?.(getSmoke(smokeId).rgb);
     }
-    // Fujimi's clipping zones: a drift through one pays a bonus into the running drift.
-    const clip = this.scenery.clipZone?.(state, drift);
+    // Drift clipping zones across mountain, Fujimi, city, jungle, hollow & GP courses.
+    const clip = this.scenery.clipZone?.(state, drift) || this.checkCourseClips(state, drift);
     if (clip) {
       this.drift.score += clip.bonus;
       this.hud.toast(`${clip.name} · clip +${clip.bonus}`, 'good');
@@ -882,6 +954,7 @@ export class Game {
         if (this.fujimiClipsHit.size >= this.scenery.zones.length) this.meta?.career?.onFujimiAllClips?.();
       }
     }
+    this.checkCourseTraps(state);
 
     const pass = this.traffic.update(this.session.hud.elapsed, state);
     if (pass === 'nearMiss') {
@@ -1097,6 +1170,9 @@ export class Game {
     this.atmosphere.update(paused ? 0 : dt, camera, state.position);
     this.terrain?.update(camera);
     this.scenery.update(camera.position, paused ? 0 : dt, this.atmosphere.isNight, state.position, camera);
+    const propDt = paused ? 0 : dt;
+    for (const clips of this.courseClips) clips.update(propDt);
+    for (const traps of this.courseTraps) traps.update(propDt);
     this.landmarks?.update?.(camera);
     this.roads.jungle?.update(camera.position);
     this.updateHud(state);
@@ -1201,11 +1277,15 @@ export class Game {
   }
 
   dispose() {
+    this.disposed = true;
     cancelAnimationFrame(this.frameHandle);
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('orientationchange', this.onResize);
     window.visualViewport?.removeEventListener('resize', this.onResize);
+    window.removeEventListener('blur', this.onWindowBlur);
     document.removeEventListener('visibilitychange', this.onVisibility);
+    for (const clips of this.courseClips) clips.dispose?.();
+    for (const traps of this.courseTraps) traps.dispose?.();
     if (this.onContextLost) this.canvas?.removeEventListener('webglcontextlost', this.onContextLost);
     if (this.onContextRestored) this.canvas?.removeEventListener('webglcontextrestored', this.onContextRestored);
     this.platform?.dispose();

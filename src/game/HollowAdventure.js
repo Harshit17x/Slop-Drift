@@ -47,13 +47,37 @@ export class HollowAdventure {
     if(this.def?.id==='ghost'&&!this.game.meta.ghost){this.notice('Baseline recorded. Accept Ghost Circuit again to race it.');return;}
     this.complete();
   }
-  notice(message){this.journal.active=null;this.racing=false;this.journal.save();this.radio.refresh();this.game.hud.toast(message,'info');}
+  notice(message){this.journal.active=null;this.racing=false;this.journal.save();this.radio.refresh();this.game.refreshMapQuests?.();this.game.hud.toast(message,'info');}
   complete(){
     const def=this.def;if(!def)return;
     const first=!this.journal.completed.has(def.id);this.journal.completed.add(def.id);
     if(def.id==='route')this.journal.exitKnown=true;
     if(first){this.game.career.addXp(65,def.name);this.game.career.save();}
     this.notice(def.name+' complete'+(first?' · 65 XP':''));
+  }
+  questsSummary(){
+    return {
+      title:'Hollow Creek Dispatches',
+      eyebrow:'GARAGE RADIO LOGBOOK',
+      summary:`${this.journal.found.size}/8 sites · ${this.journal.completed.size}/${this.missions.length} completed`,
+      items:this.missions.map((m)=>({
+        id:m.id,
+        title:m.name,
+        detail:m.instruction,
+        done:this.journal.completed.has(m.id),
+        active:this.journal.active?.id===m.id,
+        locked:false,
+      })),
+    };
+  }
+  launchQuest(id){
+    const def=this.missions.find((m)=>m.id===id);
+    if(!def)return;
+    if(!def.race&&(this.game.state!=='running'||this.game.mode?.id!=='roam')){
+      this.game.beginRun('roam');
+    }
+    this.accept(id);
+    this.game.refreshMapQuests?.();
   }
   refreshMap(){
     const map=this.game.world.getMapData();
@@ -64,7 +88,7 @@ export class HollowAdventure {
     this.journal.found.add(site.id);this.journal.save();
     if(site.id==='fuel')this.game.career.unlockAchievement('hollow-pumps');
     if(this.journal.found.size===8)this.game.career.unlockAchievement('hollow-cartographer');
-    this.game.career.save();this.radio.refresh();this.game.hud.toast(site.name+' · '+site.story,'info');
+    this.game.career.save();this.radio.refresh();this.game.refreshMapQuests?.();this.game.hud.toast(site.name+' · '+site.story,'info');
     this.refreshMap();this.sound.play(site.id,.6);
   }
   goal(def,pos){
