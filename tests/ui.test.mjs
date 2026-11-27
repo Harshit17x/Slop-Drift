@@ -7,7 +7,8 @@ import { formatTime, formatDelta, formatInt, recordKind, formatTarget, medalFor,
 import { applyDeadzone, isFormField, KEY_BINDINGS, PAD_BUTTONS } from '../src/input/Input.js';
 import { normalizeTrack } from '../src/ui/Minimap.js';
 import * as THREE from 'three';
-import { MODES, DEFAULT_SETTINGS, PAINT_OPTIONS, SKIN_OPTIONS, getSkin, normalizeSettings, detectInitialQuality, getQualityPreset, nextAutoQuality, QUALITY_PRESETS } from '../src/config.js';
+import { MODES, DEFAULT_SETTINGS, PAINT_OPTIONS, SKIN_OPTIONS, SMOKE_OPTIONS, getSkin, getSmoke, normalizeSettings, detectInitialQuality, getQualityPreset, nextAutoQuality, QUALITY_PRESETS } from '../src/config.js';
+import { buildGhostSplitTable, ghostTimeAtProgress } from '../src/game/MetaLayer.js';
 import { Effects } from '../src/render/Effects.js';
 import { underglowFrame } from '../src/render/underglowLight.js';
 import { trimCarModels } from '../src/render/ModelCar.js';
@@ -328,6 +329,24 @@ test('adaptive hardware quality detection, underglow slot caps, and idle Effects
   assert.equal(posAttr.version, verDone, 'settled Effects returns to zero GPU uploads');
   fx.dispose();
   trimCarModels(['hatch']);
+});
+
+test('SMOKE_OPTIONS and live ghost split table interpolation', () => {
+  assert.ok(SMOKE_OPTIONS.length >= 6 && getSmoke('cyan').rgb[2] > 0.8);
+  const fakeWorld = {
+    roads: [{ length: 100 }],
+    routes: { climb: { roadId: 0, closed: false, direction: 1, startS: 0, finishS: 100, length: 100 } },
+    locate: (x) => ({ roadId: 0, s: Math.max(0, Math.min(100, x)) }),
+  };
+  const ghostData = {
+    count: 11,
+    rate: 1,
+    time: 10,
+    positions: Float32Array.from({ length: 11 * 3 }, (_, idx) => (idx % 3 === 0 ? Math.floor(idx / 3) * 10 : 0)),
+  };
+  const table = buildGhostSplitTable(ghostData, fakeWorld, { id: 'climb', route: 'climb', laps: 1 });
+  assert.ok(table && Math.abs(ghostTimeAtProgress(table, 0.5) - 5) < 0.05);
+  assert.equal(buildGhostSplitTable(ghostData, fakeWorld, { id: 'drift', route: 'climb', laps: 0 }), null);
 });
 
 console.log(`\n${passed} passed`);

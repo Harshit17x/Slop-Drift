@@ -33,6 +33,7 @@ import { RemotePlayers } from '../render/RemotePlayers.js';
 import { patchUnderglowTree, underglowFrame } from '../render/underglowLight.js';
 import { loadCarModels, hasCarModel, trimCarModels } from '../render/ModelCar.js';
 import { getCar } from '../vehicle/cars.js';
+import { applyCarUpgrades, effectiveNitroStats, hasCarNitro } from '../vehicle/upgradeTuning.js';
 import { PartyRace } from '../game/PartyRace.js';
 import { CrazyGamesPlatform } from '../platform/CrazyGames.js';
 
@@ -72,7 +73,7 @@ export class Game {
     this.hudFrame = {
       speedKmh: 0, gear: 'N', rpm: 0, rpmMax: 7200, throttle: 0, brake: 0, boost: 100, boosting: false,
       surface: 'asphalt', position: { x: 0, z: 0 }, heading: 0, altitude: 0, grade: 0,
-      drift: null, session: null, camera: 'CHASE', debug: '',
+      drift: null, session: null, ghostDelta: null, camera: 'CHASE', debug: '',
     };
     this.onFrame = this.onFrame.bind(this);
     this.onResize = this.onResize.bind(this);
@@ -333,7 +334,8 @@ export class Game {
     hud.onToggleStartGate = (enabled) => {
       this.applySettings({ ...this.settings, startGate: Boolean(enabled) });
     };
-    hud.onHubTabChange = () => {
+    hud.onHubTabChange = (tab) => {
+      if (tab !== 'garage') this.meta?.applyLook?.(this.car);
       this.cameraRig?.startBlend();
     };
     hud.onGarageOrbit = (dx, dy, dragging) => {
@@ -413,7 +415,7 @@ export class Game {
     this.car.setNeon({ level: neonLevel(this.settings.timeOfDay) });
     this.remotePlayers?.setNeonLevel(neonLevel(this.settings.timeOfDay));
     this.remotePlayers?.setNight?.(this.atmosphere.isNight || this.atmosphere.timeOfDay === 'sunset' || this.atmosphere.timeOfDay === 'dawn');
-    this.vehicle.setHandling(this.settings.handling, getCar(this.carId).tuning);
+    this.applyActiveVehicleTuning();
     this.vehicle.setAssists({ driftAssist: this.settings.driftAssist, abs: this.settings.abs, transmission: this.settings.transmission });
     this.input.setManualShift(this.settings.transmission === 'manual');
     this.input.setTouchSteer?.(this.settings.touchSteer);
@@ -432,6 +434,10 @@ export class Game {
     if (!map || this.state !== 'menu') return false;
     if (map.id === this.map?.id) {
       this.hud.toast(`Already driving ${map.label}`, 'good');
+      return false;
+    }
+    if (this.career && !this.career.isMapUnlocked(map.id)) {
+      this.hud.toast(`${map.label} unlocks at ${this.career.mapRequirementText(map.id)}`, 'warn');
       return false;
     }
     this.applySettings({ ...this.settings, map: map.id });
@@ -485,6 +491,8 @@ export class Game {
     }
     this.platform?.gameplayStart();
     this.enterMobileLandscape();
+    this.meta?.applyLook?.(this.car);
+    this.applyActiveVehicleTuning();
     this.partyRace?.onRunStart(modeId, options);
     this.audio.unlock();
     this.mode = mode;
@@ -504,7 +512,11 @@ export class Game {
     this.drift.reset();
     this.effects.clear();
     this.damage.reset();
-    this.nitro = CONFIG.nitro.capacity;
+    const upgrades = this.career?.carUpgrades?.(this.carId);
+    const nitroStats = effectiveNitroStats(CONFIG.nitro, upgrades);
+    this.nitroCapacity = nitroStats.capacity;
+    this.nitro = nitroStats.capacity;
+    this.fujimiClipsHit = new Set();
     this.stuckTimer = 0;
     this.world.bridge?.reset();
     this.world.washout?.reset();
@@ -535,6 +547,14 @@ export class Game {
     return true;
   }
 
+  /** Apply stock + garage upgrade tuning for the currently equipped car. */
+  applyActiveVehicleTuning() {
+    const car = getCar(this.carId);
+    const upgrades = this.career?.carUpgrades?.(car.id);
+    this.vehicle.setHandling(this.settings.handling, applyCarUpgrades(car, upgrades));
+    this.input.setNitroAvailable?.(hasCarNitro(car, upgrades));
+  }
+
   /**
    * Drive another car (an id from src/vehicle/cars.js): its own physics tuning, body and interior.
    * The caller (MetaLayer.applyLook) paints it afterwards.
@@ -544,18 +564,17 @@ export class Game {
     if (car.id === this.carId) return;
     this.carId = car.id;
     const pose = this.vehicle.getState();
-    this.vehicle.setHandling(this.settings.handling, car.tuning);
+    this.applyActiveVehicleTuning();
     // New ride height and wheelbase: put the car back down where it was.
     this.vehicle.teleport({ position: pose.position, quaternion: pose.quaternion });
     this.buildCarVisual();
-    this.input.setNitroAvailable?.(Boolean(car.nitro));
     this.audio.setProfile(car.sound || null);
     // Picked before its model finished downloading: drive the stand-in, swap the body in when it lands.
     if (!hasCarModel(car.id)) {
       loadCarModels([car.id]).then(() => {
         if (this.carId === car.id && hasCarModel(car.id)) {
           this.buildCarVisual();
-          this.meta?.applyLook(this.car);
+          this.meta?.applyLook(this.car, car.id); // keep a locked car's garage preview, not the equipped car
         }
       });
     }
@@ -602,7 +621,7 @@ export class Game {
     if (!cloud) return;
     this.career.storage = mirroredStorage(cloud, this.career.storage);
     this.career.load();
-    this.career.knownUnlocks = this.career.unlockedIds();
+    this.career.knownUnlocks = this.career.progressionUnlockedIds();
   }
 
   /**
@@ -789,7 +808,10 @@ export class Game {
 
   updateRunning(dt, input) {
     const controls = this.controls;
-    const boosting = !this.apexMeeting?.gt && Boolean(getCar(this.carId).nitro) && input.boost && input.throttle > 0.1 && this.nitro > 0.5;
+    const car = getCar(this.carId);
+    const upgrades = this.career?.carUpgrades?.(this.carId);
+    const nitroStats = effectiveNitroStats(CONFIG.nitro, upgrades);
+    const boosting = !this.apexMeeting?.gt && hasCarNitro(car, upgrades) && input.boost && input.throttle > 0.1 && this.nitro > 0.5;
     // Crash damage: a crushed nose loses power, bent front suspension pulls to one side.
     controls.throttle = input.throttle * this.damage.powerFactor;
     controls.brake = input.brake;
@@ -826,11 +848,25 @@ export class Game {
     if (clip) {
       this.drift.score += clip.bonus;
       this.hud.toast(`${clip.name} · clip +${clip.bonus}`, 'good');
+      this.hud.flashStyleCallout?.({ kind: 'clip', label: clip.name.toUpperCase(), bonus: clip.bonus });
+      this.audio.stylePing?.('transition');
+      if (this.fujimiClipsHit && this.scenery.zones) {
+        this.fujimiClipsHit.add(clip.name);
+        if (this.fujimiClipsHit.size >= this.scenery.zones.length) this.meta?.career?.onFujimiAllClips?.();
+      }
     }
 
-    const nitro = CONFIG.nitro;
-    if (boosting) this.nitro = Math.max(0, this.nitro - nitro.drainPerSecond * dt);
-    else this.nitro = Math.min(nitro.capacity, this.nitro + (nitro.refillPerSecond + (drift.active ? nitro.driftRefill : 0)) * dt);
+    if (drift.styleEvent) {
+      this.hud.flashStyleCallout?.(drift.styleEvent);
+      this.audio.stylePing?.(drift.styleEvent.kind);
+      if (drift.styleEvent.kind === 'wallTap') {
+        this.effects.sparkShower(state, 16, 1.1);
+        this.nitro = Math.min(nitroStats.capacity, this.nitro + 12);
+      }
+    }
+
+    if (boosting) this.nitro = Math.max(0, this.nitro - nitroStats.drainPerSecond * dt);
+    else this.nitro = Math.min(nitroStats.capacity, this.nitro + (nitroStats.refillPerSecond + (drift.active ? nitroStats.driftRefill : 0)) * dt);
 
     if (drift.event === 'drift_end' && drift.lastDriftScore > 0) this.hud.toast(`Drift +${drift.lastDriftScore.toLocaleString()}`, 'good');
     else if (drift.event === 'wipeout') this.hud.toast('Drift lost', 'warn');
@@ -838,7 +874,7 @@ export class Game {
     const events = this.session.update(dt, state, drift);
     this.apexMeeting?.update(dt,state);
     for (let i = 0; i < events.length; i += 1) this.handleSessionEvent(events[i]);
-    if (this.state === 'running') this.meta.frame(dt, state, drift, this.session.hud.elapsed, this.cameraRig.camera);
+    if (this.state === 'running') this.meta.frame(dt, state, drift, this.session.hud.elapsed, this.cameraRig.camera, this.session.hud);
 
     this.effects.emit(dt, state);
     this.damage.update(dt, state);
@@ -913,8 +949,11 @@ export class Game {
     frame.rpmMax = state.rpmMax;
     frame.throttle = state.throttle;
     frame.brake = state.brake;
-    frame.boost = getCar(this.carId).nitro ? this.nitro : null; // null: this car has no nitrous
+    const upgrades = this.career?.carUpgrades?.(this.carId);
+    const cap = Math.max(1, this.nitroCapacity || effectiveNitroStats(CONFIG.nitro, upgrades).capacity);
+    frame.boost = !this.apexMeeting?.gt && hasCarNitro(getCar(this.carId), upgrades) ? (this.nitro / cap) * 100 : null; // null: this car has no nitrous
     frame.boosting = state.boosting;
+    frame.ghostDelta = this.meta?.ghostDelta ?? null;
     frame.surface = SURFACE_PROPS[state.surface]?.name || 'asphalt';
     frame.position.x = state.position.x;
     frame.position.z = state.position.z;

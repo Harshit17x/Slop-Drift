@@ -356,6 +356,24 @@ export class AudioEngine {
     });
   }
 
+  stylePing(kind = 'transition') {
+    if (!this._canPlay() || !this._cooldown('stylePing', 0.18)) return;
+    this._safe(() => {
+      const base = kind === 'wallTap' ? 1175 : kind === 'backward' ? 1046.5 : 880;
+      this._tone({ freq: base, dur: 0.09, vol: 0.1, type: 'triangle' });
+      this._tone({ freq: base * 1.25, dur: 0.15, vol: 0.11, type: 'triangle', when: 0.055 });
+    });
+  }
+
+  purchase() {
+    if (!this._canPlay() || !this._cooldown('purchase', 0.12)) return;
+    this._safe(() => {
+      this._tone({ freq: 659.3, dur: 0.08, vol: 0.12, type: 'triangle' });
+      this._tone({ freq: 988, dur: 0.11, vol: 0.12, type: 'triangle', when: 0.06 });
+      this._tone({ freq: 1318.5, dur: 0.18, vol: 0.14, type: 'triangle', when: 0.12 });
+    });
+  }
+
   finish() {
     if (!this._canPlay() || !this._cooldown('finish', 0.5)) return;
     this._safe(() => {

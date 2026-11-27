@@ -3,6 +3,7 @@
 import { Career } from '../src/meta/Career.js';
 import { mirroredStorage, profileXp } from '../src/platform/progressStorage.js';
 import { CrazyGamesPlatform } from '../src/platform/CrazyGames.js';
+import { ClipZones, findApexes } from '../src/render/ClipZones.js';
 
 let failures = 0;
 let passes = 0;
@@ -70,6 +71,28 @@ platform.sdk.data = sdkData;
 check('the data module is offered as cloud storage', platform.dataStorage === sdkData);
 platform.initialized = false;
 check('but not before the SDK is ready', platform.dataStorage === null);
+
+// ---- clipping zones on the mountain roads: a closed 1 km road with two hairpins (one right, one left)
+const n = 1000;
+const curv = new Float32Array(n).fill(0.001);
+for (let i = 200; i < 220; i += 1) curv[i] = 1 / 20;
+for (let i = 600; i < 610; i += 1) curv[i] = -1 / 15;
+const fakeRoad = {
+  count: n, spacing: 1, length: n, closed: true, curvature: curv,
+  px: Float32Array.from({ length: n }, (_, i) => i), pz: new Float32Array(n), py: new Float32Array(n),
+  rx: new Float32Array(n), rz: new Float32Array(n).fill(1), bank: new Float32Array(n), halfWidth: new Float32Array(n).fill(4),
+};
+const apexes = findApexes(fakeRoad);
+check('one zone per hairpin, gentle road ignored', apexes.length === 2, apexes.map((a) => a.index).join(','));
+check('zones sit inside their hairpins', apexes[0].index >= 200 && apexes[0].index < 220 && apexes[1].index >= 600 && apexes[1].index < 610);
+check('posts go on the outside of each turn', apexes[0].side === -1 && apexes[1].side === 1);
+const clips = new ClipZones(fakeRoad);
+const at = (x) => ({ position: { x, z: 0 } });
+const z0 = clips.zones[0];
+check('a drift through an apex pays once', clips.check(at(z0.x), { active: true })?.bonus > 0 && clips.check(at(z0.x), { active: true }) === null);
+check('driving through without drifting pays nothing', clips.check(at(clips.zones[1].x), { active: false }) === null);
+clips.check(at(z0.x + 100), { active: false });
+check('leaving the zone re-arms it', clips.check(at(z0.x), { active: true }) !== null);
 
 console.log(`\n${passes} passed, ${failures} failed`);
 if (failures > 0) process.exit(1);

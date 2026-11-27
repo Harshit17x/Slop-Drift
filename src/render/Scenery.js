@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { clamp, smoothstep } from '../core/math.js';
 import { Noise2D, createRandom } from '../world/noise.js';
+import { ClipZones } from './ClipZones.js';
 
 // Dense, frustum-culled mountain forest, rocky boulders, alpine shrubs, and 3D grass tufts.
 // Nearby trees (<440m), grass, and alpine shrubs render with the web-optimized `alpine-foliage.webp`
@@ -465,6 +466,8 @@ export class Scenery {
     this.world = world;
     this.group = new THREE.Group();
     this.group.name = 'Scenery';
+    this.clips = (world.roads || []).filter((road) => road.curvature).map((road) => new ClipZones(road));
+    for (const clips of this.clips) this.group.add(clips.mesh);
     this.windTime = { value: 0 };
     this.grassCamPos = { value: new THREE.Vector3() };
     this.grassFade = { value: new THREE.Vector2(130, 195) };
@@ -972,7 +975,15 @@ export class Scenery {
    * Per-frame: advance wind sway, frustum-cull tiles, swap foreground trees to textured atlas
    * boughs near the road/camera, and keep dense grass & shadows tightly scoped for steady FPS.
    */
+  /** Drift through a glowing apex: { name, bonus } once per pass (Game.updateRunning). */
+  clipZone(state, drift) {
+    let paid = null;
+    for (const clips of this.clips) paid = clips.check(state, drift) || paid;
+    return paid;
+  }
+
   update(view, _dt = 0, _isNight = false, _carPos = null, cameraOpt = null) {
+    for (const clips of this.clips) clips.update(_dt);
     const now = typeof performance !== 'undefined' ? performance.now() : 0;
     this.windTime.value += Math.min(0.1, (now - this.clock) / 1000);
     this.clock = now;
