@@ -724,7 +724,7 @@ export class Hud {
           <button type="button" class="sdh-btn" data-act="settings">${ICON.sliders}<span>Settings</span></button>
           <button type="button" class="sdh-btn" data-act="menu">${ICON.home}<span>Main menu</span></button>
         </div>
-        <canvas class="sdh-overview sdh-overview-pause" aria-label="Map of the mountain roads"></canvas>
+        <canvas class="sdh-overview sdh-overview-pause" aria-label="Map of the roads"></canvas>
       </aside>`;
   }
 
@@ -1332,7 +1332,8 @@ export class Hud {
   showPause(copyText = '') {
     this.screen = 'pause';
     this.sub = null;
-    this.q('.sdh-pause-copy').textContent = copyText || 'Take a breath. The mountain will wait.';
+    const calm = this.mapId === 'tokyo' ? 'The city stays lit. Your line is waiting.' : 'Take a breath. The mountain will wait.';
+    this.q('.sdh-pause-copy').textContent = copyText || calm;
     this.q('.sdh-pause-mode').textContent = this.v.modeLabel.raw || '';
     this.applyScreen();
   }

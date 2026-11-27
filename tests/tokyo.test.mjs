@@ -52,6 +52,18 @@ for(const [u,v,y,hit] of [[9.9,4.9,1,true],[10.4,5.3,1,true],[0,0,1,true],
   if(hit)assert.ok(Math.abs(Math.hypot(contact.nx,contact.nz)-1)<1e-6);
 }
 
+// The raised pavement beside a street-level road is a real driving surface:
+// contact follows the +0.155 m platform instead of the -0.35 m city fill.
+const pav=w.roads[0].frameAt(600,{});
+for(const [off,want] of [[0,0],[9.1,0],[9.4,.155],[10.4,.155],[12.6,.155],[13.7,.155]]){
+  const x=pav.x+pav.rx*off,z=pav.z+pav.rz*off,y=w.heightAt(x,z,pav.y+.5);
+  assert.ok(Math.abs(y-pav.y-want)<.035,'pavement at '+off+' m: '+y);
+}
+for(const off of [20,26]){
+  const x=pav.x+pav.rx*off,z=pav.z+pav.rz*off;
+  assert.ok(w.heightAt(x,z,pav.y+.5)<-.2,'city fill beyond pavement at '+off+' m');
+}
+
 const express=w.roads[2];
 const verge=express.frameAt(1800,{});
 for(const side of [-1,1]){

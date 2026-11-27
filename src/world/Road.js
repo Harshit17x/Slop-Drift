@@ -199,7 +199,12 @@ export class Road {
           const dz = z - (az + abz * u);
           const distanceSq = dx * dx + dz * dz;
           const dy = referenceY === undefined ? 0 : this.py[i] + (this.py[j]-this.py[i])*u - referenceY;
-          const metric = distanceSq + dy*dy;
+          // Prefer the deck the caller is actually on. Stacked and parallel
+          // flyovers can put another layer of the same road closer in plan
+          // view; a plain distance + dy^2 metric then snaps to that deck and
+          // the lower carriageway loses its ground sample. Weighting the
+          // height difference keeps the near-horizontal layer authoritative.
+          const metric = distanceSq + dy * dy * 9;
           if (metric < bestMetric) {
             bestMetric = metric;
             bestDistance = distanceSq;

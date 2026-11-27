@@ -98,8 +98,10 @@ export class TokyoNight{
     let w=this.g.mode?.id==='roam'?this.log.weather:'After rain';
     if(w==='Passing showers')w=weatherOptions[Math.floor(this.clock/65)%3];
     this.g.scenery.weather=w;
-    this.g.scenery.reflect.opacity=w==='Clear'?.19:w==='Rain'?.76:.51;
-    this.g.roads.streetMaterial.roughness=w==='Clear'?.78:w==='Rain'?.26:.44;
+    this.g.scenery.reflect.opacity=w==='Clear'?.05:w==='Rain'?.30:.16;
+    // Even in the rain the asphalt stays diffuse; the wet read comes from the
+    // puddle films and neon spill, never from a mirror-smooth carriageway.
+    this.g.roads.streetMaterial.roughness=w==='Clear'?.9:w==='Rain'?.62:.72;
   }
   start(id){
     if(id==='rooftop'&&!this.log.complete.includes('parkade')){this.g.hud.toast('Complete the eight lower decks first','info');return}

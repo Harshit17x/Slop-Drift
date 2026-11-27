@@ -41,6 +41,32 @@ export class CarVisual {
     }
     this.headlightsOn = false;
 
+    // A soft contact patch keeps the car planted on asphalt and pavement.
+    // It is cheaper than a second shadow-casting light and survives every quality tier.
+    const shadowCanvas = document.createElement('canvas');
+    shadowCanvas.width = shadowCanvas.height = 256;
+    const shadowCtx = shadowCanvas.getContext('2d');
+    const shadowFade = shadowCtx.createRadialGradient(128, 128, 0, 128, 128, 126);
+    shadowFade.addColorStop(0, 'rgba(0,0,0,.86)');
+    shadowFade.addColorStop(.5, 'rgba(0,0,0,.58)');
+    shadowFade.addColorStop(.8, 'rgba(0,0,0,.18)');
+    shadowFade.addColorStop(1, 'rgba(0,0,0,0)');
+    shadowCtx.fillStyle = shadowFade;
+    shadowCtx.fillRect(0, 0, 256, 256);
+    const shadowTexture = new THREE.CanvasTexture(shadowCanvas);
+    this.contactShadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({
+        map: shadowTexture, transparent: true, depthWrite: false, color: 0x000000,
+        polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
+      }),
+    );
+    this.contactShadow.rotation.x = -Math.PI / 2;
+    this.contactShadow.scale.set(2.55, 5.15, 1);
+    this.contactShadow.position.y = 0.018;
+    this.contactShadow.renderOrder = 1;
+    this.model.add(this.contactShadow);
+
     // The drift-car interior for the cockpit camera. Built once, shown only in that view, when the
     // exterior shell (which would otherwise fill the windscreen from inside) is hidden.
     // Model cars keep their real body in view from inside (its panels face away from the driver and are
@@ -147,12 +173,26 @@ export class CarVisual {
     if (this.interior) this.cockpit.update(state, dt);
 
     let grounded = 0;
-    for (let i = 0; i < 4; i += 1) if (state.wheels[i].contact) grounded += 0.25;
+    let groundY = -Infinity;
+    for (let i = 0; i < 4; i += 1) {
+      const wheel = state.wheels[i];
+      if (!wheel.contact) continue;
+      grounded += 0.25;
+      groundY = Math.max(groundY, wheel.contactPoint.y);
+    }
+    this.contactShadow.visible = grounded > 0;
+    // The blob lives in car space, so pin it to the actual contact height
+    // instead of the model origin. Sidewalk crowns and parkade ramps then
+    // never push the shadow under the surface.
+    if (grounded > 0) this.contactShadow.position.y = groundY - this.model.position.y + 0.012;
     this.model.updateUnderglow(dt, grounded);
   }
 
   dispose() {
     this.cockpit.dispose();
+    this.contactShadow.geometry.dispose();
+    this.contactShadow.material.map.dispose();
+    this.contactShadow.material.dispose();
     this.model.parent?.remove(this.model);
     this.model.dispose();
   }

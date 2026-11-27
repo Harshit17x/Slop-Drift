@@ -111,7 +111,7 @@ export async function buildTokyo(world,stage){
     if(length<15000)lo=m;else hi=m;
   }
   const tour=makeRoad(world,'Grand Tokyo Tour',tourSurvey((lo+hi)/2),8,true,[
-    {x:-773,z:-355,rise:-4.1},{x:2286,z:-1331,rise:5.3}
+    {x:-773,z:-355,rise:-4.1},{x:2286,z:-1331,rise:5.3},{x:1225,z:-709,rise:4.2}
   ]);
   // Through streets give each district multiple approaches.
   for(const [a,as,b,bs] of [[main,1850,shibuya,1690],[main,2200,highway,5400],[main,3620,bay,900],[bay,2300,tour,2300]]){
