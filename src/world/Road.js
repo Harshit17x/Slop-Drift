@@ -274,6 +274,13 @@ export class Road {
     return -this.config.vergeDrop * t;
   }
 
+  escapeAt(loc) {
+    const widths = loc.lateral < 0 ? this.escapeLeft : this.escapeRight;
+    if (!widths) return 0;
+    const i = loc.index, j = (i + 1) % this.count;
+    return widths[i] + (widths[j] - widths[i]) * loc.u;
+  }
+
   /** Frame at distance s along the road (wrapped on closed roads, clamped on open ones). */
   frameAt(s, out) {
     const max = this.segments;

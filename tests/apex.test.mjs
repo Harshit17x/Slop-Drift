@@ -1,4 +1,5 @@
-import {Group,Vector3,BufferGeometry,MeshBasicMaterial,Texture} from 'three';
+import {ApexCircuitSurface} from '../src/render/ApexCircuitSurface.js';
+import {DoubleSide,Raycaster,Group,Vector3,BufferGeometry,MeshBasicMaterial,Texture} from 'three';
 import {ApexGrid} from '../src/game/ApexGrid.js';
 import assert from 'node:assert/strict';
 import {controlFlag,capUnderFlag} from '../src/game/apexControl.js';
@@ -36,6 +37,54 @@ for(const [id,route] of Object.entries(world.routes)){
   console.log(id,route.metres.toFixed(1),'m, worst contact error',worst.toFixed(3),'m');
 }
 for(const r of world.physicalRoads){for(let i=0;i<r.count;i+=2){for(const side of [-.9,0,.9]){const d=side*r.halfWidth[i],y=r.py[i]+d*r.bank[i];assert(world.grid.heightAt(r.px[i]+d*r.rx[i],r.pz[i]+d*r.rz[i])<=y+.035,'terrain clips '+r.name+' at '+(i*r.spacing).toFixed(1));}}}
+// Sweep both triangles of every physical road section, including cuts through shared junctions.
+let maxPavementError = 0;
+for (const road of world.physicalRoads) {
+  for (let i = 0; i < road.segments; i++) {
+    const j = (i + 1) % road.count;
+    for (const across of [-.99, -.5, 0, .5, .99]) {
+      const d = across * road.halfWidth[i];
+      const x = road.px[i] + d * road.rx[i], z = road.pz[i] + d * road.rz[i];
+      const dx = road.px[j] + d * road.rx[j] - x, dz = road.pz[j] + d * road.rz[j] - z;
+      assert(dx * road.tx[i] + dz * road.tz[i] > 0, road.name + ' folded pavement at ' + i);
+      for (const along of [.05, .5, .95]) {
+        const y = (1-along)*(road.py[i]+d*road.bank[i]) + along*(road.py[j]+d*road.bank[j]);
+        const hit = world.sampleGround(x+along*dx,z+along*dz,{},y+.42);
+        const error = Math.abs(y-hit.y);
+        maxPavementError = Math.max(maxPavementError,error);
+        assert(error < .085, road.name + ' tyre contact error ' + error + ' at section ' + i);
+      }
+    }
+  }
+}
+console.log('Maximum sampled pavement/contact discrepancy',maxPavementError.toFixed(3),'m');
+// Raycast the shipped triangle meshes where the branches meet, including both bridge decks.
+{
+  const geometry = Object.create(ApexCircuitSurface.prototype);
+  geometry.world = world;
+  geometry.group = new Group();
+  geometry.geometries = [];
+  for (const key of ['paint','tarmac','runoff']) geometry[key] = new MeshBasicMaterial({side:DoubleSide});
+  for (const road of world.physicalRoads) geometry.build(road);
+  geometry.group.updateMatrixWorld(true);
+  const ray = new Raycaster(new Vector3(),new Vector3(0,-1,0),0,1.6);
+  let worst = 0;
+  for (const station of [1,2,6,12,13,14,27,28,29,40,41]) {
+    for (let ds=-32;ds<=32;ds+=8) for (const d of [-5.7,-2,0,2,5.7]) {
+      const f = main.frameAt(world.apex.stations[station]+ds,{});
+      const x = f.x+f.rx*d, z = f.z+f.rz*d, y = f.y+f.ry*d;
+      ray.ray.origin.set(x,y+.8,z);
+      const surface = ray.intersectObjects(geometry.group.children,false)[0];
+      assert(surface,'open pavement seam at station '+station);
+      const tyre = world.sampleGround(x,z,{},y+.45);
+      worst = Math.max(worst,Math.abs(surface.point.y-tyre.y));
+    }
+  }
+  assert(worst<.085,'rendered junction height error '+worst);
+  console.log('Maximum rendered junction/contact discrepancy',worst.toFixed(3),'m');
+  for (const mesh of geometry.group.children) mesh.geometry.dispose();
+  for (const key of ['paint','tarmac','runoff']) geometry[key].dispose();
+}
 // A long legal rejoin used to lock tracking until the car returned to its exit point.
 {
   const mode={id:'limits',route:'loop',laps:1,limitGrace:.6},session=new RaceSession({world,mode});

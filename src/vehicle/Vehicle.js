@@ -158,6 +158,7 @@ export class Vehicle {
     const t = resolveTuning(name, overrides);
     this.handlingName = name;
     this.tuning = t;
+    this.roadTemperature = 28;
     const g = t.geometry;
     const s = t.suspension;
     this.mass = t.mass;
@@ -179,6 +180,9 @@ export class Vehicle {
       const w = this.wheels[wi];
       const halfTrack = w.front ? g.frontHalfTrack ?? g.halfTrack : g.halfTrack;
       const x = w.left ? -halfTrack : halfTrack;
+      w.slipAngle = 0;
+      w.tcActive = false;
+      w.temperature = t.tire.slickThermal?.initial ?? this.roadTemperature;
       w.radius = w.front ? g.frontWheelRadius ?? g.wheelRadius : g.wheelRadius;
       const centreY = g.wheelCenterY + (w.radius - g.wheelRadius);
       const z = w.front ? g.frontAxleZ : g.rearAxleZ;
@@ -404,7 +408,7 @@ export class Vehicle {
     this.accumulator = 0;
     for (let wi = 0; wi < 4; wi++) {
       const w = this.wheels[wi];
-      w.accX = 0; w.accY = 0; w.spinAngle = 0; w.spinSpeed = 0; w.slip = 0; w.latForce = 0;
+      w.accX = 0; w.accY = 0; w.spinAngle = 0; w.spinSpeed = 0; w.slip = 0; w.slipAngle = 0; w.tcActive = false; w.latForce = 0;
     }
     // Settle on the springs (hill hold keeps it in place), then drop all motion again.
     const neutral = { throttle: 0, brake: 0, steer: 0, handbrake: false, boost: false, shift: 0 };
@@ -687,10 +691,10 @@ export class Vehicle {
     const abs = this.assists.abs;
     for (let wi = 0; wi < 4; wi++) {
       const w = this.wheels[wi];
-      w.fx = 0; w.fy = 0; w.absActive = false; w.boundX = 0; w.boundY = 0; w.bound = 0;
+      w.fx = 0; w.fy = 0; w.tcActive = false; w.absActive = false; w.boundX = 0; w.boundY = 0; w.bound = 0;
       w.locked = false;
       w.steer = w.front ? frontWheelAngle(this.steerAngle, w.mount.x, this.wheelbase) : 0;
-      if (!w.contact) { w.accX = 0; w.accY = 0; w.slip = 0; continue; }
+      if (!w.contact) { w.slipAngle = 0; w.accX = 0; w.accY = 0; w.slip = 0; continue; }
       const n = w.normal;
       // Rolling axis: steered wheel-right projected on the ground plane; forward = n x axle.
       const cs = Math.cos(w.steer);
@@ -716,6 +720,10 @@ export class Vehicle {
       if (tire.loadSensitivity > 0) {
         w.mu *= clamp(1 - tire.loadSensitivity * (w.tyreLoad / w.nominalLoad - 1), tire.loadSensitivityRange[0], tire.loadSensitivityRange[1]);
       }
+      if (tire.slickThermal) {
+        const delta = w.temperature - tire.slickThermal.optimum;
+        w.mu *= clamp(1 - 0.000045 * delta * delta, 0.72, 1);
+      }
       w.muN = w.mu * w.tyreLoad;
       w.meffX = this._effectiveMass(w.r, w.fwd);
       w.meffY = this._effectiveMass(w.rLat, w.axle);
@@ -727,6 +735,7 @@ export class Vehicle {
       w.locked = (!w.front && handbrake) || (!abs && brakeForce > w.muN * b.lockThreshold && Math.abs(w.vLong) > 1.5);
 
       if (w.locked) {
+        w.slipAngle = 0;
         w.bound = tire.lockedFriction * w.muN;
         w.boundX = Infinity;
         w.boundY = Infinity;
@@ -755,20 +764,36 @@ export class Vehicle {
 
       // Lateral: peaked slip-angle curve above walking pace, capped by the slip-cancelling force.
       let fy = 0;
+      if (w.blend === 0) w.slipAngle = 0;
       if (w.blend > 0) {
-        const alpha = Math.atan2(Math.abs(w.vLat), Math.max(Math.abs(w.vLong), 0.5));
+        const targetAngle = Math.atan2(w.vLat, Math.max(Math.abs(w.vLong), 0.5));
+        // A slick develops lateral force over a rolling distance after turn-in.
+        const response = tire.relaxationLength
+          ? -Math.expm1(-contactSpeed * dt / tire.relaxationLength) : 1;
+        w.slipAngle += (targetAngle - w.slipAngle) * response;
+        const alpha = Math.abs(w.slipAngle);
         const loose = tire.gravelPeakDeg && (w.sample.surface === SURFACE.GRAVEL ||
           w.sample.surface === SURFACE.DIRT || w.sample.surface === SURFACE.MUD);
         const peak = loose ? tire.gravelPeakDeg * DEG2RAD : peakSlip;
         let mag = w.muN * lateralCurve(alpha / peak, loose ? tire.gravelSlideRatio : tire.slideRatio, tire.falloff);
         const cap = (w.meffY * Math.abs(w.vLat) / dt) * tire.cancelCap;
         if (mag > cap) mag = cap;
-        fy = -Math.sign(w.vLat) * mag * w.blend;
+        fy = -Math.sign(w.slipAngle) * mag * w.blend;
       }
       // Traction control: let drive use only what lateral demand leaves (blended by the setting).
       if (tire.tractionControl > 0 && w.driven && fx > 0) {
         const room = Math.sqrt(Math.max(0, w.muN * w.muN - fy * fy));
-        if (fx > room) fx = lerp(fx, room, tire.tractionControl);
+        if (fx > room) {
+          w.tcActive = true;
+          fx = lerp(fx, room, tire.tractionControl);
+        }
+      }
+      // Under trail braking the requested longitudinal force also uses the contact patch.
+      // Reserve its share here. The impulse solver applies the actual braking below.
+      if (tire.combinedBraking && brakeForce > 0 && w.blend > 0) {
+        const brakingDemand = Math.min(brakeForce, w.muN);
+        const combined = Math.hypot(fx - Math.sign(w.vLong) * brakingDemand, fy);
+        if (combined > w.muN) fy *= w.muN / combined;
       }
       // Friction ellipse.
       const demand = Math.hypot(fx, fy);
@@ -784,7 +809,11 @@ export class Vehicle {
       this._addForceAt(w.axle.x * fy, w.axle.y * fy, w.axle.z * fy, w.rLat);
 
       // Constraint budgets (used by the velocity solver after integration).
-      const room = Math.sqrt(Math.max(0, w.muN * w.muN - fx * fx - fy * fy));
+      let room = Math.sqrt(Math.max(0, w.muN * w.muN - fx * fx - fy * fy));
+      if (tire.combinedBraking && brakeForce > 0 && w.blend === 1) {
+        // Signed drive/overrun is already applied. Bound the FINAL longitudinal force.
+        room = Math.max(0, Math.sqrt(Math.max(0, w.muN ** 2 - fy ** 2)) + Math.sign(w.vLong) * fx);
+      }
       w.bound = room;
       w.boundY = (1 - w.blend) * room;
       w.absActive = abs && Math.abs(w.vLong) > 1.5 && brakeForce > room * b.absRatio;
@@ -800,8 +829,9 @@ export class Vehicle {
       const drag = q * a.dragArea * speed;
       this.force.addScaledVector(vel, -drag);
     }
-    if (contacts > 0) {
-      const down = q * a.liftArea * fwdSpeed * fwdSpeed;
+    if (contacts > 0 || a.airborneWingShare) {
+      const airflow = a.airborneWingShare ? Math.max(0, fwdSpeed) : fwdSpeed;
+      const down = q * a.liftArea * airflow ** 2 * (contacts > 0 ? 1 : a.airborneWingShare);
       const g = t.geometry;
       _a.copy(this.forward).multiplyScalar(-g.frontAxleZ + t.com.z);
       this._addForceAt(-this.up.x * down * a.downforceFront, -this.up.y * down * a.downforceFront, -this.up.z * down * a.downforceFront, _a);
@@ -950,6 +980,19 @@ export class Vehicle {
         w.spinSpeed = spin;
       } else {
         w.spinSpeed *= 0.995;
+      }
+      if (tire.slickThermal) {
+        // Lumped tread temperature: slip work and casing flex heat the contact patch.
+        // Airflow and the road draw heat away even on a straight.
+        let heating = 0;
+        if (w.contact) {
+          const longitudinal = w.fx + w.accX / dt;
+          const slipSpeed = Math.abs(w.spinSpeed * w.radius - w.vLong);
+          heating = 0.45 * (Math.abs(w.latForce * w.vLat) + Math.abs(longitudinal) * slipSpeed)
+            + 0.009 * w.tyreLoad * Math.abs(w.vLong);
+        }
+        const cooling = (15 + 0.38 * speed) * (w.temperature - this.roadTemperature);
+        w.temperature = clamp(w.temperature + dt * (heating - cooling) / tire.slickThermal.heatCapacity, -20, 160);
       }
       w.spinAngle += w.spinSpeed * dt;
       if (Math.abs(w.spinAngle) > 1e4) {

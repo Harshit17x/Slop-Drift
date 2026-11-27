@@ -69,7 +69,15 @@ try{
     ...names.map((name,i)=>[name.toLowerCase().replaceAll(' ','-'),'day','section'+i,i===2?9:-3,i===2?10:3.2,65]),
     ['garage-bays','day',-94,19,1.8,24],['lake','day','lake',0,0,0],['crossover','day','bridge',-19,13,35],['landscape','sunset','ridge',-40,68,270]
   ];
+  const roadViews = process.argv.includes('--road-views');
+  if (roadViews) {
+    const stations = await ev('g.world.apex.stations');
+    for (const [name,i] of [['gp-junction',29],['sprint-junction',40],['stadium-junction',41]]) {
+      shots.push([name,'day',stations[i]-42,0,6,62]);
+    }
+  }
   for(const [name,time,s,side,up,look] of shots){
+    if (roadViews && name !== 'crossover' && !name.endsWith('-junction')) continue;
     const data=await ev(`(()=>{const a=g.world.apex, m=a.main;g.atmosphere.setTimeOfDay(${JSON.stringify(time)});g.car.setHeadlights(g.atmosphere.isNight);
       g.terrain.setSun(g.atmosphere.sunDirection,g.atmosphere.sunColor,g.atmosphere.ambientColor);
       const arg=${JSON.stringify(s)},pos=typeof arg==='number'?arg:arg==='bridge'?a.under-38:arg==='ridge'?a.stations[20]:a.sections[Number(arg.slice(7))].start+22;
@@ -82,6 +90,10 @@ try{
       return g.canvas.toDataURL('image/jpeg',.89).split(',')[1];})()`);
     await writeFile(path.join(destination,name+'.jpg'),Buffer.from(data,'base64'));
   }
+  if (roadViews) {
+    if(errors.length)throw Error(errors.join(String.fromCharCode(10)));
+    console.log("Captured the crossover and three revised junctions");
+  } else {
   const stats=await ev(`(async()=>{const gl=g.renderer.getContext(),dbg=gl.getExtension('WEBGL_debug_renderer_info'),samples=[];
     for(let i=0;i<31;i++){const t=performance.now();g.renderer.render(g.scene,g.cameraRig.camera);gl.finish();if(i)samples.push(performance.now()-t);await new Promise(r=>setTimeout(r,0));}
     samples.sort((a,b)=>a-b);return {gpu:dbg?gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER),viewport:[g.canvas.width,g.canvas.height],quality:g.settings.quality,rendererOnlyMs:{median:samples[15],p95:samples[28]},draw:g.renderer.info.render,memory:g.renderer.info.memory,loadStagesMs:g.loadTimings};})()`);
@@ -145,6 +157,7 @@ try{
   const report={build:production?'production':'development',stats,weekend,drive,errors};
   await writeFile(path.join(destination,'browser-check.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
   if(errors.length)process.exitCode=1;
+  }
   }
 }finally{
   if(production)await new Promise(resolve=>server.httpServer.close(resolve));else await server.close();await send('Browser.close').catch(()=>{});await delay(300);child.kill();await rm(profile,{recursive:true,force:true,maxRetries:3}).catch(()=>{});

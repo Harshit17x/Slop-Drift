@@ -742,18 +742,28 @@ export class World {
       if (this.layered && scratchLocation.y + (this.apex ? scratchLocation.lateral * scratchLocation.bank : 0) > referenceY + 1.65) continue;
       const halfWidth = scratchLocation.halfWidth;
       const a = scratchLocation.distance;
-      const reach = current.vergeEdge + (scratchLocation.lateral<0?current.escapeLeft?.[scratchLocation.index]??0:current.escapeRight?.[scratchLocation.index]??0);
+      const reach = current.vergeEdge + current.escapeAt(scratchLocation);
       if (a > halfWidth + reach) continue;
       const side = scratchLocation.lateral < 0 ? -1 : 1;
       const offset = current.profileAt(a, halfWidth);
       let surfaceClass = a <= halfWidth ? 0 : a <= halfWidth + current.shoulderEdge ? 1 : 2;
       let y = scratchLocation.y + side * a * scratchLocation.bank + offset;
       if (this.apex) {
-        const kerb = this.apex.kerb(scratchLocation.s,scratchLocation.lateral,halfWidth,scratchLocation.curvature);
+        const mouth = (side < 0 ? current.openLeft : current.openRight)[scratchLocation.index];
+        const kerb = mouth || current.pitApron ? 0 : this.apex.kerb(scratchLocation.s,scratchLocation.lateral,halfWidth,scratchLocation.curvature);
         y += kerb;
         if(kerb>0) surfaceClass=0;
         roadSurface=kerb>0?SURFACE.KERB:this.apex.surface(current,scratchLocation.s)==='asphalt'?SURFACE.ASPHALT:SURFACE.CONCRETE;
-        if(a>halfWidth+current.vergeEdge){surfaceClass=1;y=this.grid.heightAt(x,z)+.025;}
+        if (a > halfWidth + current.vergeEdge) {
+          const edge = halfWidth + current.vergeEdge;
+          const width = reach - current.vergeEdge;
+          const beyond = a - edge;
+          const rx = side * scratchLocation.rx, rz = side * scratchLocation.rz;
+          const edgeY = scratchLocation.y + side * edge * scratchLocation.bank - current.config.vergeDrop;
+          y = this.apex.runoffHeight(this.grid, x - rx * beyond, z - rz * beyond, rx, rz, edgeY, beyond, width);
+          Road.profileSlope = (y - edgeY) / beyond - side * scratchLocation.bank;
+          surfaceClass = 1;
+        }
         wet=(this.apex.wetness||0)*(.78+.22*Math.min(1,a/halfWidth));
       }
       if (this.bridge) {
@@ -775,7 +785,7 @@ export class World {
       if (surfaceClass === 2 && !this.layered) y = Math.max(y, this.grid.heightAt(x, z));
       // A lower crossing must never take a tyre off the shoulder of an upper deck.
       const differentDeck = this.layered && bestClass < 9 && Math.abs(y-bestY) > (this.apex ? 5 : 1.65);
-      if (differentDeck ? y > bestY : surfaceClass < bestClass || (surfaceClass === bestClass && (this.apex ? a<bestDistance : y>bestY))) {
+      if (differentDeck ? y > bestY : surfaceClass < bestClass || (surfaceClass === bestClass && (this.apex ? (surfaceClass === 0 ? current.id < bestRoad : a < bestDistance) : y > bestY))) {
         bestClass = surfaceClass;
         bestY = y;
         bestDistance = a;
@@ -906,15 +916,19 @@ export class World {
     for (let r = 0; r < physical.length; r += 1) {
       const current = physical[r];
       if (!current.locate(x, z, scratchLocation, this.layered ? y : undefined) || scratchLocation.beyondEnd) continue;
-      if (this.layered && y < scratchLocation.y+(this.apex?scratchLocation.bank*scratchLocation.lateral:0)-0.6) continue;
-      const railAt = scratchLocation.halfWidth + road.shoulder + road.railOffset + (scratchLocation.lateral<0?current.escapeLeft?.[scratchLocation.index]??0:current.escapeRight?.[scratchLocation.index]??0);
+      if (this.layered && !this.apex && y < scratchLocation.y - 0.6) continue;
+      const railAt = scratchLocation.halfWidth + road.shoulder + road.railOffset + current.escapeAt(scratchLocation);
       const a = Math.abs(scratchLocation.lateral);
       // Only the road side of a rail is solid; a car that is already beyond it is left alone.
       if (a + radius <= railAt || a > railAt + 1.1) continue;
-      const near = scratchLocation.u < 0.5 ? scratchLocation.index : (scratchLocation.index + 1) % current.count;
+      const near = this.apex || scratchLocation.u < 0.5 ? scratchLocation.index : (scratchLocation.index + 1) % current.count;
       const side = scratchLocation.lateral < 0 ? -1 : 1;
       if (!(side < 0 ? current.railLeft[near] : current.railRight[near])) continue;
-      const surfaceY = scratchLocation.y + scratchLocation.lateral * scratchLocation.bank;
+      const heights = side < 0 ? current.railBaseLeft : current.railBaseRight;
+      const i = scratchLocation.index;
+      const surfaceY = heights ? heights[i] + (heights[(i+1)%current.count]-heights[i])*scratchLocation.u
+        : scratchLocation.y + scratchLocation.lateral * scratchLocation.bank;
+      if (this.apex && y < surfaceY - .6) continue;
       if (y - surfaceY > road.railHeight + 0.3) continue;
       const depth = a + radius - railAt;
       if (depth > out.depth) {
@@ -1117,6 +1131,19 @@ export class World {
         heights.push(road.py[i]);
       };
       for (let i = 0; i < road.count; i += 3) add(i);
+    if (this.apex) {
+      // Timing ribbons only define the heading. Respawn on the physical deck underneath.
+      const hit = this.sampleGround(frame.x,frame.z,{},frame.y+.45);
+      out.position.y = hit.y;
+      const rx = frame.ty*hit.nz - frame.tz*hit.ny;
+      const ry = frame.tz*hit.nx - frame.tx*hit.nz;
+      const rz = frame.tx*hit.ny - frame.ty*hit.nx;
+      const scale = d / Math.hypot(rx,ry,rz);
+      const x = rx*scale, y = ry*scale, z = rz*scale;
+      basisToQuaternion(x,y,z,hit.nx,hit.ny,hit.nz,
+        y*hit.nz-z*hit.ny,z*hit.nx-x*hit.nz,x*hit.ny-y*hit.nx,out.quaternion);
+      return out;
+    }
       if (!road.closed) add(road.count - 1);
       return { id: road.id, closed: road.closed, points, heights, layered: this.layered && !this.apex, parkade: this.config.map==='tokyo' && road.id===4 };
     });

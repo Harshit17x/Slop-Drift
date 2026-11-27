@@ -13,6 +13,46 @@ function lane(buf,r,i,j,l,h,L,H,low,high,color){
   if(l<h)buf.quad(a,b,c,d);else buf.quad(d,c,b,a);
 }
 function patch(buf,r,i,j,left,right,h1,h2,color){lane(buf,r,i,j,left,right,left,right,h1,h2,color);}
+// Clip a branch's asphalt against earlier roads. Retain a narrow seam overlap to
+// cover the difference between the sampled curve and its straight mesh chords.
+function junctionLane(buf, road, i, j, left, right, endLeft, endRight, height, color, roads) {
+  const corner = (idx, d, s) => ({
+    x:road.px[idx]+road.rx[idx]*d, y:road.py[idx]+road.bank[idx]*d+height,
+    z:road.pz[idx]+road.rz[idx]*d, d, s,
+  });
+  let poly = [corner(i,left,i*road.spacing),corner(i,right,i*road.spacing),
+    corner(j,endRight,(i+1)*road.spacing),corner(j,endLeft,(i+1)*road.spacing)];
+  const loc = {};
+  for (const through of roads) {
+    const distances = poly.map(p => {
+      if (!through.locate(p.x,p.z,loc,p.y)) return 40;
+      const heightGap = Math.abs(p.y-loc.y-loc.lateral*loc.bank);
+      if (heightGap > 2) return 40;
+      let edge = Math.abs(loc.lateral)-loc.halfWidth;
+      if (loc.beyondEnd) {
+        const end = loc.index === 0 ? 0 : through.count-1;
+        const longitudinal = (p.x-through.px[end])*through.tx[end]+(p.z-through.pz[end])*through.tz[end];
+        edge = Math.max(edge,end===0?-longitudinal:longitudinal);
+      }
+      return edge+.08;
+    });
+    if (distances.every(d=>d<0)) return;
+    if (distances.every(d=>d>=0)) continue;
+    const clipped = [];
+    for (let n=0;n<poly.length;n++) {
+      const next=(n+1)%poly.length,a=poly[n],b=poly[next],da=distances[n],db=distances[next];
+      if (da>=0) clipped.push(a);
+      if ((da<0)===(db<0)) continue;
+      const t=da/(da-db);
+      clipped.push({x:a.x+t*(b.x-a.x),y:a.y+t*(b.y-a.y),z:a.z+t*(b.z-a.z),
+        d:a.d+t*(b.d-a.d),s:a.s+t*(b.s-a.s)});
+    }
+    poly=clipped;
+  }
+  tint.setHex(color);
+  const ids=poly.map(p=>buf.vertex(p.x,p.y,p.z,p.d/4,p.s/4,tint.r,tint.g,tint.b));
+  for(let n=1;n<ids.length-1;n++)buf.indices.push(ids[0],ids[n],ids[n+1]);
+}
 const groove=(r,i)=>Math.max(-.5,Math.min(.5,r.curvature[i]*33))*r.halfWidth[i];
 export class ApexCircuitSurface{
   constructor({world,anisotropy}){
@@ -52,11 +92,26 @@ export class ApexCircuitSurface{
     for(let base=0;base<r.segments;base+=140){
       const asphalt=new MeshBuffer({colors:true,uvs:true}),paint=new MeshBuffer({colors:true,uvs:true}),gravel=new MeshBuffer({colors:true,uvs:true});
       for(let i=base;i<Math.min(base+140,r.segments);i++){
-        const s=i*r.spacing,j=(i+1)%r.count,w=r.halfWidth[i],lift=.005*r.id;
+        const s=i*r.spacing,j=(i+1)%r.count,w=r.halfWidth[i],lift=.0005*r.id;
+        if (r === park.main && Math.abs(s - park.bridge) < 45) {
+          // The soffit and fascia use the same banked, graded sections as the deck.
+          const edge = w + r.vergeEdge + r.config.railOffset - r.config.verge;
+          patch(paint,r,i,j,-edge,edge,-1.85,-1.85,0x929591);
+          for (const side of [-1,1]) {
+            patch(paint,r,i,j,side*edge,side*edge,-1.85,-.14,0x929591);
+            patch(paint,r,i,j,side*(w+r.vergeEdge),side*edge,-.14,-.14,0x929591);
+          }
+        }
         const a=groove(r,i),b=groove(r,j),type=apexSurface(r,s),slab=type!=='asphalt';
         const colors=slab?[0xaaa99e,0x97978c,0x909187,0x99998d,0xaaa99e]:[0xdbddd9,0xd4d6d2,0xcdd0cd,0xd3d6d2,0xdbddd9];
         const A=[-w,a-1.85,a-.9,a+.9,a+1.85,w],B=[-w,b-1.85,b-.9,b+.9,b+1.85,w];
-        for(let v=0;v<5;v++)lane(slab?paint:asphalt,r,i,j,A[v],A[v+1],B[v],B[v+1],lift,lift,colors[v]);
+        const neighbours = r.id === 0 ? [] : park.roadsAt(r.px[i],r.pz[i]).filter(o =>
+          o.id < r.id && o.locate(r.px[i],r.pz[i],other,r.py[i]) &&
+          other.distance < w+other.halfWidth+2*r.spacing && Math.abs(other.y-r.py[i])<4);
+        for(let v=0;v<5;v++) {
+          if(neighbours.length) junctionLane(slab?paint:asphalt,r,i,j,A[v],A[v+1],B[v],B[v+1],lift,colors[v],neighbours);
+          else lane(slab?paint:asphalt,r,i,j,A[v],A[v+1],B[v],B[v+1],lift,lift,colors[v]);
+        }
         if(slab){
           patch(paint,r,i,j,-.034,.034,lift+.009,lift+.009,0x53564f);
           if(i%3===0){
@@ -64,8 +119,7 @@ export class ApexCircuitSurface{
           }
         }
         for(const side of [-1,1]){
-          const lat=side*(w+1),x=r.px[i]+lat*r.rx[i],z=r.pz[i]+lat*r.rz[i];
-          if(park.physical.some(o=>o!==r && o.locate(x,z,other,r.py[i]) && !other.beyondEnd && other.distance<other.halfWidth+4 && Math.abs(other.y-r.py[i])<2.1))continue;
+          if ((side < 0 ? r.openLeft : r.openRight)[i]) continue;
           patch(paint,r,i,j,side*(w-.16),side*w,lift+.012,lift+.012,PAINT);
           const shoulder=apexShoulder(r,i,side),grass=0x788952;
           const stripColor=shoulder==='grass'?grass:shoulder==='paved'?0xa7a7a0:0xc8b99c;
@@ -78,18 +132,32 @@ export class ApexCircuitSurface{
             patch(paint,r,i,j,side*(w+.52),side*(w+1.05),lift+.067,lift+.011,color);
           }
           const extra=side<0?r.escapeLeft?.[i]??0:r.escapeRight?.[i]??0;
-          if(extra>.05){
-            const widths=[w+7.95,w+8+extra],ids=[];
-            for(const [idx,n] of [[i,0],[i,1],[j,1],[j,0]]){
-              const lat=side*widths[n],X=r.px[idx]+lat*r.rx[idx],Z=r.pz[idx]+lat*r.rz[idx];
-              const Y=n?this.world.grid.heightAt(X,Z)+.025:r.py[idx]+lat*r.bank[idx]-.14;
-              ids.push(gravel.vertex(X,Y,Z,X/3,Z/3,.72,.65,.52));
-            }gravel.quad(...ids);
+          const nextExtra = (side < 0 ? r.escapeLeft : r.escapeRight)?.[j] ?? 0;
+          const outer = w + r.vergeEdge;
+          if (extra > 0 || nextExtra > 0) {
+            const ids = [];
+            for (const [idx, span] of [[i,0],[i,extra],[j,nextExtra],[j,0]]) {
+              const lat = side * (outer + span);
+              const x = r.px[idx] + lat * r.rx[idx], z = r.pz[idx] + lat * r.rz[idx];
+              const edgeY = r.py[idx] + side * outer * r.bank[idx] - r.config.vergeDrop;
+              const rx = side*r.rx[idx], rz = side*r.rz[idx];
+              const y = span > 0 ? park.runoffHeight(this.world.grid,x-rx*span,z-rz*span,rx,rz,edgeY,span,span) : edgeY;
+              ids.push(gravel.vertex(x,y,z,x/3,z/3,.72,.65,.52));
+            }
+            gravel.quad(...ids);
           }
           if(side<0?r.railLeft[i]:r.railRight[i]){
-            const d=side*(w+9+extra);
-            for(const h of [.39,.79])patch(paint,r,i,j,d,d+side*.11,h,h+.22,0xa7acaa);
-            if(i%2===0)paint.box(r.px[i]+d*r.rx[i],r.py[i]+d*r.bank[i]+.47,r.pz[i]+d*r.rz[i],.084,0,0,0,.54,0,0,0,.084,.22,.24,.23);
+            const rail = w + r.config.shoulder + r.config.railOffset;
+            const d = side * (rail + extra), end = side * (rail + nextExtra);
+            const bases = side < 0 ? r.railBaseLeft : r.railBaseRight;
+            const startH = bases[i] - r.py[i] - d*r.bank[i], endH = bases[j] - r.py[j] - end*r.bank[j];
+            tint.setHex(0xa7acaa);
+            for (const h of [.39,.79]) {
+              const a=vertex(paint,r,i,d,startH+h,s), b=vertex(paint,r,i,d,startH+h+.22,s);
+              const c=vertex(paint,r,j,end,endH+h+.22,s+r.spacing), e=vertex(paint,r,j,end,endH+h,s+r.spacing);
+              paint.quad(a,b,c,e);
+            }
+            if(i%2===0)paint.box(r.px[i]+d*r.rx[i],bases[i]+.47,r.pz[i]+d*r.rz[i],.084,0,0,0,.54,0,0,0,.084,.22,.24,.23);
           }
         }
       }

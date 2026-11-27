@@ -28,7 +28,7 @@ function local(kit,f){
   };
   return {p,block,beam,sign};
 }
-function stand(kit,frame,side,rows,bays,random,canopy=true){
+function stand(kit,frame,side,rows,bays,random,canopy=true,grid=null){
   const {block,beam}=local(kit,frame),width=bays*6,run=1.02,rise=.53;
   for(let row=0;row<rows;row++){
     const v=side*(row*run),h=row*rise;
@@ -43,6 +43,17 @@ function stand(kit,frame,side,rows,bays,random,canopy=true){
         const skin=random()>.5?0xc6a288:0x9a7058;
         block(u,v,h+.49,.40,.28,.51,shirts[Math.floor(random()*shirts.length)],'crowd','ball');
         block(u,v,h+.83,.24,.22,.27,skin,'crowd','ball');
+      }
+    }
+  }
+  if (grid) {
+    const section=local(kit,frame);
+    for (let bay=0;bay<=bays;bay++) {
+      const u=(bay-bays/2)*6;
+      for (const row of [0,Math.floor(rows/2),rows-1]) {
+        const v=side*row*run, p=section.p(u,v,0), top=row*rise-.2;
+        const bottom=grid.heightAt(p.x,p.z)-frame.y-.3;
+        if(top>bottom)block(u,v,(top+bottom)/2,.38,.45,top-bottom,STEEL,'steel');
       }
     }
   }
@@ -125,7 +136,7 @@ export class ApexPark extends ApexWoodland{
     const m=world.apex.main;
     for(const station of [41.7,42.4,43.5,44.2]){
       const k=Math.floor(station),s=world.apex.stations[k]+(station-k)*(world.apex.stations[k+1]-world.apex.stations[k]);
-      const q=m.frameAt(s,{}),side=-Math.sign(q.curvature)||1;stand(this.kit,this.offset(q,0,side*34,0),side,8,5,rand,station<43);
+      const q=m.frameAt(s,{}),side=-Math.sign(q.curvature)||1;stand(this.kit,this.offset(q,0,side*34,0),side,8,5,rand,station<43,world.grid);
     }
     // Control and medical facilities, paddock entries, technical and media compounds.
     for(const [u,v,title] of [[-202,36,'RACE CONTROL'],[189,38,'MEDICAL CENTRE'],[157,92,'SCRUTINEERING'],[-73,93,'MEDIA CENTRE'],[60,93,'PARC FERME']]){
@@ -187,11 +198,14 @@ export class ApexPark extends ApexWoodland{
       for(let v=-23;v<22;v+=2.5)crossing.beam(u,v,7.5,u,v+2.5,9.22,.10,STEEL);
     }
     crossing.sign('V E L O C I T Y    /    A P E X',-1.62,0,8.16,16,1.42,'traffic','dark');
-    const br=m.frameAt(world.apex.bridge,{}),b=local(this.kit,br);
-    b.block(0,0,-1.02,89,16.6,1.85,0x929591);
-    for(const v of [-8.2,8.2]){
-      b.block(0,v,.72,89,.38,1.43,IVORY);
-      for(const u of [-32,32])b.block(u,v*.72,-5.4,1.8,1.9,9.2,0x93918b);
+    for (const along of [-32, 32]) {
+      const frame = m.frameAt(world.apex.bridge + along, {});
+      for (const lateral of [-7, 7]) {
+        const x = frame.x + lateral * frame.rx, z = frame.z + lateral * frame.rz;
+        const top = frame.y + lateral * frame.ry - 1.7;
+        const base = world.grid.heightAt(x, z) - 0.3;
+        if (top > base) this.kit.instance('stone','box',x,(base+top)/2,z,1.8,top-base,1.9,0,0x93918b);
+      }
     }
     for(const u of [-245,-151,-55,45,145,235]){
       const v=-37;block(u,v,9,.21,.21,18,STEEL,'steel');beam(u,v,17,u,v+3,18.1,.2,STEEL);

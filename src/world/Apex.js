@@ -62,6 +62,11 @@ export function apexKerbHeight(s,lateral,width,curvature){
   if(a<0 || a>1.05 || Math.abs(curvature)<.0018)return 0;
   return Math.sin(Math.PI*a/1.05)*(.044+.014*Math.cos(s*Math.PI));
 }
+// The gravel apron descends continuously from the verge to the terrain at its outer edge.
+export function runoffHeight(grid, x, z, rx, rz, edgeY, distance, width) {
+  const ground = grid.heightAt(x + rx * width, z + rz * width) + .025;
+  return lerp(edgeY, ground, smoothstep(0, 2, width) * clamp(distance / width, 0, 1));
+}
 function bakeTerrain(world,roads,bridge){
   const {grid}=world, {size,half,cell,heights}=grid;
   const delta=new Float32Array(size*size).fill(Infinity), bed=new Float32Array(size*size);
@@ -127,16 +132,11 @@ export async function buildApex(world,stage){
     v.splice(-1,0,v.at(-1).clone().addScaledVector(new Vector3(g.tx,g.ty,g.tz),-tail));
     const c=new CatmullRomCurve3(v,false,'centripetal');
     const path=c.getPoints(v.length*30);
-    // Match the local road plane throughout both merge aprons.
-    for(const p of path){
-      const loc={};if(main.locate(p.x,p.z,loc,p.y) && Math.abs(loc.y-p.y)<5)
-        p.y=lerp(loc.y+loc.lateral*loc.bank,p.y,smoothstep(13,28,loc.distance));
-    }
     return makeRoad(world,name,path,false,width);
   }
-  const gp=connector('Grand Prix link',13,29,[[-150,-140,83],[-50,-102,78],[62,-96,76]]);
-  const sprint=connector('International link',6,40,[[-584,137,28],[-489,121,31],[-337,215,34],[-182,174,35],[14,215,33],[259,240,30],[495,255,31],[530,275,31]]);
-  const bowl=connector('Stadium infield',2,41,[[-620,503,29],[-535,455,30],[-371,449,31],[-267,383,31],[-94,412,31],[124,353,30],[319,306,31],[385,310,31]]);
+  const gp=connector('Grand Prix link',13,29,[[-162,-158,83],[-103,-80,78],[-46,-5,74]]);
+  const sprint=connector('International link',6,40,[[-584,137,28],[-489,121,31],[-337,215,34],[-182,174,35],[14,215,33],[259,240,30],[558,212,31],[596,246,31],[574,267,31]]);
+  const bowl=connector('Stadium infield',2,41,[[-620,503,29],[-535,455,30],[-371,449,31],[-267,383,31],[-94,412,31],[124,353,30],[378,267,31],[425,277,31],[424,297,31]]);
   const ridge=connector('Mountain return',27,12,[[-185,-257,101],[-292,-328,90],[-446,-420,82],[-694,-429,75],[-770,-357,70],[-677,-292,67],[-521,-286,65],[-457,-216,65],[-427,-172,64]]);
   const academy=makeRoad(world,'Academy',new CatmullRomCurve3([
     [-300,730],[-535,730],[-625,799],[-586,918],[-432,940],[-344,856],[-257,900],[-123,908],[-63,810],[-133,735]
@@ -150,6 +150,32 @@ export async function buildApex(world,stage){
   pit.pitApron=true;
   const access=connector('Academy approach',1,2,[[-340,578,29],[-338,657,29],[-387,730,29],[-452,730,29],[-451,632,29],[-504,586,29]],3.5);
   const physical=world.roads.slice();
+  // Grade each at-grade junction against the through road, including its crossfall.
+  // In particular the branch's right axis can point uphill along the through road.
+  for (const [index, road] of physical.entries()) {
+    const loc = {};
+    for (let i = 0; i < road.count; i++) {
+      for (let k = 0; k < index; k++) {
+        const through = physical[k];
+        if (!through.locate(road.px[i], road.pz[i], loc, road.py[i]) || loc.beyondEnd) continue;
+        const deck = loc.y + loc.bank * loc.lateral;
+        const overlap = loc.halfWidth + road.halfWidth[i];
+        const blend = (1 - smoothstep(overlap, overlap + 18, loc.distance))
+          * (1 - smoothstep(4, 8, Math.abs(deck - road.py[i])));
+        if (blend <= 0) continue;
+        const gx = loc.grade * loc.rz + loc.bank * loc.rx;
+        const gz = -loc.grade * loc.rx + loc.bank * loc.rz;
+        road.py[i] = lerp(road.py[i], deck, blend);
+        road.bank[i] = lerp(road.bank[i], gx * road.rx[i] + gz * road.rz[i], blend);
+        break;
+      }
+    }
+    for (let i = 0; i < road.count; i++) {
+      const a = road.closed ? (i + road.count - 1) % road.count : Math.max(i - 1, 0);
+      const b = road.closed ? (i + 1) % road.count : Math.min(i + 1, road.count - 1);
+      road.grade[i] = (road.py[b] - road.py[a]) / Math.max(.01, Math.hypot(road.px[b] - road.px[a], road.pz[b] - road.pz[a]));
+    }
+  }
   function lapWithLink(key,link,begin,end){
     // One logical closed lap for timing, reusing both physical ribbons.
     const points=[];
@@ -177,7 +203,7 @@ export async function buildApex(world,stage){
     }
   }
   world.layered=true;world.physicalRoads=physical;
-  world.apex={roadsAt:indexPhysicalRoads(physical),shoulder:apexShoulder,surfaceState:new ApexSurfaceState(physical),kerb:apexKerbHeight,surface:apexSurface,stations:S,pit,access,physical,main,bridge:S[14],under:S[28],sections:sections.map(([name,a,b])=>({name,start:S[a],end:S[b]}))};
+  world.apex={roadsAt:indexPhysicalRoads(physical),shoulder:apexShoulder,runoffHeight,surfaceState:new ApexSurfaceState(physical),kerb:apexKerbHeight,surface:apexSurface,stations:S,pit,access,physical,main,bridge:S[14],under:S[28],sections:sections.map(([name,a,b])=>({name,start:S[a],end:S[b]}))};
   world.labels=world.apex.sections.map(({name,start,end})=>({name,...at((start+end)/2)}));
   world.summit=at(S[20]);
   await stage(.34,'Cutting the ridge and grading the circuit');
@@ -196,11 +222,26 @@ export async function buildApex(world,stage){
   bakeTerrain(world,physical,S[14]);
   // Guardrails sit beyond the runoff. Omit either side at a junction.
   for(const road of physical){
-    if(road===pit || road===access)continue;
+    road.openLeft = new Uint8Array(road.count);
+    road.openRight = new Uint8Array(road.count);
+    road.railBaseLeft = new Float32Array(road.count);
+    road.railBaseRight = new Float32Array(road.count);
     for(let i=0;i<road.count;i++)for(const side of [-1,1]){
+      const edge = side * (road.halfWidth[i] + 1);
+      const ex = road.px[i] + edge * road.rx[i], ez = road.pz[i] + edge * road.rz[i];
+      const ey = road.py[i] + edge * road.bank[i], crossing = {};
+      const mouth = physical.some(other => other !== road && other.locate(ex, ez, crossing, ey) &&
+        !crossing.beyondEnd && crossing.distance < crossing.halfWidth + 4 &&
+        Math.abs(crossing.y + crossing.lateral * crossing.bank - ey) < 2.1);
+      (side < 0 ? road.openLeft : road.openRight)[i] = Number(mouth);
       const atRail=side*(road.halfWidth[i]+world.config.road.shoulder+world.config.road.railOffset+(side<0?road.escapeLeft?.[i]??0:road.escapeRight?.[i]??0));
       const x=road.px[i]+road.rx[i]*atRail,z=road.pz[i]+road.rz[i]*atRail;
-      const pos={}; const open=physical.some(other=>other!==road && other.locate(x,z,pos,road.py[i]) && pos.distance<pos.halfWidth+9 && Math.abs(pos.y-road.py[i])<4);
+      const deckY = road.py[i] + atRail * road.bank[i];
+      const onBridge = road === main && Math.abs(i * road.spacing - S[14]) < 46;
+      (side < 0 ? road.railBaseLeft : road.railBaseRight)[i] =
+        onBridge ? deckY - road.config.vergeDrop : world.grid.heightAt(x,z);
+      if (mouth || road === pit || road === access) continue;
+      const pos={}; const open=physical.some(other=>other!==road && other.locate(x,z,pos,road.py[i]) && pos.distance<pos.halfWidth+9 && !pos.beyondEnd && Math.abs(pos.y+pos.lateral*pos.bank-(road.py[i]+atRail*road.bank[i]))<4);
       if(!open && (road.closed || (i*road.spacing>42 && (road.count-i)*road.spacing>42)))
         (side<0?road.railLeft:road.railRight)[i]=1;
     }

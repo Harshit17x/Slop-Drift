@@ -92,7 +92,10 @@ export class ApexMeeting{
     this.rain=new T.LineSegments(geo,new T.LineBasicMaterial({color:0xa9bdc4,transparent:true,opacity:.33,depthWrite:false}));
     this.rain.visible=false;this.g.scene.add(this.rain);
   }
-  trialKey(route){return 'apex.trial.'+route;}
+  trialKey(route){
+    const revision = ['gp','international','bowl'].includes(route) ? '.v2' : '';
+    return 'apex.trial.' + route + revision;
+  }
   trialRecords(route){
     const key=this.trialKey(route);
     try {const records=JSON.parse(localStorage.getItem(key+'.timing'));return {'apex-meeting':records||{}};}catch{return {};}
@@ -149,7 +152,9 @@ export class ApexMeeting{
     if(this.grid.field.length){
       const slot=this.grid.order.indexOf(-1),r=g.session.route,road=g.world.roads[r.roadId],s=r.startS-12-slot*4;
       const pose=g.world.getSpawn(mode.route,s,g.pose),f=road.frameAt(s,{}),side=(slot%2?1:-1)*3;
-      pose.position.x+=side*f.rx;pose.position.y+=side*f.ry;pose.position.z+=side*f.rz;g.vehicle.teleport(pose);
+      pose.position.x+=side*f.rx;pose.position.z+=side*f.rz;
+      pose.position.y=g.world.sampleGround(pose.position.x,pose.position.z,{},pose.position.y+side*f.ry+.45).y;
+      g.vehicle.teleport(pose);
       g.session._curD=g.session._prevD=g.session._lastValidD=g.session._dOf(s);
     }
     this.grid.resetReplay=false;
@@ -177,8 +182,7 @@ export class ApexMeeting{
     this.service.controls(c,state);
     const cap=capUnderFlag(this.flag);
     if(state.speed>=cap){c.throttle=0;c.boost=false;c.brake=Math.max(c.brake,Math.min(1,(state.speed-cap)*.3+.15));}
-    this.tc=this.gt && c.throttle>.1 && Math.abs(state.slipAngle)>.25;
-    if(this.gt){c.boost=false;c.throttle*=Math.min(1,1.12-Math.abs(state.slipAngle)*.48);}
+    if(this.gt)c.boost=false;
   }
   update(dt,state){
     const g=this.g,s=this.service;if(!s)return;
@@ -186,9 +190,14 @@ export class ApexMeeting{
     const action=s.update(dt,state);if(action?.repair)g.damage.repair();
     if(action){g.hud.toast('Service complete · clear to leave','good');this.announce('Service complete. Clear to leave.');}
     g.scenery.pitCrew?.(s);
-    const roadTemp=({day:32,sunset:23,dawn:15,night:13})[g.atmosphere.timeOfDay]-8*(g.world.apex.wetness||0);
-    s.tyreTemp+=(roadTemp+state.speed*.86+Math.min(1,Math.abs(state.slipAngle))*28+state.brake*7-s.tyreTemp)*Math.min(1,dt/55);
-    g.world.apex.tyreGrip=(.82+.18*s.tyres)*(this.gt?1-.000035*(s.tyreTemp-66)**2:1);
+    const roadTemp=(({day:32,sunset:23,dawn:15,night:13})[g.atmosphere.timeOfDay] ?? 28)-8*(g.world.apex.wetness||0);
+    const slick = g.vehicle.tuning.tire.slickThermal;
+    if (slick) {
+      g.vehicle.roadTemperature = roadTemp;
+      if (action?.tyres) for (const wheel of g.vehicle.wheels) wheel.temperature = slick.initial;
+      s.tyreTemp = g.vehicle.wheels.reduce((sum, wheel) => sum + wheel.temperature, 0) / 4;
+    }
+    g.world.apex.tyreGrip = .82 + .18 * s.tyres;
     const elapsed=g.session.elapsed;
     g.scenery.skyLight=({sunset:.46,dawn:.70,night:.09,day:1.2})[g.atmosphere.timeOfDay];
     const sunPower=this.custom && this.time.value==='cycle'?daylight(this,elapsed):g.atmosphere.preset.sunIntensity;
@@ -234,8 +243,8 @@ export class ApexMeeting{
     if(this.school.group.visible)telemetry.unshift(this.school.instruction);
     if(g.session.lapInvalid)telemetry.push('Lap invalid');
     if(g.session.penaltySeconds)telemetry.push('+'+g.session.penaltySeconds+' s');
-    if(this.gt)telemetry.push(Math.round(s.tyreTemp)+' °C tyres');
-    if(this.tc)telemetry.push('TC');
+    if(slick)telemetry.push(Math.round(s.tyreTemp)+' °C tyres');
+    if(g.vehicle.wheels.some(w=>w.tcActive))telemetry.push('TC');
     if(state.brake>.05 && g.vehicle.wheels.some(w=>w.absActive))telemetry.push('ABS');
     if(this.sectorDelta!=null)telemetry.push('Δ '+(this.sectorDelta>=0?'+':'')+secs(this.sectorDelta));
     if(s.inLane)telemetry.push('Box '+String(this.boxIndex+1).padStart(2,'0'),s.phase==='service'?Math.ceil(s.duration-s.elapsed)+' s service':s.phase==='released'?'Released':s.limit+' km/h');

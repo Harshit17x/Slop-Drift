@@ -7,10 +7,10 @@ Select **Apex International Motorsport Park** in the map chooser. Open **Race We
 | Layout | Measured distance | Automated Track GT3 lap |
 |---|---:|---:|
 | Endurance | 8.192 km | 5m 33s |
-| Grand Prix | 5.965 km | 4m 08s |
-| Mountain | 4.075 km | 3m 03s |
-| International Sprint | 3.476 km | 2m 24s |
-| Stadium | 2.606 km | 1m 47s |
+| Grand Prix | 5.879 km | 3m 57s |
+| Mountain | 4.075 km | 3m 02s |
+| International Sprint | 3.650 km | 2m 29s |
+| Stadium | 2.737 km | 1m 53s |
 | Academy | 1.557 km | 1m 10s |
 
 The automated driver follows the centreline to exercise the actual vehicle, suspension, surfaces and timing gates. These are verification laps. A competitive driver will take different lines. In a separate traffic test, three AI entrants completed two laps on each of the six configurations. All three pitted on each of the four routes sharing the pit straight. The six layouts share the same physical track and connecting roads. Their measured distances differ from the concept targets where the connections enter the main course.
@@ -21,7 +21,7 @@ The main circuit spans 145.5 m vertically. The steepest descent is 14.8%, the st
 
 | Area | Implemented and checked | Scope still open |
 |---|---|---|
-| Driving | All six closed routes, checkpoints, elevation, crossfall, physical kerbs and runoffs. Full physics laps completed on each route. The main route recorded ten airborne simulation frames. | Competitive human lap and race pace validation. |
+| Driving | All six closed routes, checkpoints, elevation, crossfall, physical kerbs and runoffs. Full physics laps completed on each route. All six automated laps recorded zero airborne simulation frames. | Competitive human lap and race pace validation. |
 | Pit and paddock | Forty garage bays, pit markings, wall, pit boxes, pit limiter and player service. The browser check confirmed one stop restoring fuel from 32 to 90. | Full sporting adjudication and complex pit crew animation. |
 | Race meeting | Linked practice, qualifying and race, saved personal-best ghosts, a points championship, and configurable weather and driving rules. The browser carried qualifying order into the race. | AI use simplified traffic and contact physics. |
 | Scenery | Original foliage and garage imagery, horizon ridges, lake, seating, steel structures, timing and safety furniture. Browser captures include day, sunset and night views. | Visual parity with the reference simulators has not been established. |
