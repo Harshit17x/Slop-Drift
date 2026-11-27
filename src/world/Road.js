@@ -193,6 +193,9 @@ export class Road {
     let bestMetric = bestDistance;
     let bestIndex = -1;
     let bestU = 0;
+    // Tokyo opts into a stronger height preference; other maps keep the
+    // original plan-distance metric their surfaces were tuned against.
+    const heightWeight = this.heightWeight === undefined ? 1 : this.heightWeight;
     for (let ox = -1; ox <= 1; ox += 1) {
       for (let oz = -1; oz <= 1; oz += 1) {
         const bucket = this.hash.get((cx + ox) * 2048 + (cz + oz));
@@ -211,7 +214,12 @@ export class Road {
           const dz = z - (az + abz * u);
           const distanceSq = dx * dx + dz * dz;
           const dy = referenceY === undefined ? 0 : this.py[i] + (this.py[j]-this.py[i])*u - referenceY;
-          const metric = distanceSq + dy*dy;
+          // Prefer the deck the caller is actually on. Stacked and parallel
+          // flyovers can put another layer of the same road closer in plan
+          // view; a plain distance + dy^2 metric then snaps to that deck and
+          // the lower carriageway loses its ground sample. Weighting the
+          // height difference keeps the near-horizontal layer authoritative.
+          const metric = distanceSq + dy * dy * heightWeight;
           if (metric < bestMetric) {
             bestMetric = metric;
             bestDistance = distanceSq;

@@ -55,6 +55,8 @@ export class World {
     this.plaza = null;
     /** @type {{roadId:number, s:number}[]} Where each open road leaves the loop (s along the loop). */
     this.junctions = [];
+    /** Raised Tokyo service-alley and corner-apron decks, sampled like the pavements. */
+    this.tokyoPavements = [];
     /** The spur's junction s on the loop (alias of its `junctions` entry). */
     this.junctionS = 0;
     this.waterLevel = config.mountain.waterLevel;
@@ -77,7 +79,12 @@ export class World {
     if (config.map === 'apex') return (await import('./Apex.js')).buildApex(this,stage);
     if (config.map === 'tokyo') {
       const { buildTokyo } = await import('./Tokyo.js');
-      return buildTokyo(this, stage);
+      const result = await buildTokyo(this, stage);
+      // Tokyo's bay loop crosses over itself and runs alongside its own
+      // at-grade carriageway. Bias deck selection towards the caller's height
+      // there; Apex and the other layered maps keep their original metric.
+      for (const r of this.roads) r.heightWeight = 9;
+      return result;
     }
     if (config.map === 'fujimi') {
       const { buildFujimi } = await import('./Fujimi.js');
@@ -728,6 +735,7 @@ export class World {
       }
     }
     const road = this.config.road;
+    const tokyoStreet = this.config.map === 'tokyo';
     let bestClass = 9;
     let bestDistance = Infinity;
     let bestY = 0;
@@ -746,12 +754,25 @@ export class World {
       if (this.layered && scratchLocation.y + (this.apex ? scratchLocation.lateral * scratchLocation.bank : 0) > referenceY + 1.65) continue;
       const halfWidth = scratchLocation.halfWidth;
       const a = scratchLocation.distance;
-      const reach = current.vergeEdge + current.escapeAt(scratchLocation);
+      // Tokyo's street blocks sit on a raised pavement platform. Carry wheel
+      // contact across the full sidewalk instead of dropping onto the -0.35 m
+      // city fill that is only visible inside unbuilt lots.
+      const pavement = tokyoStreet && current.id !== 4 && current.id !== 5 &&
+        current !== this.gymkhana && Math.abs(scratchLocation.y) < 1.45;
+      const edgeReach = current.vergeEdge + current.escapeAt(scratchLocation);
+      const reach = pavement ? Math.max(edgeReach, 4.82) : edgeReach;
       if (a > halfWidth + reach) continue;
       const side = scratchLocation.lateral < 0 ? -1 : 1;
       const offset = current.profileAt(a, halfWidth);
       let surfaceClass = a <= halfWidth ? 0 : a <= halfWidth + current.shoulderEdge ? 1 : 2;
       let y = scratchLocation.y + side * a * scratchLocation.bank + offset;
+      const veranda = pavement && a > halfWidth + 0.2;
+      if (veranda) {
+        // The slab spans curb + 0.2 m to curb + 4.8 m and is 0.155 m above
+        // the carriageway; past its outer face the city fill takes over.
+        y = scratchLocation.y + side * a * scratchLocation.bank + 0.155;
+        surfaceClass = 1;
+      }
       if (this.apex) {
         const mouth = (side < 0 ? current.openLeft : current.openRight)[scratchLocation.index];
         const kerb = mouth || current.pitApron ? 0 : this.apex.kerb(scratchLocation.s,scratchLocation.lateral,halfWidth,scratchLocation.curvature);
@@ -789,7 +810,21 @@ export class World {
       if (surfaceClass === 2 && !this.layered) y = Math.max(y, this.grid.heightAt(x, z));
       // A lower crossing must never take a tyre off the shoulder of an upper deck.
       const differentDeck = this.layered && bestClass < 9 && Math.abs(y-bestY) > (this.apex ? 5 : 1.65);
-      if (differentDeck ? y > bestY : surfaceClass < bestClass || (surfaceClass === bestClass && (this.apex ? (surfaceClass === 0 ? current.id < bestRoad : a < bestDistance) : y > bestY))) {
+      // At a merge gore two carriageways overlap within a few centimetres of
+      // each other. Always taking the higher one made a level street snap onto
+      // the rising on-ramp lip as it passed beneath. On stacked maps keep the
+      // deck closest to the caller's current height instead; a car already on
+      // the ramp still climbs it, while traffic staying on the parent road
+      // stays level. Flat maps keep the original higher-wins rule.
+      const currentPick = differentDeck ? y > bestY
+        : surfaceClass < bestClass ? true
+          : surfaceClass > bestClass ? false
+            : this.apex
+              ? (surfaceClass === 0 ? current.id < bestRoad : a < bestDistance)
+              : this.layered
+                ? Math.abs(y - referenceY) < Math.abs(bestY - referenceY) - 0.01
+                : y > bestY;
+      if (currentPick) {
         bestClass = surfaceClass;
         bestY = y;
         bestDistance = a;
@@ -803,16 +838,38 @@ export class World {
         }
         // Fujimi's Container Snake is a gravel rally sector.
         if (this.gravel && scratchLocation.s >= this.gravel[0] && scratchLocation.s <= this.gravel[1]) roadSurface = SURFACE.GRAVEL;
-        bestSurface = surfaceClass === 0 ? roadSurface
+        bestSurface = veranda ? SURFACE.HARDPACK : surfaceClass === 0 ? roadSurface
           : surfaceClass === 1 ? SURFACE.GRAVEL : SURFACE.GRASS;
         if(this.apex && surfaceClass===1 && a>halfWidth+.6){
           const shoulder=this.apex.shoulder(current,scratchLocation.index,side);
           bestSurface=shoulder==='paved'?SURFACE.ASPHALT:shoulder==='grass'?SURFACE.GRASS:SURFACE.GRAVEL;
         }
-        const lateralSlope = scratchLocation.bank + side * Road.profileSlope;
+        const lateralSlope = veranda ? 0 : scratchLocation.bank + side * Road.profileSlope;
         // Horizontal tangent is (rz, -rx); height gradient = grade * tangent + lateralSlope * right.
         gradX = scratchLocation.grade * scratchLocation.rz + lateralSlope * scratchLocation.rx;
         gradZ = -scratchLocation.grade * scratchLocation.rx + lateralSlope * scratchLocation.rz;
+      }
+    }
+
+    // Tokyo service alleys and corner aprons are raised platforms too. They sit
+    // outside the road corridors, so only claim the sample when no carriageway
+    // already won it, and never lift a car that is on a higher deck.
+    const pavements = this.tokyoPavements;
+    if (pavements && pavements.length && bestClass > 1) {
+      for (let p = 0; p < pavements.length; p += 1) {
+        const pave = pavements[p];
+        if (pave.y > referenceY + 1.65) continue;
+        const dx = x - pave.x;
+        const dz = z - pave.z;
+        if (Math.abs(dx * pave.tx + dz * pave.tz) > pave.hl) continue;
+        if (Math.abs(-dx * pave.tz + dz * pave.tx) > pave.hw) continue;
+        bestClass = 1;
+        bestY = pave.y;
+        bestRoad = -1;
+        bestSurface = SURFACE.HARDPACK;
+        gradX = 0;
+        gradZ = 0;
+        break;
       }
     }
 

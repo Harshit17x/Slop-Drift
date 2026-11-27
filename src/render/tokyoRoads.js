@@ -19,8 +19,13 @@ function parkingConcrete(){
 
 export function finishTokyoRoads(view){
   const surface=view.asphaltMesh,geo=surface.geometry;
-  const deck=view.track(new T.MeshStandardMaterial({map:view.track(parkingConcrete()),roughness:.52,metalness:.08}));
-  const street=surface.material;street.roughness=.44;street.metalness=.19;
+  const deck=view.track(new T.MeshStandardMaterial({map:view.track(parkingConcrete()),roughness:.74,metalness:.02}));
+  // Tokyo asphalt is matte: it absorbs the night and only catches a soft
+  // sheen from the storefronts. Kill the metallic env reflection and the
+  // glossy roughness patches so headlights read as pools, not mirrors.
+  const street=surface.material;
+  street.roughness=.88;street.metalness=.02;street.envMapIntensity=.32;
+  street.roughnessMap=null;street.bumpScale=.022;
   view.streetMaterial=street;
   let start=0;
   for(const r of view.world.roads){
