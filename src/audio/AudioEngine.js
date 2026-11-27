@@ -1011,9 +1011,11 @@ export class AudioEngine {
 
     // ---- wind
     const windN = saturate(speed / 70);
-    this._bed(g.windGain.gain, 0.22 * windN * windN, 0.15, now);
-    g.windFilter.frequency.setTargetAtTime(300 + speed * 16, now, 0.15);
-    this._bed(g.buffetGain.gain, 0.12 * windN * windN, 0.2, now);
+    // Wind rush: a second, louder push from ~150 km/h (42 m/s) and while boosting, so top speed is heard.
+    const rush = Math.pow(saturate((speed - 42) / 28), 1.4) + (boosting ? 0.35 * saturate(speed / 30) : 0);
+    this._bed(g.windGain.gain, 0.22 * windN * windN + 0.38 * rush, 0.15, now);
+    g.windFilter.frequency.setTargetAtTime(300 + speed * 16 + 900 * rush, now, 0.15);
+    this._bed(g.buffetGain.gain, 0.12 * windN * windN + 0.18 * rush, 0.2, now);
 
     // ---- per-step collision events
     const impact = finite(state.impact, 0);

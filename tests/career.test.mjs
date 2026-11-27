@@ -1,7 +1,7 @@
 // Career (progression) tests: node tests/career.test.mjs
 import { Career, formatTarget, sanitizeName } from '../src/meta/Career.js';
 import {
-  ACHIEVEMENTS, CAR_UNLOCKS, CREDITS, FEATURE_UNLOCKS, MAP_UNLOCKS, MEDAL_TARGETS,
+  ACHIEVEMENTS, CAR_UNLOCKS, CONTRACT_REWARD, CREDITS, MASTERY_STARS, MASTERY_STAR_CREDITS, streakBoost, FEATURE_UNLOCKS, MAP_UNLOCKS, MEDAL_TARGETS,
   MUSSOORIE_MEDAL_TARGETS, TRACK_MEDAL_TARGETS, UNLOCKS, XP, levelForXp, medalTargets, xpForLevel,
 } from '../src/meta/catalog.js';
 import { trackKey, parseTrackKey, modeOfTrack } from '../src/meta/trackKey.js';
@@ -10,6 +10,12 @@ import { PAINT_OPTIONS, SMOKE_OPTIONS, MODES, modesForWorld } from '../src/confi
 import { CARS, getCar } from '../src/vehicle/cars.js';
 import { applyCarUpgrades, effectiveCarRatings, effectiveClassInfo, hasCarNitro } from '../src/vehicle/upgradeTuning.js';
 import { DriftScorer } from '../src/vehicle/DriftScorer.js';
+import { RIVALS } from '../src/meta/catalog.js';
+import { Road } from '../src/world/Road.js';
+import { WORLD } from '../src/world/worldConfig.js';
+import { buildPaceGhost } from '../src/ghost/paceGhost.js';
+import { GhostPlayer } from '../src/ghost/GhostPlayer.js';
+import * as THREE from 'three';
 
 let failures = 0;
 let passes = 0;
@@ -71,16 +77,17 @@ check('legacy save receives retroactive credits and keeps car/map access', migra
 // --- distance xp/credits and level up mid-run
 career = new Career({ storage: memoryStorage(), now });
 career.beginRun({ modeId: 'roam' });
-for (let i = 0; i < 60 * 60 * 10; i += 1) career.trackFrame(1 / 60, state(30), noDrift); // 10 min at 30 m/s = 18 km
-const distanceXp = Math.round(18 * XP.perKm);
-check('distance xp is paid while driving', Math.abs(career.profile.xp - distanceXp) <= 2, `${career.profile.xp} vs ${distanceXp}`);
+for (let i = 0; i < 60 * 60 * 30; i += 1) career.trackFrame(1 / 60, state(30), noDrift); // 30 min at 30 m/s = 54 km
+const distanceXp = Math.round(54 * XP.perKm);
+check('distance xp is paid while driving', Math.abs(career.run.lines.get('Distance') - distanceXp) <= 2, `${career.run.lines.get('Distance')} vs ${distanceXp}`);
 check('distance credits are paid while driving', career.credits > CREDITS.starter);
 const midRun = career.drainEvents();
 check('level up announced mid-run', midRun.some((e) => e.type === 'levelUp'), midRun.map((e) => e.type).join(','));
 check('level unlocks announced', midRun.some((e) => e.type === 'unlock'));
-check('distance stat tracked', Math.abs(career.profile.stats.distanceKm - 18) < 0.01);
+check('distance stat tracked', Math.abs(career.profile.stats.distanceKm - 54) < 0.01);
 const roam = career.abandonRun();
 check('abandoning keeps the xp and reports it', roam.xpGained === career.profile.xp && roam.lines.some((l) => l.label === 'Distance'));
+career.drainEvents();
 check('drainEvents empties the queue', career.drainEvents().length === 0);
 
 // --- medals
@@ -143,16 +150,16 @@ career.beginRun({ modeId: 'sprint' });
 check('1-run trial car temporarily equips locked car and clears on finish', career.startTrialCar('gt') && career.activeCarId() === 'gt' && career.finishRun(result('sprint', { time: 200 })) && career.activeCarId() === 'hatch');
 
 const freshEarly = new Career({ storage: memoryStorage(), now });
-freshEarly.addCredits(300, 'Test');
+freshEarly.addCredits(CAR_UNLOCKS.thar.earlyCost, 'Test');
 const early = freshEarly.buyCarEarly('thar');
 check('early unlock buys locked car with credits', early.ok && freshEarly.isCarUnlocked('thar') && freshEarly.profile.cosmetics.car === 'thar');
 
 const upg1 = career.buyUpgrade('hatch', 'engine');
 check('stage 1 engine upgrade installs at Level 1 and unlocks First Wrench', upg1.ok && career.carUpgrades('hatch').engine === 1 && Boolean(career.profile.achievements['first-upgrade']));
-check('stage 2 engine upgrade blocked below level 4', career.buyUpgrade('hatch', 'engine').reason === 'level-locked');
-career.addXp(xpForLevel(12));
-career.addCredits(10000);
-check('all cars unlocked at level 12', CARS.every((car) => career.isCarUnlocked(car.id) && career.setCosmetic('car', car.id)));
+check('stage 2 engine upgrade blocked below level 5', career.buyUpgrade('hatch', 'engine').reason === 'level-locked');
+career.addXp(xpForLevel(14));
+career.addCredits(20000);
+check('all cars unlocked at level 14', CARS.every((car) => career.isCarUnlocked(car.id) && career.setCosmetic('car', car.id)));
 for (const slot of ['engine', 'tires', 'nitro', 'chassis']) {
   while (career.canBuyUpgrade('gt', slot).ok) career.buyUpgrade('gt', slot);
 }
@@ -344,6 +351,134 @@ onMap.beginRun({ modeId: dailyHills.modeId, timeOfDay: dailyHills.timeOfDay || '
 summary = onMap.finishRun(result(dailyHills.modeId, passFor(dailyHills)));
 check('a run on the daily\'s map completes it', summary.daily?.completed === true);
 if (dailyHills.kind === 'time') check('mussoorie daily target comes from mussoorie medals', dailyHills.target < dailyAlpine.target);
+
+// --- daily contracts & streak-boosted payout
+check('streak boost: x1 on day 1, x2.5 from day 7', streakBoost(1) === 1 && streakBoost(2) === 1.25 && streakBoost(7) === 2.5 && streakBoost(30) === 2.5);
+clock = new Date('2026-12-02T09:00:00Z');
+const cc = new Career({ storage: memoryStorage(), now, mapId: 'mussoorie' });
+const pair = cc.contracts();
+check('two different contracts a day, same for everyone', pair.length === 2 && pair[0].id !== pair[1].id
+  && JSON.stringify(pair) === JSON.stringify(new Career({ storage: memoryStorage(), now, mapId: 'mussoorie' }).contracts()));
+check('no clipping-zone contract on a map without zones', [...Array(40).keys()].every((d) => {
+  clock = new Date(Date.UTC(2027, 0, d + 1, 9));
+  return new Career({ storage: memoryStorage(), now, mapId: 'tokyo' }).contracts().every((c) => c.id !== 'clips');
+}));
+clock = new Date('2026-12-02T09:00:00Z');
+const statOf = { 'drift-points': 'driftPoints', distance: 'km', finishes: 'finishes', clean: 'cleanFinishes', clips: 'clips', style: 'styleMoves' };
+const c0 = pair[0];
+const xpBefore = cc.profile.xp;
+const crBefore = cc.credits;
+cc.bumpContract(statOf[c0.id], c0.goal - 0.5);
+check('partial progress is kept, nothing paid yet', cc.contracts()[0].progress === c0.goal - 0.5 && !cc.contracts()[0].done && cc.profile.xp === xpBefore);
+cc.bumpContract(statOf[c0.id], 1);
+cc.bumpContract(statOf[c0.id], 50);
+check('a filled contract pays once', cc.contracts()[0].done && cc.profile.xp === xpBefore + CONTRACT_REWARD.xp && cc.credits === crBefore + CONTRACT_REWARD.credits);
+check('the daily card carries the contracts', cc.daily().contracts.length === 2);
+clock = new Date('2026-12-03T09:00:00Z');
+check('contracts reset the next day', cc.contracts().every((c) => !c.done && c.progress === 0));
+const reloaded = new Career({ storage: cc.storage, now, mapId: 'mussoorie' });
+reloaded.load?.();
+clock = new Date('2026-12-02T09:00:00Z');
+check('contract progress survives a reload', reloaded.contracts()[0].done);
+const streaky = new Career({ storage: memoryStorage(), now });
+streaky.profile.daily = { date: '2026-12-01', done: true, lastDoneDate: '2026-12-01', streak: 6 };
+const d7 = streaky.daily();
+check('day 7 of a streak pays x2.5', d7.boost === 2.5 && d7.xp === Math.round(XP.dailyChallenge * 2.5));
+
+// --- car mastery
+const mc = new Career({ storage: memoryStorage(), now });
+mc.beginRun({ modeId: 'sprint', carId: 'hatch' });
+mc.addXp(MASTERY_STARS[1] + 10, 'test');
+const crMid = mc.credits;
+const ms = mc.abandonRun();
+check('run XP fills the car it was earned in', mc.masteryInfo('hatch').xp >= MASTERY_STARS[1] + 10 && mc.masteryInfo('thar').xp === 0);
+check('two stars at once pay 150 + 300 CR', ms.mastery?.stars === 2 && ms.mastery.newStars === 2 && mc.credits === crMid + 3 * MASTERY_STAR_CREDITS);
+mc.beginRun({ modeId: 'sprint', carId: 'hatch' });
+mc.addXp(10, 'test');
+check('no star, no pay', mc.abandonRun().mastery.newStars === 0);
+mc.beginRun({ modeId: 'sprint', carId: 'hatch' });
+mc.addXp(MASTERY_STARS[4], 'test');
+mc.abandonRun();
+check('five stars award One-Car Specialist', mc.masteryInfo('hatch').stars === 5 && Boolean(mc.profile.achievements['mastery-5']));
+check('the garage lists each car\'s stars', mc.garage().items.find((i) => i.value === 'hatch')?.mastery?.stars === 5);
+mc.save();
+check('mastery survives a reload', new Career({ storage: mc.storage, now }).masteryInfo('hatch').stars === 5);
+
+// --- rivals
+const rc = new Career({ storage: memoryStorage(), now, mapId: 'mussoorie' });
+let list = rc.rivals();
+check('three rivals per region, only the first open', list.length === 3 && list.map((r) => r.state).join() === 'open,locked,locked');
+check('every rival has a real event and time on its map', RIVALS.every((r) => new Career({ storage: memoryStorage(), now, mapId: r.mapId }).rivals().some((x) => x.id === r.id && x.time > 0)));
+check('rookie is slower than challenger is slower than the boss, relative to gold', list[0].time / rc.targetsFor(list[0].modeId).gold > list[2].time / rc.targetsFor(list[2].modeId).gold);
+check('a rival is always quicker than your best on their event', (() => {
+  const fast = rc.rivals('mussoorie', { [list[0].modeId]: { time: list[0].time * 0.8 } })[0];
+  return fast.time < list[0].time * 0.8 && fast.time >= list[0].time * 0.8 * 0.95;
+})());
+check('bosses push harder against your best than rookies', RIVALS.length && rc.rivals('mussoorie', { sprint: { time: 60 }, descent: { time: 60 }, peak: { time: 60 } }).map((r) => r.time).every((t, i, a) => i === 0 || t < a[i - 1]));
+const rk = list[0];
+rc.beginRun({ modeId: rk.modeId });
+rc.run.rivalId = rk.id;
+let rs = rc.finishRun(result(rk.modeId, { time: rk.time + 2 }));
+check('losing a duel pays no bounty and keeps the rival open', rs.rival && !rs.rival.won && rs.rival.gap > 1.9 && rc.rivals()[0].state === 'open');
+rc.beginRun({ modeId: rk.modeId });
+rc.run.rivalId = rk.id;
+const xpDuel = rc.profile.xp;
+rs = rc.finishRun(result(rk.modeId, { time: rk.time - 1 }));
+check('winning pays the bounty and opens the next rival', rs.rival.won && rs.rival.first && rc.profile.xp - xpDuel >= rk.xp && rc.rivals()[1].state === 'open' && rs.rival.next?.id === list[1].id);
+check('first rival win awards Called Out', Boolean(rc.profile.achievements['first-rival']));
+rc.beginRun({ modeId: rk.modeId });
+rc.run.rivalId = rk.id;
+rs = rc.finishRun(result(rk.modeId, { time: rk.time - 2 }));
+check('a rematch win pays nothing new', rs.rival.won && !rs.rival.first && !rs.creditLines.some((l) => l.label === 'Rival bounty'));
+rc.beginRun({ modeId: list[1].modeId });
+rc.run.rivalId = list[1].id;
+rc.run.rivalFinish = list[1].time - 5; // rubber-banded rival came home early
+rs = rc.finishRun(result(list[1].modeId, { time: list[1].time - 3 }));
+check('the duel is judged against when the rival actually finished', rs.rival && !rs.rival.won && Math.abs(rs.rival.gap - 2) < 1e-6);
+rc.save();
+check('beaten rivals survive a reload', new Career({ storage: rc.storage, now, mapId: 'mussoorie' }).rivals()[0].state === 'beaten');
+
+// --- pace ghost: a 600 m loop (two straights joined by tight turns) driven in exactly the target time
+const pts = [];
+for (let i = 0; i < 600; i += 1) {
+  const a = (i / 600) * Math.PI * 2;
+  pts.push([Math.cos(a) * 160, Math.sin(a) * 40]);
+}
+const ring = new Road({ id: 0, name: 'loop', closed: true, points: pts, heights: pts.map(() => 0), config: WORLD.road });
+const ringRoute = { roadId: 0, closed: true, direction: 1, startS: 10, finishS: 10, length: ring.length };
+const pace = buildPaceGhost({ roads: [ring] }, ringRoute, 2, 70, { name: 'Test', paint: 'ember' });
+check('pace ghost lasts exactly the target time', pace && Math.abs((pace.count - 1) / pace.rate - 70) < 0.11 && pace.time === 70);
+const player = new GhostPlayer(pace);
+const pos = new THREE.Vector3();
+const q = new THREE.Quaternion();
+const speeds = [];
+let prev = null;
+for (let t = 0; t <= 70; t += 0.5) {
+  player.poseAt(t, pos, q);
+  if (prev) speeds.push(pos.distanceTo(prev) / 0.5);
+  prev = pos.clone();
+}
+const startPos = new THREE.Vector3();
+player.poseAt(0, startPos, q);
+const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(q);
+const tangent = {}; ring.frameAt(10, tangent);
+check('it starts slow and is faster on the straights than in the turns', speeds[0] < speeds[10] && Math.max(...speeds) > Math.min(...speeds.slice(5)) * 1.3);
+check('it faces along the road', fwd.x * tangent.tx + fwd.z * tangent.tz > 0.95);
+check('two laps end back at the start line', pos.distanceTo(startPos) < 6, pos.distanceTo(startPos).toFixed(1));
+
+// --- tougher economy: maps open by level, a race does not skip levels, old saves keep their unlocks
+const eco = new Career({ storage: memoryStorage(), now, mapId: 'mussoorie' });
+eco.beginRun({ modeId: 'sprint' });
+for (let i = 0; i < 60 * 110; i += 1) eco.trackFrame(1 / 60, state(27), noDrift); // a ~2 min, 3 km race
+const ecoSummary = eco.finishRun(result('sprint', { time: 110, isRecord: true }));
+check('one race earns well under two levels', ecoSummary.xpGained < xpForLevel(3), `${ecoSummary.xpGained} XP`);
+check('maps open in level order', Object.entries(MAP_UNLOCKS).sort((a, b) => a[1].level - b[1].level).map(([id]) => id)[0] === 'mussoorie'
+  && new Set(Object.values(MAP_UNLOCKS).map((g) => g.level)).size === Object.keys(MAP_UNLOCKS).length);
+check('Alpine opens at level 3, not before', !eco.isMapUnlocked('alpine') && (() => { eco.addXp(xpForLevel(3) - eco.profile.xp); return eco.isMapUnlocked('alpine'); })());
+const v1 = memoryStorage();
+v1.setItem('slop-drift-profile-v1', JSON.stringify({ version: 1, xp: 900, credits: 500, medals: {} }));
+const v1c = new Career({ storage: v1, now });
+check('a v1 save keeps maps and cars its old level had opened', v1c.level < 5 && v1c.isMapUnlocked('fujimi') && v1c.isCarUnlocked('tokyo'));
 
 console.log(`\n${passes} passed, ${failures} failed`);
 process.exit(failures ? 1 : 0);

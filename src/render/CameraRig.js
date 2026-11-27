@@ -8,6 +8,7 @@ export const CAMERA_MODES = Object.freeze(['chase', 'far', 'hood', 'cockpit']);
 const MODE_LABELS = Object.freeze({ chase: 'CHASE', far: 'FAR', hood: 'HOOD', cockpit: 'COCKPIT' });
 const UP = new THREE.Vector3(0, 1, 0);
 const ROLL_AXIS = new THREE.Vector3(0, 0, 1);
+const PITCH_AXIS = new THREE.Vector3(1, 0, 0);
 
 /**
  * Chase-camera tuning. Kept together so the whole feel reads as one unit:
@@ -101,6 +102,8 @@ export class CameraRig {
     this.cockpitEye = (({ x, y, z }) => ({ x, y: y + 0.13, z }))(cockpitEye('drift'));
     this.shake = 0;
     this.shakeEnabled = true;
+    this.kick = 0; // redline-shift tilt, decays to 0
+    this.kickVel = 0;
     this.orbitAngle = 0;
     this.blendTime = 1;
     this.blendFromPosition = new THREE.Vector3();
@@ -138,6 +141,11 @@ export class CameraRig {
 
   addShake(amount) {
     this.shake = Math.min(1.2, this.shake + amount);
+  }
+
+  /** A redline upshift jolts the camera: a quick nose-up tilt that springs back. */
+  shiftKick(amount = 1) {
+    if (this.shakeEnabled) this.kickVel += 0.9 * amount;
   }
 
   resize(width, height) {
@@ -307,6 +315,13 @@ export class CameraRig {
       desiredQuaternion.setFromRotationMatrix(lookMatrix);
       if (this.roll !== 0) {
         desiredQuaternion.multiply(lookQuaternion.setFromAxisAngle(ROLL_AXIS, this.roll));
+      }
+      // Damped spring for the shift kick (about a quarter of a second).
+      this.kickVel += (-this.kick * 220 - this.kickVel * 22) * dt;
+      this.kick += this.kickVel * dt;
+      if (Math.abs(this.kick) > 1e-4) {
+        desiredQuaternion.multiply(lookQuaternion.setFromAxisAngle(PITCH_AXIS, this.kick * 0.9));
+        desiredQuaternion.multiply(lookQuaternion.setFromAxisAngle(ROLL_AXIS, this.kick * 0.5));
       }
       fovTarget = CONFIG.camera.fovBase + speedFov
         + TUNING.driftFov * this.drift + TUNING.boostFov * this.boost;

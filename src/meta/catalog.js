@@ -82,25 +82,27 @@ export function medalTargets(key) {
 
 /** XP awarded for things that happen while driving. */
 export const XP = Object.freeze({
-  perKm: 12,
-  perCheckpoint: 4,
-  perDriftPoints: 1 / 40, // banked drift points -> XP
-  finish: 40,
-  personalBest: 60,
-  medal: Object.freeze({ bronze: 60, silver: 120, gold: 240, author: 480 }), // first time each tier per event
-  dailyChallenge: 300,
+  perKm: 6,
+  perCheckpoint: 2,
+  perDriftPoints: 1 / 80, // banked drift points -> XP
+  finish: 25,
+  personalBest: 30,
+  medal: Object.freeze({ bronze: 40, silver: 80, gold: 160, author: 300 }), // first time each tier per event
+  dailyChallenge: 200,
+  nearMiss: 8,
 });
 
 /** Chai Credits (CR) awarded alongside XP to buy car upgrades and early car unlocks. */
 export const CREDITS = Object.freeze({
   starter: 150,
-  perKm: 8,
-  perDriftPoints: 1 / 20,
-  finish: 60,
-  personalBest: 80,
-  medal: Object.freeze({ bronze: 100, silver: 200, gold: 350, author: 650 }),
-  dailyChallenge: 400,
-  achievementFactor: 1.2,
+  perKm: 4,
+  perDriftPoints: 1 / 50,
+  finish: 30,
+  personalBest: 40,
+  medal: Object.freeze({ bronze: 60, silver: 120, gold: 200, author: 400 }),
+  dailyChallenge: 200,
+  achievementFactor: 0.5,
+  nearMiss: 10,
 });
 
 /** Difficulty bonus multipliers for Sim handling and Manual transmission (+15% each). */
@@ -110,13 +112,20 @@ export const PRO_BONUS = Object.freeze({
 });
 
 /**
- * Total XP needed to reach `level` (level 1 needs 0). Fast early levels so players unlock Stage 1
- * tuning, a second car, and ghosts inside their first 10 minutes, scaling smoothly afterward.
- *   L2 100, L3 293, L4 549, L5 857, L10 3,013, L20 9,601
+ * Total XP needed to reach `level` (level 1 needs 0). A race pays roughly 80-150 XP, so level 2 comes in
+ * the first couple of races, a new map about every session after that, and the last maps take days.
+ *   L2 180, L3 607, L5 2,037, L7 4,064, L9 6,668, L11 9,820, L13 13,500
  */
 export function xpForLevel(level) {
   if (level <= 1) return 0;
-  return Math.round(100 * Math.pow(level - 1, 1.55));
+  return Math.round(180 * Math.pow(level - 1, 1.75));
+}
+
+/** The curve before the economy was tightened; Career uses it once to migrate older saves. */
+export function legacyLevelForXp(xp) {
+  let level = 1;
+  while (Math.round(100 * Math.pow(level, 1.55)) <= xp && level < 99) level += 1;
+  return level;
 }
 
 export function levelForXp(xp) {
@@ -128,32 +137,41 @@ export function levelForXp(xp) {
 /** Progression gates for cars. Players unlock free on reaching `level`, or buy early with `earlyCost` CR. */
 export const CAR_UNLOCKS = Object.freeze({
   hatch: Object.freeze({ level: 1, earlyCost: 0 }),
-  thar: Object.freeze({ level: 2, earlyCost: 250 }),
-  tokyo: Object.freeze({ level: 5, earlyCost: 850 }),
-  raijin: Object.freeze({ level: 9, earlyCost: 1650 }),
-  gt: Object.freeze({ level: 12, earlyCost: 2400 }),
+  thar: Object.freeze({ level: 2, earlyCost: 600 }),
+  tokyo: Object.freeze({ level: 6, earlyCost: 2500 }),
+  raijin: Object.freeze({ level: 10, earlyCost: 5000 }),
+  gt: Object.freeze({ level: 14, earlyCost: 8000 }),
 });
 
-/** Progression gates for world maps (joining a friend's Party on any map always bypasses solo lock). */
+/**
+ * Progression gates for world maps: each one opens with a driver level, never with credits
+ * (joining a friend's Party on any map always bypasses the lock).
+ */
 export const MAP_UNLOCKS = Object.freeze({
   mussoorie: Object.freeze({ level: 1 }),
-  alpine: Object.freeze({ level: 2 }),
-  fujimi: Object.freeze({ level: 3 }),
-  tokyo: Object.freeze({ level: 5 }),
-  jungle: Object.freeze({ level: 7 }),
-  hollow: Object.freeze({ level: 9 }),
-  apex: Object.freeze({ level: 11 }),
+  alpine: Object.freeze({ level: 3 }),
+  fujimi: Object.freeze({ level: 5 }),
+  tokyo: Object.freeze({ level: 7 }),
+  jungle: Object.freeze({ level: 9 }),
+  hollow: Object.freeze({ level: 11 }),
+  apex: Object.freeze({ level: 13 }),
+});
+
+/** Gates before the economy was tightened; older saves keep what these had already opened. */
+export const LEGACY_GATES = Object.freeze({
+  cars: Object.freeze({ thar: 2, tokyo: 5, raijin: 9, gt: 12 }),
+  maps: Object.freeze({ alpine: 2, fujimi: 3, tokyo: 5, jungle: 7, hollow: 9, apex: 11 }),
 });
 
 /** Gameplay features unlocked while leveling up. */
 export const FEATURE_UNLOCKS = Object.freeze([
   Object.freeze({ id: 'ghosts', label: 'Ghost Rivals & Live Split Delta', level: 2, summary: 'Race your Personal Best and global leaderboard ghosts.' }),
   Object.freeze({ id: 'tuning-1', label: 'Garage Upgrades Stage 1', level: 2, summary: 'Unlock Stage 1 engine, tires, nitrous & brake kits.' }),
-  Object.freeze({ id: 'smoke', label: 'Custom Tire Smoke Colors', level: 3, summary: 'Unlock colored drift smoke trails in the Garage.' }),
-  Object.freeze({ id: 'tuning-2', label: 'Garage Upgrades Stage 2', level: 4, summary: 'Unlock twin-scroll turbos, angle kits & dual N2O.' }),
+  Object.freeze({ id: 'smoke', label: 'Custom Tire Smoke Colors', level: 4, summary: 'Unlock colored drift smoke trails in the Garage.' }),
+  Object.freeze({ id: 'tuning-2', label: 'Garage Upgrades Stage 2', level: 5, summary: 'Unlock twin-scroll turbos, angle kits & dual N2O.' }),
   Object.freeze({ id: 'pro-bonus', label: 'Pro Difficulty Bonus (+30%)', level: 6, summary: 'Earn +15% XP & CR each for Sim handling and Manual gears.' }),
-  Object.freeze({ id: 'tuning-3', label: 'Pro Race Spec Stage 3', level: 7, summary: 'Unlock top-tier forged internals, compounds & cryo N2O.' }),
-  Object.freeze({ id: 'author-hunt', label: 'Author Medal Challenges', level: 10, summary: 'Unlock prestigious Author targets & gold smoke finishes.' }),
+  Object.freeze({ id: 'tuning-3', label: 'Pro Race Spec Stage 3', level: 9, summary: 'Unlock top-tier forged internals, compounds & cryo N2O.' }),
+  Object.freeze({ id: 'author-hunt', label: 'Author Medal Challenges', level: 12, summary: 'Unlock prestigious Author targets & gold smoke finishes.' }),
 ]);
 
 /**
@@ -215,6 +233,8 @@ export const RIM_OPTIONS = Object.freeze([
  * Achievements. `stat` achievements unlock when profile.stats[stat] >= value; `event` ones are
  * awarded by Career when the named moment happens. `xp` (and proportional CR) is granted once on unlock.
  */
+// Achievements pay 40% of their listed weight in XP (rounded to 5), so milestones mark progress without skipping levels.
+const ACHIEVEMENT_XP_SCALE = 0.4;
 export const ACHIEVEMENTS = Object.freeze([
   { id: 'tokyo-tower', title: 'Tower Photographer', description: 'Photograph Minato, the rooftop and the expressway.', xp: 85 },
   { id: 'tokyo-explorer', title: 'Night Passport', description: 'Discover every Tokyo district.', xp: 120 },
@@ -243,6 +263,12 @@ export const ACHIEVEMENTS = Object.freeze([
   { id: 'distance-500', title: 'Highway Nomad', description: 'Drive 500 km in total.', stat: 'distanceKm', value: 500, xp: 750 },
   { id: 'air', title: 'Airtime', description: 'Get all four wheels off the ground for a full second.', event: 'air:1', xp: 120 },
   { id: 'night-run', title: 'Night Shift', description: 'Finish an event at night.', event: 'finish:night', xp: 80 },
+  { id: 'needle-threader', title: 'Needle Threader', description: 'Score 5 near misses in one run.', event: 'near-miss:5', xp: 250 },
+  { id: 'first-rival', title: 'Called Out', description: 'Beat your first rival in a duel.', event: 'rival:any', xp: 100 },
+  { id: 'boss-rival', title: 'Boss Fight', description: 'Beat a regional boss rival.', event: 'rival:boss', xp: 400 },
+  { id: 'touge-royalty', title: 'Touge Royalty', description: 'Beat every regional boss rival.', event: 'rival:all-bosses', xp: 2000 },
+  { id: 'mastery-5', title: 'One-Car Specialist', description: 'Earn all five mastery stars on one car.', event: 'mastery:5', xp: 500 },
+  { id: 'mastery-all', title: 'Apex Collector', description: 'Earn all five mastery stars on every car.', event: 'mastery:all', xp: 1500 },
   { id: 'first-upgrade', title: 'First Wrench', description: 'Install your first performance upgrade in the Garage.', stat: 'upgradesBought', value: 1, xp: 80 },
   { id: 'max-tune', title: 'Full Build', description: 'Max out all four upgrade slots on any single car.', event: 'max-tune', xp: 400 },
   { id: 'first-gold', title: 'Gold Standard', description: 'Earn a gold medal.', event: 'medal:gold', xp: 150 },
@@ -256,7 +282,71 @@ export const ACHIEVEMENTS = Object.freeze([
   { id: 'streak-7', title: 'Week Streak', description: 'Complete the daily challenge 7 days in a row.', stat: 'dailyStreakBest', value: 7, xp: 500 },
   { id: 'ghostbuster', title: 'Ghostbuster', description: 'Beat a leaderboard ghost.', event: 'beat-ghost', xp: 200 },
   { id: 'multiplayer', title: 'Company on the Mountain', description: 'Drive with another player online.', event: 'multiplayer', xp: 80 },
+].map((a) => Object.freeze({ ...a, xp: Math.max(5, Math.round((a.xp * ACHIEVEMENT_XP_SCALE) / 5) * 5) })));
+
+/**
+ * Daily contracts: two small goals a day on top of the daily challenge, progress summed across runs
+ * on any map. `stat` is what Career.bumpContract counts.
+ */
+export const CONTRACT_TEMPLATES = Object.freeze([
+  { id: 'drift-points', stat: 'driftPoints', goal: 3000, text: 'Bank 3,000 drift points' },
+  { id: 'distance', stat: 'km', goal: 5, text: 'Drive 5 km' },
+  { id: 'finishes', stat: 'finishes', goal: 3, text: 'Finish 3 events' },
+  { id: 'clean', stat: 'cleanFinishes', goal: 2, text: 'Finish 2 events without a reset' },
+  { id: 'clips', stat: 'clips', goal: 4, text: 'Hit 4 clipping zones' },
+  { id: 'style', stat: 'styleMoves', goal: 3, text: 'Land 3 wall taps or reverse entries' },
 ]);
+/**
+ * Rivals: three named drivers per region, raced one at a time (rookie, then challenger, then boss).
+ * A rival's time is the faster of `pace` x gold and `vsBest` x your best on that event, so they always
+ * push you; their car is a generated pace ghost (src/ghost/paceGhost.js) that also speeds up when you lead.
+ */
+export const RIVAL_TIERS = Object.freeze({
+  // pace: x gold time with no personal best. vsBest: x your best on that event (whichever is faster wins).
+  // catchUp: how hard they push when you get ahead; easeOff: how much they wait when far ahead (0 = never).
+  rookie: Object.freeze({ label: 'Rookie', pace: 1.03, vsBest: 1.0, catchUp: 0.12, easeOff: 0.06, xp: 150, credits: 200 }),
+  challenger: Object.freeze({ label: 'Challenger', pace: 0.95, vsBest: 0.975, catchUp: 0.16, easeOff: 0.03, xp: 300, credits: 400 }),
+  boss: Object.freeze({ label: 'Boss', pace: 0.9, vsBest: 0.955, catchUp: 0.2, easeOff: 0, xp: 600, credits: 800 }),
+});
+
+export const RIVALS = Object.freeze([
+  { id: 'mus-bunty', mapId: 'mussoorie', modeId: 'sprint', tier: 'rookie', name: 'Bunty "Maggi Point"', paint: 'ember', bio: 'Runs the Mall Road loop between chai orders. Brakes for monkeys, never for corners.' },
+  { id: 'mus-kavya', mapId: 'mussoorie', modeId: 'descent', tier: 'challenger', name: 'Kavya "Mist Runner" Rawat', paint: 'glacier', bio: 'Learned the Camel\'s Back hairpins in the fog. Drives them faster when she cannot see.' },
+  { id: 'mus-thapa', mapId: 'mussoorie', modeId: 'peak', tier: 'boss', name: 'Major Thapa, "The Ridge Ghost"', paint: 'racing-green', bio: 'Retired convoy driver. Owns the Nag Tibba switchbacks and every record on them.' },
+  { id: 'alp-lena', mapId: 'alpine', modeId: 'sprint', tier: 'rookie', name: 'Lena Vogt', paint: 'arctic-splinter', bio: 'Ski instructor by day. Treats the mountain loop like a slalom course.' },
+  { id: 'alp-matteo', mapId: 'alpine', modeId: 'climb', tier: 'challenger', name: 'Matteo "Switchback" Ferri', paint: 'ruby-carbon', bio: 'Hill-climb lifer who counts hairpins in his sleep.' },
+  { id: 'alp-ingrid', mapId: 'alpine', modeId: 'descent', tier: 'boss', name: 'Ingrid "Ice Line" Haug', paint: 'tiffany-ice', bio: 'Never touches the brakes above the tree line. Nobody knows how.' },
+  { id: 'fuj-daichi', mapId: 'fujimi', modeId: 'sprint', tier: 'rookie', name: 'Daichi Mori', paint: 'bayside', bio: 'Harbour mechanic with a borrowed car and something to prove.' },
+  { id: 'fuj-aya', mapId: 'fujimi', modeId: 'sprint', tier: 'challenger', name: 'Aya "Clip Queen" Sato', paint: 'kitsune', bio: 'Has clipped every zone on the bay course with a door mirror to spare.' },
+  { id: 'fuj-kenji', mapId: 'fujimi', modeId: 'circuit', tier: 'boss', name: 'Kenji "Oni" Kuroda', paint: 'obsidian', bio: 'Two laps, no mistakes, no conversation afterwards.' },
+  { id: 'tok-ren', mapId: 'tokyo', modeId: 'underground', tier: 'rookie', name: 'Ren "Delivery" Ishida', paint: 'acid', bio: 'Night courier who knows every tunnel shortcut under the city.' },
+  { id: 'tok-mika', mapId: 'tokyo', modeId: 'bay', tier: 'challenger', name: 'Mika "Bayline" Hoshino', paint: 'violet', bio: 'Runs the bay at 3 a.m. while the city sleeps.' },
+  { id: 'tok-ryo', mapId: 'tokyo', modeId: 'express', tier: 'boss', name: 'Ryo Takeda, Akatsuki crew', paint: 'midnight', bio: 'Leader of the Akatsuki crew. The expressway is his, until someone takes it.' },
+  { id: 'hol-pete', mapId: 'hollow', modeId: 'quarter', tier: 'rookie', name: 'Pete Calloway', paint: 'saltline', bio: 'Last man still pumping gas in Hollow Creek. Drives like he has nowhere to be.' },
+  { id: 'hol-june', mapId: 'hollow', modeId: 'sprint', tier: 'challenger', name: 'June "Lantern" Ash', paint: 'sunset-fade', bio: 'Drives the fog with one headlight and perfect memory.' },
+  { id: 'hol-drifter', mapId: 'hollow', modeId: 'vanishing', tier: 'boss', name: 'The Drifter', paint: 'stealth-gunmetal', bio: 'Nobody has seen the driver. Everyone has seen the tail lights disappear.' },
+  { id: 'jun-arjun', mapId: 'jungle', modeId: 'sprint', tier: 'rookie', name: 'Arjun "Mudguard" Nair', paint: 'summit', bio: 'Tea-estate runner who thinks puddles are a racing line.' },
+  { id: 'jun-leela', mapId: 'jungle', modeId: 'circuit', tier: 'challenger', name: 'Leela "Monsoon" Varghese', paint: 'chameleon', bio: 'Waits for the heaviest rain to set her best times.' },
+  { id: 'jun-bose', mapId: 'jungle', modeId: 'sprint', tier: 'boss', name: 'Captain Bose, "Flood King"', paint: 'gold-rush', bio: 'Crossed the Flood Cut before the bridge was built. Still drives like it is not there.' },
+]);
+
+/**
+ * Car mastery: XP earned while driving a car fills its own five stars. Star n pays n x 100 CR once.
+ * Stars 1-5 at 250 / 700 / 1,500 / 3,000 / 6,000 XP in that car.
+ */
+export const MASTERY_STARS = Object.freeze([250, 700, 1500, 3000, 6000]);
+export const MASTERY_STAR_CREDITS = 100;
+
+export function masteryStars(xp) {
+  return MASTERY_STARS.filter((need) => xp >= need).length;
+}
+
+export const CONTRACT_REWARD = Object.freeze({ xp: 80, credits: 100 });
+
+/** Daily challenge payout grows with the streak: x1 on day 1, +25% a day, capped at x2.5 from day 7. */
+export function streakBoost(day) {
+  return 1 + 0.25 * (Math.min(7, Math.max(1, day)) - 1);
+}
 
 /**
  * Daily challenge templates. One is picked per UTC day from a seeded random, together with an event.

@@ -103,6 +103,7 @@ export function hubHeaderMarkup(uid, chaiGlass) {
   const tabs = HUB_TABS.map((t) => `
     <button type="button" class="sdh-hub-tab" data-act="hub-tab" data-hub-tab="${escHtml(t.id)}" aria-selected="false">
       <span>${escHtml(t.label)}</span>
+      <i class="sdh-tab-count sdh-num" data-tab-count="${escHtml(t.id)}" hidden></i>
     </button>`).join('');
   return `
     <header class="sdh-hub-top" aria-label="Starting navigation">
@@ -296,7 +297,11 @@ export function forzaMapHubMarkup() {
 
   return `
     <section class="sdh-hub-view sdh-forza-view" data-hub-view="map" aria-label="Choose mountain and event" hidden>
-      <div class="sdh-forza-regions" role="group" aria-label="Mountains">${regions}</div>
+      <div class="sdh-forza-regions" role="group" aria-label="Mountains">
+        <div class="sdh-region-group" data-group="open">Unlocked</div>
+        ${regions}
+        <div class="sdh-region-group" data-group="locked">Locked · level up to open</div>
+      </div>
 
       <div class="sdh-forza-grid">
         <div class="sdh-forza-stage">
@@ -327,6 +332,7 @@ export function forzaMapHubMarkup() {
         </div>
 
         <aside class="sdh-forza-inspector" aria-label="Event launcher">
+          <section class="sdh-forza-goals" data-forza="goals" aria-label="Challenges on this map" hidden></section>
           <div class="sdh-forza-car-pill">
             <span>ACTIVE CAR</span>
             <b data-forza="activeCar">RALLY HATCH · B185</b>

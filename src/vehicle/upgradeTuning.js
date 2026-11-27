@@ -7,9 +7,9 @@ export const UPGRADE_SLOTS = Object.freeze([
     label: 'Engine & Turbo',
     summary: 'Boosts peak torque, redline RPM, and shift speed.',
     stages: Object.freeze([
-      Object.freeze({ stage: 1, level: 1, cost: 140, label: 'Stage 1 Intake', effect: '+8% torque · +250 RPM', torqueMult: 1.08, rpmAdd: 250, shiftMult: 0.96 }),
-      Object.freeze({ stage: 2, level: 4, cost: 340, label: 'Stage 2 Twin-Scroll', effect: '+17% torque · +500 RPM', torqueMult: 1.17, rpmAdd: 500, shiftMult: 0.90 }),
-      Object.freeze({ stage: 3, level: 7, cost: 720, label: 'Stage 3 Forged Build', effect: '+28% torque · +800 RPM', torqueMult: 1.28, rpmAdd: 800, shiftMult: 0.80 }),
+      Object.freeze({ stage: 1, level: 1, cost: 210, label: 'Stage 1 Intake', effect: '+8% torque · +250 RPM', torqueMult: 1.08, rpmAdd: 250, shiftMult: 0.96 }),
+      Object.freeze({ stage: 2, level: 5, cost: 510, label: 'Stage 2 Twin-Scroll', effect: '+17% torque · +500 RPM', torqueMult: 1.17, rpmAdd: 500, shiftMult: 0.90 }),
+      Object.freeze({ stage: 3, level: 9, cost: 1080, label: 'Stage 3 Forged Build', effect: '+28% torque · +800 RPM', torqueMult: 1.28, rpmAdd: 800, shiftMult: 0.80 }),
     ]),
   }),
   Object.freeze({
@@ -17,9 +17,9 @@ export const UPGRADE_SLOTS = Object.freeze([
     label: 'Tires & Angle Kit',
     summary: 'Improves cornering grip, drift control, and steering lock.',
     stages: Object.freeze([
-      Object.freeze({ stage: 1, level: 2, cost: 130, label: 'Semi-Slick Compound', effect: '+5% grip · +2° lock', muMult: 1.05, lockAdd: 2, slideAdd: 0.03 }),
-      Object.freeze({ stage: 2, level: 4, cost: 310, label: 'Wide Drift Angle Kit', effect: '+11% grip · +4° lock', muMult: 1.11, lockAdd: 4, slideAdd: 0.05 }),
-      Object.freeze({ stage: 3, level: 7, cost: 660, label: 'Pro Spec Compounds', effect: '+18% grip · +7° lock', muMult: 1.18, lockAdd: 7, slideAdd: 0.07 }),
+      Object.freeze({ stage: 1, level: 2, cost: 200, label: 'Semi-Slick Compound', effect: '+5% grip · +2° lock', muMult: 1.05, lockAdd: 2, slideAdd: 0.03 }),
+      Object.freeze({ stage: 2, level: 5, cost: 460, label: 'Wide Drift Angle Kit', effect: '+11% grip · +4° lock', muMult: 1.11, lockAdd: 4, slideAdd: 0.05 }),
+      Object.freeze({ stage: 3, level: 9, cost: 990, label: 'Pro Spec Compounds', effect: '+18% grip · +7° lock', muMult: 1.18, lockAdd: 7, slideAdd: 0.07 }),
     ]),
   }),
   Object.freeze({
@@ -27,9 +27,9 @@ export const UPGRADE_SLOTS = Object.freeze([
     label: 'Nitrous System',
     summary: 'Installs or upgrades N2O tank size, boost punch, and drift refill.',
     stages: Object.freeze([
-      Object.freeze({ stage: 1, level: 2, cost: 180, label: 'Dry Shot N2O Kit', effect: 'Equips N2O · +15% power', capMult: 1.15, forceMult: 1.08, refillMult: 1.15 }),
-      Object.freeze({ stage: 2, level: 5, cost: 390, label: 'Dual Purge Bottle', effect: '+35% tank · +16% power', capMult: 1.35, forceMult: 1.16, refillMult: 1.30 }),
-      Object.freeze({ stage: 3, level: 8, cost: 800, label: 'Direct-Port Cryo N2O', effect: '+60% tank · +25% power', capMult: 1.60, forceMult: 1.25, refillMult: 1.50 }),
+      Object.freeze({ stage: 1, level: 2, cost: 270, label: 'Dry Shot N2O Kit', effect: 'Equips N2O · +15% power', capMult: 1.15, forceMult: 1.08, refillMult: 1.15 }),
+      Object.freeze({ stage: 2, level: 5, cost: 580, label: 'Dual Purge Bottle', effect: '+35% tank · +16% power', capMult: 1.35, forceMult: 1.16, refillMult: 1.30 }),
+      Object.freeze({ stage: 3, level: 9, cost: 1200, label: 'Direct-Port Cryo N2O', effect: '+60% tank · +25% power', capMult: 1.60, forceMult: 1.25, refillMult: 1.50 }),
     ]),
   }),
   Object.freeze({
@@ -37,9 +37,9 @@ export const UPGRADE_SLOTS = Object.freeze([
     label: 'Weight & Brakes',
     summary: 'Strips chassis weight and fits larger multi-piston brake rotors.',
     stages: Object.freeze([
-      Object.freeze({ stage: 1, level: 2, cost: 120, label: 'Sport Pads & Stripped Trim', effect: '-4% mass · +8% brakes', massMult: 0.96, brakeMult: 1.08 }),
-      Object.freeze({ stage: 2, level: 5, cost: 290, label: 'Carbon Hood & 6-Pot Calipers', effect: '-8% mass · +16% brakes', massMult: 0.92, brakeMult: 1.16 }),
-      Object.freeze({ stage: 3, level: 8, cost: 620, label: 'Full Cage & Carbon Ceramic', effect: '-13% mass · +25% brakes', massMult: 0.87, brakeMult: 1.25 }),
+      Object.freeze({ stage: 1, level: 2, cost: 180, label: 'Sport Pads & Stripped Trim', effect: '-4% mass · +8% brakes', massMult: 0.96, brakeMult: 1.08 }),
+      Object.freeze({ stage: 2, level: 5, cost: 440, label: 'Carbon Hood & 6-Pot Calipers', effect: '-8% mass · +16% brakes', massMult: 0.92, brakeMult: 1.16 }),
+      Object.freeze({ stage: 3, level: 9, cost: 930, label: 'Full Cage & Carbon Ceramic', effect: '-13% mass · +25% brakes', massMult: 0.87, brakeMult: 1.25 }),
     ]),
   }),
 ]);

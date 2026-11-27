@@ -203,6 +203,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   volume: 0.8,
   cameraShake: true,
   startGate: true,
+  traffic: true,
   touchSteer: 'arrows',
   uiAccent: 'amber',
 });
@@ -295,6 +296,7 @@ export function normalizeSettings(input = {}) {
     volume: clamp01(merged.volume, DEFAULT_SETTINGS.volume),
     cameraShake: Boolean(merged.cameraShake),
     startGate: Boolean(merged.startGate),
+    traffic: Boolean(merged.traffic),
     touchSteer: merged.touchSteer === 'slider' ? 'slider' : 'arrows',
     uiAccent: UI_ACCENTS[merged.uiAccent] ? merged.uiAccent : DEFAULT_SETTINGS.uiAccent,
   };

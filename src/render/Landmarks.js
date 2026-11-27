@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const WINDOW_GLOW = new THREE.Color(0xffb35a);
 const SUNSET_WINDOW_GLOW = new THREE.Color(0xffa048);
@@ -216,6 +217,9 @@ export class Landmarks {
     const scale = new THREE.Vector3();
     const up = new THREE.Vector3(0, 1, 0);
 
+    // Every placed copy of every prop, grouped by material: the town is static, so each material becomes
+    // one merged mesh (one draw call) instead of an instanced mesh per prop part (~89 -> ~25 calls).
+    const byMaterial = new Map();
     for (const node of gltf.scene.children) {
       const placements = byProp.get(node.name);
       if (!placements?.length) continue;
@@ -233,21 +237,40 @@ export class Landmarks {
         const geometry = child.geometry.clone();
         geometry.applyMatrix4(child.matrixWorld);
         const material = this.prepareMaterial(child.material, node.name);
-        const mesh = new THREE.InstancedMesh(geometry, material, transforms.length);
-        transforms.forEach((transform, i) => mesh.setMatrixAt(i, transform));
-        mesh.instanceMatrix.needsUpdate = true;
-        mesh.computeBoundingSphere();
-        const allowShadow = !NO_SHADOW_MATERIALS.has(child.material.name);
+        if (!byMaterial.has(material)) byMaterial.set(material, { name: child.material.name, parts: [] });
+        byMaterial.get(material).parts.push({ geometry, transforms, prop: node.name });
+      });
+    }
+    for (const [material, { name, parts }] of byMaterial) {
+      const copies = [];
+      for (const part of parts) for (const transform of part.transforms) copies.push(part.geometry.clone().applyMatrix4(transform));
+      const merged = copies.length > 1 ? mergeGeometries(copies, false) : copies[0];
+      const allowShadow = !NO_SHADOW_MATERIALS.has(name);
+      if (merged) {
+        const mesh = new THREE.Mesh(merged, material);
         mesh.userData.allowShadow = allowShadow;
         mesh.castShadow = shadows && allowShadow;
         mesh.receiveShadow = shadows;
-        mesh.name = `${node.name}:${child.material.name}`;
+        mesh.name = `landmarks:${name}`;
         this.group.add(mesh);
         this.meshes.push(mesh);
-        if (allowShadow && transforms.length <= 2) {
-          this.heroShadowMeshes.push(mesh);
+      } else {
+        // Parts whose attributes differ cannot merge: keep them instanced as before.
+        for (const part of parts) {
+          const mesh = new THREE.InstancedMesh(part.geometry, material, part.transforms.length);
+          part.transforms.forEach((transform, i) => mesh.setMatrixAt(i, transform));
+          mesh.instanceMatrix.needsUpdate = true;
+          mesh.computeBoundingSphere();
+          mesh.userData.allowShadow = allowShadow;
+          mesh.castShadow = shadows && allowShadow;
+          mesh.receiveShadow = shadows;
+          mesh.name = `${part.prop}:${name}`;
+          this.group.add(mesh);
+          this.meshes.push(mesh);
+          if (allowShadow && part.transforms.length <= 2) this.heroShadowMeshes.push(mesh);
         }
-      });
+      }
+      for (const copy of copies) if (copy !== merged) copy.dispose();
     }
     this.setNight(this.night, this.warmGlow);
     this.ready = true;

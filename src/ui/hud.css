@@ -801,6 +801,13 @@
 .sdh-daily-info { min-width: 0; display: flex; flex-direction: column; gap: 0.1em; }
 .sdh-daily-top { display: flex; align-items: center; justify-content: space-between; gap: 0.6em; }
 .sdh-daily-text { font-weight: 700; font-size: 1.12em; line-height: 1.15; }
+.sdh-contracts { list-style: none; margin: 0.45em 0 0; padding: 0; display: grid; gap: 0.3em; font-size: 0.86em; }
+.sdh-contracts li { position: relative; display: flex; justify-content: space-between; gap: 0.6em; padding: 0.25em 0.45em 0.35em; border: 1px solid currentColor; border-radius: var(--r); overflow: hidden; }
+.sdh-contracts li span { display: flex; align-items: center; gap: 0.35em; min-width: 0; }
+.sdh-contracts li svg { width: 1em; height: 1em; flex: none; }
+.sdh-contracts li i { position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; background: var(--marigold); transform-origin: left; }
+.sdh-contracts li.is-done { opacity: 0.65; }
+.sdh-contracts li.is-done i { background: var(--signal-green, #2e7d4f); }
 .sdh-daily-meta { display: flex; gap: 0.6em; flex-wrap: wrap; font-size: 0.9em; color: var(--chalk); opacity: 0.85; }
 .sdh-daily-xp { color: var(--marigold); font-weight: 700; opacity: 1; }
 .sdh-daily.is-done { border-style: dashed; }
@@ -1010,7 +1017,7 @@ span.sdh-icon-sm { width: 2.2em; }
 .sdh-cos:hover { border-color: var(--chalk); }
 .sdh-cos-swatch { display: grid; place-items: center; width: 2.6em; height: 2.6em; border: var(--line) solid var(--rim); border-radius: 50%; background: var(--c); box-shadow: var(--hard-sm); }
 .sdh-cos-swatch.is-skin { position: relative; width: 100%; height: 3.4em; border-radius: var(--r); background-color: var(--c); background-size: cover; background-position: center; overflow: hidden; }
-.sdh-cos-tag { position: absolute; right: 0.28em; bottom: 0.24em; font-style: normal; font-size: 0.62em; font-weight: 800; letter-spacing: 0.08em; line-height: 1; padding: 0.2em 0.36em; border-radius: 2px; background: rgba(11, 13, 18, 0.84); color: var(--chalk); border: 1px solid rgba(244, 241, 232, 0.28); pointer-events: none; }
+.sdh-cos-tag { position: absolute; right: 0.28em; bottom: 0.24em; font-style: normal; font-size: 0.62em; font-weight: 800; letter-spacing: 0.08em; line-height: 1; padding: 0.2em 0.36em; border-radius: var(--r); background: rgba(11, 13, 18, 0.84); color: var(--chalk); border: 1px solid rgba(244, 241, 232, 0.28); pointer-events: none; }
 .sdh-cos-swatch.is-rim { background: var(--c); box-shadow: inset 0 0 0 0.55em var(--ink), inset 0 0 0 0.7em var(--c), 2px 2px 0 var(--ink); }
 .sdh-cos-swatch.is-neon { border-radius: var(--r); width: 3.2em; height: 1.5em; margin: 0.55em 0; background: var(--ink); box-shadow: inset 0 -0.35em 0 var(--c), 2px 2px 0 var(--ink); }
 .sdh-cos-swatch.is-neon.is-rainbow { box-shadow: var(--hard-sm); background: linear-gradient(var(--ink) 0 62%, transparent 62%), linear-gradient(90deg, #ff2424 0 17%, #ffa014 0 34%, #6dff2e 0 50%, #18e0ff 0 67%, #8443ff 0 84%, #ff2bd0 0); }
@@ -3014,8 +3021,215 @@ button.sdh-upnext-row:hover, button.sdh-upnext-row:focus-visible { outline: 3px 
   position: absolute;
   inset: 0;
   pointer-events: none;
-  opacity: 0;
+  overflow: hidden;
+  opacity: var(--fx, 0);
   background: radial-gradient(ellipse at 50% 54%, transparent 56%, rgba(255, 255, 255, 0.08) 88%, rgba(242, 176, 30, 0.16) 100%);
-  transition: opacity 0.3s ease;
+  transition: opacity 0.25s ease;
 }
-.sdh-race.is-fast .sdh-speedfx { opacity: 1; }
+/* Wind streaks: thin radial lines at the screen edges that rush outward (Hud.update sets --fx by speed). */
+.sdh-speedfx::before,
+.sdh-speedfx::after {
+  content: '';
+  position: absolute;
+  inset: -25%;
+  background: repeating-conic-gradient(from 0deg at 50% 52%, transparent 0deg 2.3deg, rgba(255, 255, 255, 0.5) 2.45deg 2.6deg, transparent 2.75deg 7deg);
+  -webkit-mask-image: radial-gradient(ellipse at 50% 52%, transparent 34%, #000 78%);
+  mask-image: radial-gradient(ellipse at 50% 52%, transparent 34%, #000 78%);
+}
+.sdh-speedfx.is-wind::before { animation: sdh-streak 0.32s linear infinite; }
+.sdh-speedfx.is-wind::after { animation: sdh-streak 0.45s linear -0.2s infinite; }
+.sdh-speedfx::after {
+  background: repeating-conic-gradient(from 3.4deg at 50% 52%, transparent 0deg 4.1deg, rgba(255, 255, 255, 0.35) 4.2deg 4.32deg, transparent 4.45deg 11deg);
+ }
+@keyframes sdh-streak {
+  from { transform: scale(0.94); opacity: 0; }
+  35% { opacity: 1; }
+  to { transform: scale(1.18); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sdh-speedfx.is-wind::before, .sdh-speedfx.is-wind::after { animation: none; opacity: 0.5; }
+}
+
+/* Car mastery stars: five small marigold diamonds. */
+.sdh-mastery { display: inline-flex; gap: 2px; align-items: center; }
+.sdh-mastery i { width: 0.55em; height: 0.55em; transform: rotate(45deg); border: 1px solid var(--marigold); }
+.sdh-mastery i.is-on { background: var(--marigold); }
+.sdh-mastery-row { display: flex; align-items: center; gap: 0.7em; padding: 0.45em 0.6em; border: 1px solid currentColor; border-radius: var(--r); margin-top: 0.5em; }
+.sdh-mastery-row > span:first-child { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.sdh-mastery-row small { opacity: 0.8; }
+.sdh-mastery-row .sdh-mastery i { width: 0.75em; height: 0.75em; }
+
+/* Rivals: duel cards on the Events tab, result banner on the finish ticket. */
+.sdh-rivals { display: flex; flex-direction: column; gap: 0.4em; margin-top: 0.8em; }
+.sdh-rival-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.45em; }
+.sdh-rival { display: flex; gap: 0.6em; align-items: center; padding: 0.4em 0.5em; border: 2px solid currentColor; border-radius: var(--r); }
+.sdh-rival.is-boss { border-color: var(--truck-red); box-shadow: 0 6px 18px color-mix(in srgb, var(--truck-red) 25%, transparent); }
+.sdh-rival.is-locked { opacity: 0.55; }
+.sdh-rival.is-beaten .sdh-rival-tier { background: var(--signal-green); }
+.sdh-rival-main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.sdh-rival-main b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sdh-rival-main small { font-size: 0.82em; opacity: 0.8; }
+.sdh-rival-tier { flex: none; font-size: 0.7em; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; padding: 0.1em 0.45em; background: var(--marigold); color: #14110d; border-radius: var(--r); }
+.sdh-rival.is-boss .sdh-rival-tier { background: var(--truck-red, #c8321e); color: #f4f1e8; }
+.sdh-rival-go { flex: none; }
+.sdh-rival-result { display: flex; padding: 0.55em 0.7em; margin-bottom: 0.5em; border: 2px solid currentColor; border-radius: var(--r); }
+.sdh-rival-result > span { display: flex; flex-direction: column; }
+.sdh-rival-result small { opacity: 0.85; }
+.sdh-rival-result.is-won { border-color: var(--signal-green); box-shadow: 0 6px 18px color-mix(in srgb, var(--signal-green) 25%, transparent); }
+.sdh-rival-result.is-lost { border-color: var(--truck-red, #c8321e); }
+
+/* A level-up that opens a map gets the top of the results ticket. */
+.sdh-map-unlock { display: flex; align-items: center; justify-content: space-between; gap: 0.8em; padding: 0.7em 0.8em; margin-bottom: 0.6em; background: var(--marigold); color: var(--ink); border: 0; border-radius: var(--r); box-shadow: var(--hard); animation: sdh-slap 0.35s var(--snap, ease-out) both; }
+.sdh-map-unlock span { display: flex; flex-direction: column; }
+.sdh-map-unlock small { font-size: 0.75em; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+.sdh-map-unlock b { font-family: var(--font-title, inherit); font-size: 1.5em; line-height: 1.05; }
+@keyframes sdh-slap { from { transform: scale(1.15) rotate(-2deg); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .sdh-map-unlock { animation: none; } }
+
+/* Less text: names and numbers carry the menus; descriptions live in tooltips and the Awards tab. */
+.sdh-mode-card-tag,
+.sdh-fe-main small,
+.sdh-map-stage-tag,
+.sdh-map-chip:not(.is-count),
+.sdh-menu-actions,
+.sdh-party-entry-main small,
+.sdh-title-keyhint[data-title="readyHint"],
+.sdh-ticket-foot,
+.sdh-daily-meta [data-d="mode"],
+.sdh-ach-compact .sdh-ach-main small,
+.sdh-xp-lines { display: none !important; }
+
+/* Owned vs locked, at a glance: owned cars and maps first, a divider, then locked ones greyed with a padlock. */
+.sdh-lock-divider { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.3em; padding: 0 0.4em; color: var(--chalk); opacity: 0.7; font-size: 0.72em; font-weight: 800; letter-spacing: 0.14em; writing-mode: vertical-rl; border-left: 2px dashed currentColor; }
+.sdh-lock-divider svg { width: 1.3em; height: 1.3em; writing-mode: horizontal-tb; }
+.sdh-lock-badge { position: absolute; z-index: 2; left: 50%; top: 42%; transform: translate(-50%, -50%); display: grid; place-items: center; width: 2.4em; height: 2.4em; border-radius: 50%; background: rgba(20, 17, 13, 0.75); border: 2px solid var(--chalk); color: var(--chalk); }
+.sdh-lock-badge svg { width: 1.2em; height: 1.2em; }
+.sdh-car-card.is-locked { border-style: dashed; }
+.sdh-car-card.is-locked .sdh-car-card-name { opacity: 0.75; }
+.sdh-car-card-eq { display: inline-flex; align-items: center; gap: 0.25em; }
+.sdh-car-card-eq svg { width: 0.95em; height: 0.95em; }
+.sdh-car-card-eq.is-owned { background: var(--signal-green); color: var(--chalk); }
+.sdh-region-group { grid-column: 1 / -1; order: 0; font-size: 0.74em; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: var(--marigold); }
+.sdh-region-group[data-group="locked"] { order: 99; color: var(--chalk); opacity: 0.75; margin-top: 0.3em; }
+.sdh-forza-region.is-locked { border-style: dashed; opacity: 0.8; }
+.sdh-forza-region-badge { display: inline-flex; align-items: center; gap: 0.25em; }
+.sdh-forza-region-badge svg { width: 0.95em; height: 0.95em; }
+/* Narrow strips: let the card footer wrap instead of squeezing the drivetrain into a column. */
+.sdh-car-card-foot { flex-wrap: wrap; row-gap: 0.25em; }
+.sdh-car-card-dt { white-space: nowrap; }
+
+/* Challenges count on the Events tab and the title screen. */
+.sdh-tab-count { position: absolute; top: -0.45em; right: -0.45em; min-width: 1.35em; height: 1.35em; padding: 0 0.3em; display: grid; place-items: center; border-radius: 999px; background: var(--truck-red); color: var(--chalk); border: 2px solid var(--ink); font-size: 0.72em; font-style: normal; line-height: 1; }
+.sdh-title-chip.is-goals { background: var(--truck-red); color: var(--chalk); border: 0; cursor: pointer; font: inherit; text-transform: uppercase; }
+
+/* Challenges on Map & Drive: daily, next rival, contracts, each one click away. */
+.sdh-forza-goals { display: flex; flex-direction: column; gap: 0.35em; }
+.sdh-goal { display: flex; align-items: center; gap: 0.6em; width: 100%; padding: 0.45em 0.6em; border: 2px solid var(--marigold); border-radius: var(--r); background: color-mix(in srgb, var(--marigold) 12%, var(--board)); color: var(--chalk); text-align: left; cursor: pointer; }
+.sdh-goal:hover { background: color-mix(in srgb, var(--marigold) 24%, var(--board)); }
+.sdh-goal > svg { flex: none; width: 1.2em; height: 1.2em; color: var(--marigold); }
+.sdh-goal span { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.sdh-goal small { font-size: 0.7em; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--marigold); }
+.sdh-goal b { font-size: 0.95em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sdh-goal em { flex: none; font-style: normal; font-size: 0.85em; color: var(--marigold); }
+.sdh-goal.is-rival { border-color: var(--truck-red); background: color-mix(in srgb, var(--truck-red) 14%, var(--board)); }
+
+
+/* Awards: grouped cards with a big icon, progress and reward. */
+.sdh-awards { display: flex; flex-direction: column; gap: 1.1em; overflow-y: auto; padding-right: 0.2em; }
+.sdh-award-group h3 { display: flex; align-items: center; gap: 0.5em; margin: 0 0 0.5em; font: 700 0.85em/1 var(--font-ui); letter-spacing: 0.12em; text-transform: uppercase; color: var(--mist); }
+.sdh-award-group h3 svg { width: 1.2em; height: 1.2em; color: var(--marigold); }
+.sdh-award-group h3 em { margin-left: auto; font-style: normal; color: var(--chalk); letter-spacing: 0.04em; }
+.sdh-award-group.is-almost h3 { color: var(--marigold); }
+.sdh-award-group ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(17em, 1fr)); gap: 0.55em; }
+.sdh-award { display: grid; grid-template-columns: 2.8em minmax(0, 1fr) auto; align-items: center; gap: 0.7em; padding: 0.65em 0.75em; border-radius: var(--r); background: color-mix(in srgb, var(--chalk) 5%, var(--board)); transition: transform 0.15s var(--snap), background 0.15s; }
+.sdh-award:hover { transform: translateY(-2px); background: color-mix(in srgb, var(--chalk) 9%, var(--board)); }
+.sdh-award-icon { display: grid; place-items: center; width: 2.8em; height: 2.8em; border-radius: 50%; background: color-mix(in srgb, var(--chalk) 10%, transparent); color: var(--mist); }
+.sdh-award-icon svg { width: 1.4em; height: 1.4em; }
+.sdh-award.is-done .sdh-award-icon { background: var(--marigold); color: var(--ink); box-shadow: 0 0 0 4px color-mix(in srgb, var(--marigold) 22%, transparent); }
+.sdh-award-main { display: flex; flex-direction: column; gap: 0.15em; min-width: 0; }
+.sdh-award-main b { font-size: 1em; }
+.sdh-award-main small { font-size: 0.8em; color: var(--mist); line-height: 1.25; }
+.sdh-award-bar { margin-top: 0.3em; height: 5px; border-radius: 999px; background: color-mix(in srgb, var(--chalk) 10%, transparent); overflow: hidden; }
+.sdh-award-bar i { display: block; height: 100%; width: calc(var(--p) * 100%); border-radius: inherit; background: var(--marigold); }
+.sdh-award-side { display: flex; flex-direction: column; align-items: flex-end; gap: 0.2em; }
+.sdh-award-side em { font-style: normal; font-size: 0.82em; padding: 0.15em 0.55em; border-radius: 999px; background: color-mix(in srgb, var(--marigold) 16%, transparent); color: var(--marigold); white-space: nowrap; }
+.sdh-award.is-done .sdh-award-side em { background: transparent; color: var(--mist); }
+.sdh-award-count { font-size: 0.78em; color: var(--chalk); }
+.sdh-award.is-done { opacity: 0.85; }
+
+/* Softer cards: fills instead of white outlines. */
+.sdh-rival { border: 0; background: color-mix(in srgb, var(--chalk) 5%, var(--board)); }
+.sdh-rival.is-boss { box-shadow: inset 3px 0 0 var(--truck-red); }
+.sdh-rival.is-open { box-shadow: inset 3px 0 0 var(--marigold); }
+.sdh-contracts li { border: 0; background: color-mix(in srgb, var(--chalk) 6%, transparent); }
+.sdh-goal { border: 0; background: color-mix(in srgb, var(--marigold) 10%, var(--board)); }
+.sdh-goal.is-rival { border: 0; background: color-mix(in srgb, var(--truck-red) 12%, var(--board)); }
+
+/* Route pictures on event cards. */
+.sdh-route-thumb { flex: none; width: 4em; height: 2.5em; padding: 0.2em; border-radius: calc(var(--r) * 0.7); background: color-mix(in srgb, var(--marigold) 10%, var(--board)); color: var(--marigold); }
+.sdh-mode-card { display: flex; align-items: center; gap: 0.8em; }
+.sdh-mode-card .sdh-mode-card-main { flex: 1; }
+.sdh-forza-event { grid-template-columns: auto auto minmax(0, 1fr) auto; border: 0; background: color-mix(in srgb, var(--chalk) 5%, var(--board)); }
+.sdh-forza-event.is-selected { background: var(--deodar); box-shadow: inset 0 0 0 2px var(--marigold); }
+.sdh-forza-event .sdh-route-thumb { width: 3.4em; height: 2.1em; }
+.sdh-mode-list { display: flex; flex-direction: column; gap: 0.45em; }
+.sdh-mode-card { border-bottom: 0; border-radius: var(--r); padding: 0.45em 0.6em; background: color-mix(in srgb, var(--chalk) 5%, var(--board)); transition: background 0.15s, transform 0.15s var(--snap); }
+.sdh-mode-card:hover { background: color-mix(in srgb, var(--marigold) 12%, var(--board)); transform: translateX(3px); }
+.sdh-players { border: 0; border-radius: var(--r); background: color-mix(in srgb, var(--chalk) 5%, var(--board)); }
+.sdh-players-list li { border-bottom-color: color-mix(in srgb, var(--chalk) 8%, transparent); }
+.sdh-party-entry { border: 0; background: color-mix(in srgb, var(--marigold) 16%, var(--board)); color: var(--chalk); }
+.sdh-party-entry b { color: var(--chalk); }
+
+/* ------------------------------------------------------------------ Responsive fixes */
+
+/* Map & Drive: the whole inspector scrolls instead of squeezing the route list into a sliver,
+   and the Start / Free roam bar stays pinned at its bottom. */
+.sdh-forza-inspector { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--mist) transparent; }
+.sdh-forza-inspector > * { flex-shrink: 0; }
+.sdh-forza-events { flex: none !important; overflow: visible !important; max-height: none !important; }
+.sdh-forza-launch { position: sticky; bottom: -0.8em; z-index: 2; margin: auto -0.8em -0.8em; padding: 0.7em 0.8em 0.8em; background: linear-gradient(180deg, transparent, var(--board) 30%); }
+
+/* Long names never push badges out of a card. */
+.sdh-car-card-name, .sdh-forza-region-top b, .sdh-fe-main b, .sdh-mode-card-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sdh-car-card-top { min-width: 0; }
+.sdh-goal b { min-width: 0; }
+
+/* Locked padlock sits on the picture, clear of the class badge. */
+.sdh-lock-badge { top: 55%; width: 2em; height: 2em; }
+
+/* Short screens (phone landscape): compact car cards, the map strip without group headings. */
+@media (max-height: 540px) {
+  .sdh-car-card .sdh-mastery, .sdh-car-card-dt { display: none; }
+  .sdh-car-card-main { height: 4.2em; }
+  .sdh-lock-divider { font-size: 0.62em; }
+  .sdh-region-group[data-group="open"] { display: none; }
+  .sdh-region-group[data-group="locked"] { flex: none; align-self: stretch; display: grid; place-items: center; margin: 0; padding: 0 0.35em; font-size: 0.62em; writing-mode: vertical-rl; border-left: 2px dashed currentColor; }
+  .sdh-forza-goals .sdh-goal { padding: 0.35em 0.55em; }
+  .sdh-forza-goals .sdh-goal small { display: none; }
+}
+
+/* Narrow screens (phone portrait): a solid header so content does not show through while scrolling,
+   one header row, and car cards without the cramped stars. */
+@media (max-aspect-ratio: 1/1), (max-width: 720px) {
+  .sdh-hub-top { background: var(--board); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35); }
+  .sdh-hub-pills { flex-wrap: nowrap; gap: 0.3em; }
+  .sdh-hub-pills .sdh-hub-stat:first-child,
+  .sdh-hub-xpbox,
+  .sdh-hub-driver-meta { display: none; }
+  .sdh-car-card .sdh-mastery { display: none; }
+  .sdh-award-group ul { grid-template-columns: 1fr; }
+}
+@media (max-width: 380px) {
+  .sdh-hub-pills .sdh-hub-stat { padding-left: 0.4em; padding-right: 0.4em; }
+}
+/* Sticky panel footers (Settings, Garage) are opaque so the list scrolling under them never shows through. */
+.sdh-panel-foot { background: var(--board); z-index: 2; }
+/* Where the whole hub scrolls (short or narrow screens) the inspector is not its own scroller,
+   so the sticky Start bar follows the page and stays on screen. */
+@media (max-height: 540px), (max-aspect-ratio: 1/1), (max-width: 720px) {
+  .sdh-forza-inspector { overflow: visible; }
+  .sdh-forza-launch { bottom: 0; margin-bottom: 0; border-radius: var(--r); }
+}
+@media (max-height: 540px) {
+  .sdh-lock-badge { display: none; } /* the LV chip already carries the padlock */
+}

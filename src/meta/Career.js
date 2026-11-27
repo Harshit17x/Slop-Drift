@@ -6,7 +6,7 @@ import {
   getUpgradeSlot, hasCarNitro, normalizeCarUpgrades,
 } from '../vehicle/upgradeTuning.js';
 import {
-  ACHIEVEMENTS, CAR_UNLOCKS, CREDITS, DAILY_TEMPLATES, FEATURE_UNLOCKS, MAP_UNLOCKS,
+  ACHIEVEMENTS, CAR_UNLOCKS, CONTRACT_REWARD, CONTRACT_TEMPLATES, CREDITS, MASTERY_STARS, MASTERY_STAR_CREDITS, masteryStars, LEGACY_GATES, legacyLevelForXp, RIVALS, RIVAL_TIERS, DAILY_TEMPLATES, streakBoost, FEATURE_UNLOCKS, MAP_UNLOCKS,
   MEDAL_LABELS, MEDAL_TARGETS, MEDAL_TIERS, PRO_BONUS, RIM_OPTIONS, UNLOCKS, XP,
   levelForXp, medalTargets, xpForLevel,
 } from './catalog.js';
@@ -14,7 +14,7 @@ import { LEGACY_MAP, parseTrackKey, trackKey } from './trackKey.js';
 import { MAPS } from '../world/maps.js';
 
 const STORAGE_KEY = 'slop-drift-profile-v1';
-const PROFILE_VERSION = 1;
+const PROFILE_VERSION = 2; // 2: tougher level curve; v1 saves keep the cars and maps they had opened
 const AUTOSAVE_SECONDS = 15;
 const NAME_PATTERN = /^[\p{L}\p{N} _-]{2,16}$/u;
 
@@ -58,6 +58,18 @@ export function sanitizeName(name) {
 }
 
 const MODE_IDS = Object.freeze(MODES.map((mode) => mode.id));
+// Maps whose roads carry clipping zones (Scenery's mountain roads and Fujimi's authored ones).
+const CLIP_MAPS = new Set(['mussoorie', 'alpine', 'fujimi']);
+
+/** Awards screen groups, from what the achievement is about. */
+export function achievementGroup(def) {
+  const id = def.id;
+  if (/rival|royalty|ghost|multiplayer|daily|streak|needle/.test(id)) return 'rivals';
+  if (/drift|combo|multiplier|wall|backward|clips/.test(id)) return 'drifting';
+  if (/upgrade|tune|mastery/.test(id)) return 'garage';
+  if (/distance|speed|air|tokyo-(tower|explorer)|hollow/.test(id)) return 'explorer';
+  return 'racing';
+}
 
 function tierIndex(tier) {
   return tier ? MEDAL_TIERS.indexOf(tier) : -1;
@@ -85,6 +97,9 @@ function newProfile(now) {
     cosmetics: { paint: 'pearl', rim: 'silver', number: '27', neon: 'off', smoke: 'white', car: 'hatch' },
     favorites: [],
     daily: { date: '', done: false, lastDoneDate: null, streak: 0 },
+    contracts: { date: '', progress: {}, done: {} },
+    mastery: {},
+    rivals: {},
   };
 }
 
@@ -113,6 +128,20 @@ function normalizeProfile(raw, now) {
     }
   }
   profile.daily = { ...base.daily, ...(raw.daily || {}) };
+  profile.mastery = {};
+  for (const car of CARS) {
+    const xp = Number(raw.mastery?.[car.id]);
+    if (Number.isFinite(xp) && xp > 0) profile.mastery[car.id] = Math.floor(xp);
+  }
+  profile.rivals = {};
+  for (const rival of RIVALS) {
+    const best = Number(raw.rivals?.[rival.id]);
+    if (Number.isFinite(best) && best > 0) profile.rivals[rival.id] = best;
+  }
+  const rc = raw.contracts;
+  profile.contracts = rc && typeof rc === 'object' && typeof rc.date === 'string'
+    ? { date: rc.date, progress: { ...(rc.progress || {}) }, done: { ...(rc.done || {}) } }
+    : base.contracts;
   profile.medals = raw.medals && typeof raw.medals === 'object' ? { ...raw.medals } : {};
   profile.achievements = raw.achievements && typeof raw.achievements === 'object' ? { ...raw.achievements } : {};
   profile.xp = Number.isFinite(raw.xp) && raw.xp >= 0 ? raw.xp : 0;
@@ -134,6 +163,17 @@ function normalizeProfile(raw, now) {
     }
   } else {
     profile.credits = CREDITS.starter;
+  }
+
+  // v1 saves: the steeper curve lowers their level, so keep every car and map the old curve had opened.
+  if ((raw.version || 1) < 2 && profile.xp > 0) {
+    const oldLevel = legacyLevelForXp(profile.xp);
+    for (const [carId, level] of Object.entries(LEGACY_GATES.cars)) {
+      if (oldLevel >= level && !profile.unlockedCars.includes(carId)) profile.unlockedCars.push(carId);
+    }
+    for (const [mapId, level] of Object.entries(LEGACY_GATES.maps)) {
+      if (oldLevel >= level && MAPS[mapId] && !profile.unlockedMaps.includes(mapId)) profile.unlockedMaps.push(mapId);
+    }
   }
 
   profile.name = sanitizeName(raw.name) || base.name;
@@ -252,6 +292,7 @@ export class Career {
     const before = this.level;
     this.profile.xp += gained;
     if (line && this.run) this.run.lines.set(line, (this.run.lines.get(line) || 0) + gained);
+    if (this.run) this.run.carXp = (this.run.carXp || 0) + gained;
     const after = this.level;
     if (after > before) {
       this.events.push({ type: 'levelUp', title: `Level ${after}`, detail: 'Driver level up' });
@@ -353,6 +394,75 @@ export class Career {
     return `Level ${def.level}`;
   }
 
+  // ------------------------------------------------------------------ rivals
+
+  /** The current map's rivals in order, each with its time, bounty and state (locked / open / beaten). */
+  rivals(mapId = this.mapId, bests = {}) {
+    let open = true;
+    return RIVALS.filter((r) => r.mapId === mapId).map((r) => {
+      const targets = medalTargets(trackKey(mapId, r.modeId));
+      const tier = RIVAL_TIERS[r.tier];
+      const beatenTime = this.profile.rivals[r.id] || null;
+      const state = beatenTime ? 'beaten' : open ? 'open' : 'locked';
+      if (!beatenTime) open = false;
+      return {
+        ...r, tierLabel: tier.label, modeLabel: getMode(r.modeId).label,
+        time: targets ? Math.round(Math.min(targets.gold * tier.pace, (bests[r.modeId]?.time || Infinity) * tier.vsBest) * 10) / 10 : null,
+        catchUp: tier.catchUp, easeOff: tier.easeOff,
+        xp: tier.xp, credits: tier.credits, state, beatenTime,
+      };
+    }).filter((r) => r.time);
+  }
+
+  /**
+   * Settle a duel: pays the bounty the first time the rival is beaten. `rivalFinish` is when the rival
+   * actually crossed the line (rubber-banding moves it off their nominal time). Returns the results-screen line.
+   */
+  resolveRival(rivalId, result, rivalFinish) {
+    const rival = this.rivals().find((r) => r.id === rivalId);
+    if (!rival || result.modeId !== rival.modeId || !Number.isFinite(result.time)) return null;
+    const finish = Number.isFinite(rivalFinish) ? rivalFinish : rival.time;
+    const won = result.time < finish;
+    const first = won && !rival.beatenTime;
+    if (won) this.profile.rivals[rival.id] = Math.min(rival.beatenTime || Infinity, result.time);
+    if (first) {
+      this.events.push({ type: 'medal', title: `Beat ${rival.name}`, detail: `${rival.tierLabel} rival · ${rival.modeLabel}`, xp: rival.xp, credits: rival.credits });
+      this.addXp(rival.xp, 'Rival bounty');
+      this.addCredits(rival.credits, 'Rival bounty');
+      this.trigger('rival:any');
+      if (rival.tier === 'boss') this.trigger('rival:boss');
+      if (RIVALS.filter((r) => r.tier === 'boss').every((r) => this.profile.rivals[r.id])) this.trigger('rival:all-bosses');
+    }
+    const next = this.rivals().find((r) => r.state === 'open') || null;
+    return { id: rival.id, name: rival.name, tierLabel: rival.tierLabel, won, first, gap: result.time - finish, xp: rival.xp, credits: rival.credits, next: next && { id: next.id, name: next.name, tierLabel: next.tierLabel } };
+  }
+
+  // ------------------------------------------------------------------ car mastery
+
+  masteryInfo(carId) {
+    const xp = this.profile.mastery[carId] || 0;
+    const stars = masteryStars(xp);
+    return { xp, stars, next: MASTERY_STARS[stars] ?? null };
+  }
+
+  /** Bank the run's XP into its car's mastery; new stars pay credits. Called before the run summary. */
+  applyMastery(run) {
+    const carId = run.carId;
+    if (!CARS.some((car) => car.id === carId) || !(run.carXp > 0)) return null;
+    const before = this.masteryInfo(carId).stars;
+    this.profile.mastery[carId] = (this.profile.mastery[carId] || 0) + run.carXp;
+    run.carXp = 0;
+    const info = this.masteryInfo(carId);
+    const label = getCar(carId).label;
+    for (let star = before + 1; star <= info.stars; star += 1) {
+      this.events.push({ type: 'unlock', title: `${label} mastery ${star}/5`, detail: 'Mastery star earned', credits: star * MASTERY_STAR_CREDITS });
+      this.addCredits(star * MASTERY_STAR_CREDITS, 'Mastery star');
+    }
+    if (info.stars >= 5) this.trigger('mastery:5');
+    if (CARS.every((car) => this.masteryInfo(car.id).stars >= 5)) this.trigger('mastery:all');
+    return { carId, label, ...info, newStars: info.stars - before };
+  }
+
   // ------------------------------------------------------------------ upgrades
 
   carUpgrades(carId) {
@@ -413,6 +523,16 @@ export class Career {
   }
 
   /** Closest locked level milestone across features, cars, maps, and cosmetics. */
+  /** The next map to open by level: { id, label, level, xpToGo }, or null when all are open. */
+  nextMap() {
+    const next = Object.entries(MAP_UNLOCKS)
+      .filter(([id]) => MAPS[id] && !this.isMapUnlocked(id))
+      .sort((a, b) => a[1].level - b[1].level)[0];
+    if (!next) return null;
+    const [id, gate] = next;
+    return { id, label: MAPS[id].label, level: gate.level, xpToGo: Math.max(0, xpForLevel(gate.level) - this.profile.xp) };
+  }
+
   nextUnlock() {
     const candidates = [];
     for (const f of FEATURE_UNLOCKS) {
@@ -591,6 +711,7 @@ export class Career {
         classCode: cls.code,
         classBand: cls.band,
         nitroAvailable: hasCarNitro(car, upgrades),
+        mastery: this.masteryInfo(car.id),
       };
     }));
     const carUpgrades = {};
@@ -677,12 +798,25 @@ export class Career {
     }
   }
 
+  /** Every achievement with its group, and how far along it is when that can be counted. */
   achievements() {
-    return ACHIEVEMENTS.map((def) => ({
-      id: def.id, title: def.title, description: def.description, xp: def.xp,
-      credits: Math.round(def.xp * CREDITS.achievementFactor),
-      unlocked: Boolean(this.profile.achievements[def.id]), at: this.profile.achievements[def.id] || null,
-    }));
+    const stats = this.profile.stats;
+    const medals = this.countMedals('bronze');
+    return ACHIEVEMENTS.map((def) => {
+      const unlocked = Boolean(this.profile.achievements[def.id]);
+      let progress = null;
+      if (def.stat) progress = { value: stats[def.stat] || 0, target: def.value };
+      else if (def.event === 'medals:10') progress = { value: medals, target: 10 };
+      else if (def.event === 'medals:25') progress = { value: medals, target: 25 };
+      else if (def.event === 'mastery:5') progress = { value: Math.max(0, ...CARS.map((c) => this.masteryInfo(c.id).stars)), target: 5 };
+      if (progress) progress.value = Math.min(progress.target, progress.value);
+      return {
+        id: def.id, title: def.title, description: def.description, xp: def.xp,
+        credits: Math.round(def.xp * CREDITS.achievementFactor),
+        group: achievementGroup(def), progress,
+        unlocked, at: this.profile.achievements[def.id] || null,
+      };
+    });
   }
 
   // ------------------------------------------------------------------ daily challenge
@@ -712,6 +846,8 @@ export class Career {
     const state = this.profile.daily;
     const done = state.lastDoneDate === date;
     const alive = state.lastDoneDate === date || state.lastDoneDate === previousUtcDate(date);
+    const streak = alive ? state.streak : 0;
+    const boost = streakBoost(done ? streak : streak + 1);
     return {
       date,
       modeId,
@@ -723,10 +859,49 @@ export class Career {
       timeOfDay: template.timeOfDay || null,
       clean: Boolean(template.clean),
       done,
-      streak: alive ? state.streak : 0,
-      xp: XP.dailyChallenge,
-      credits: CREDITS.dailyChallenge,
+      streak,
+      boost,
+      xp: Math.round(XP.dailyChallenge * boost),
+      credits: Math.round(CREDITS.dailyChallenge * boost),
+      contracts: this.contracts(date),
     };
+  }
+
+  /** Today's two contracts with progress. Seeded by date so everyone gets the same pair. */
+  contracts(date = utcDate(this.now())) {
+    const random = createRandom(`contracts:${date}`);
+    const pool = CONTRACT_TEMPLATES.filter((t) => t.stat !== 'clips' || CLIP_MAPS.has(this.mapId));
+    const first = pool[Math.floor(random() * pool.length)];
+    const rest = pool.filter((t) => t !== first && t.stat !== first.stat);
+    const second = rest[Math.floor(random() * rest.length)];
+    const state = this.profile.contracts;
+    const today = state.date === date;
+    return [first, second].map((t) => ({
+      id: t.id, text: t.text, goal: t.goal,
+      progress: Math.min(t.goal, today ? state.progress[t.id] || 0 : 0),
+      done: Boolean(today && state.done[t.id]),
+      xp: CONTRACT_REWARD.xp, credits: CONTRACT_REWARD.credits,
+    }));
+  }
+
+  /** Count `amount` towards today's contracts that track `stat`; pays each one once when it fills. */
+  bumpContract(stat, amount = 1) {
+    if (!(amount > 0)) return;
+    const date = utcDate(this.now());
+    const state = this.profile.contracts;
+    if (state.date !== date) this.profile.contracts = { date, progress: {}, done: {} };
+    const { progress, done } = this.profile.contracts;
+    for (const c of this.contracts(date)) {
+      const def = CONTRACT_TEMPLATES.find((t) => t.id === c.id);
+      if (def.stat !== stat || done[c.id]) continue;
+      progress[c.id] = (progress[c.id] || 0) + amount;
+      if (progress[c.id] < def.goal) continue;
+      done[c.id] = true;
+      this.events.push({ type: 'daily', title: 'Contract complete', detail: def.text, xp: CONTRACT_REWARD.xp, credits: CONTRACT_REWARD.credits });
+      this.addXp(CONTRACT_REWARD.xp, 'Contracts');
+      this.addCredits(CONTRACT_REWARD.credits, 'Contracts');
+      this.save();
+    }
   }
 
   dailyMet(challenge, result, run) {
@@ -747,12 +922,15 @@ export class Career {
     stats.dailyCompleted += 1;
     stats.dailyStreak = state.streak;
     stats.dailyStreakBest = Math.max(stats.dailyStreakBest, state.streak);
-    this.events.push({ type: 'daily', title: 'Daily challenge complete', detail: `${state.streak}-day streak`, xp: XP.dailyChallenge, credits: CREDITS.dailyChallenge });
-    this.addXp(XP.dailyChallenge, 'Daily challenge');
-    this.addCredits(CREDITS.dailyChallenge, 'Daily challenge');
+    const boost = streakBoost(state.streak);
+    const xp = Math.round(XP.dailyChallenge * boost);
+    const credits = Math.round(CREDITS.dailyChallenge * boost);
+    this.events.push({ type: 'daily', title: 'Daily challenge complete', detail: `${state.streak}-day streak · x${boost} payout`, xp, credits });
+    this.addXp(xp, 'Daily challenge');
+    this.addCredits(credits, 'Daily challenge');
     this.trigger('daily');
     this.checkStatAchievements();
-    return { completed: true, streak: state.streak };
+    return { completed: true, streak: state.streak, boost };
   }
 
   // ------------------------------------------------------------------ runs
@@ -789,6 +967,11 @@ export class Career {
     const stats = this.profile.stats;
     const metres = state.speed * dt;
     run.distance += metres;
+    run.contractKm = (run.contractKm || 0) + metres / 1000;
+    if (run.contractKm >= 0.1) {
+      this.bumpContract('km', run.contractKm);
+      run.contractKm = 0;
+    }
     stats.distanceKm += metres / 1000;
     stats.driveSeconds += dt;
     if (state.speedKmh > stats.topSpeedKmh) stats.topSpeedKmh = state.speedKmh;
@@ -818,13 +1001,16 @@ export class Career {
       if (drift.styleEvent?.kind === 'wallTap') {
         stats.wallTaps = (stats.wallTaps || 0) + 1;
         this.trigger('style:wallTap');
+        this.bumpContract('styleMoves');
       } else if (drift.styleEvent?.kind === 'backward') {
         this.trigger('style:backward');
+        this.bumpContract('styleMoves');
       }
       if (drift.event === 'drift_end' && drift.lastDriftScore > 0) {
         stats.driftsBanked += 1;
         stats.bestCombo = Math.max(stats.bestCombo, drift.lastDriftScore);
         stats.totalDriftPoints = (stats.totalDriftPoints || 0) + drift.lastDriftScore;
+        this.bumpContract('driftPoints', drift.lastDriftScore);
         this.trigger('drift');
         if (drift.lastDriftScore >= 1000) this.trigger('combo:1000');
         if (drift.lastDriftScore >= 5000) this.trigger('combo:5000');
@@ -873,6 +1059,19 @@ export class Career {
     this.trigger('beat-ghost');
   }
 
+  onNearMiss() {
+    this.addXp(XP.nearMiss, 'Near misses');
+    this.addCredits(CREDITS.nearMiss, 'Near misses');
+    if (this.run) {
+      this.run.nearMisses = (this.run.nearMisses || 0) + 1;
+      if (this.run.nearMisses >= 5) this.trigger('near-miss:5');
+    }
+  }
+
+  onClip() {
+    this.bumpContract('clips');
+  }
+
   onFujimiAllClips() {
     this.trigger('fujimi:all-clips');
   }
@@ -883,6 +1082,8 @@ export class Career {
     const stats = this.profile.stats;
     stats.finishes += 1;
     if ((result.respawns || 0) === 0) stats.cleanRuns = (stats.cleanRuns || 0) + 1;
+    this.bumpContract('finishes');
+    if ((result.respawns || 0) === 0) this.bumpContract('cleanFinishes');
 
     this.addXp(XP.finish, 'Finish');
     this.addCredits(CREDITS.finish, 'Finish');
@@ -953,13 +1154,18 @@ export class Career {
     if ((result.respawns || 0) === 0) this.trigger(`clean:${modeId}`);
     if (run.timeOfDay === 'night') this.trigger('finish:night');
 
+    const rival = run.rivalId ? this.resolveRival(run.rivalId, result, run.rivalFinish) : null;
+
     let daily = null;
     const challenge = this.daily();
     if (!challenge.done && this.dailyMet(challenge, result, run)) daily = this.completeDaily(challenge);
 
     this.checkStatAchievements();
+    const mastery = this.applyMastery(run);
     const trialEnded = this.clearTrialCar();
     const summary = this.summarize(run, before, medal, daily);
+    summary.mastery = mastery;
+    summary.rival = rival;
     summary.trialEnded = trialEnded;
     this.lastReward = { xpGained: summary.xpGained, creditsGained: summary.creditsGained, claimed: false };
     this.run = null;
@@ -982,8 +1188,10 @@ export class Career {
   abandonRun() {
     if (!this.run) return null;
     const run = this.run;
+    const mastery = this.applyMastery(run);
     const trialEnded = this.clearTrialCar();
     const summary = this.summarize(run, this.levelInfo(run.startXp), null, null);
+    summary.mastery = mastery;
     summary.trialEnded = trialEnded;
     this.run = null;
     this.save();

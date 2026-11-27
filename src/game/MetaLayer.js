@@ -7,7 +7,8 @@ import { GhostPlayer } from '../ghost/GhostPlayer.js';
 import { loadLocalGhost, saveLocalGhost } from '../ghost/ghostStore.js';
 import { decodeGhost, encodeGhost } from '../ghost/ghostCodec.js';
 import { GhostCar } from '../render/GhostCar.js';
-import { RouteProgress } from './PartyRace.js';
+import { buildPaceGhost } from '../ghost/paceGhost.js';
+import { RouteProgress, formatRaceTime } from './PartyRace.js';
 import * as THREE from 'three';
 
 const ghostPosition = new THREE.Vector3();
@@ -303,6 +304,7 @@ export class MetaLayer {
       if (daily.timeOfDay) this.game.applyTimeOfDay(daily.timeOfDay);
       this.game.beginRun(daily.modeId);
     };
+    hud.onDuel = (rivalId) => this.startDuel(rivalId);
     hud.onRaceGhost = () => {
       if (career.isFeatureUnlocked && !career.isFeatureUnlocked('ghosts')) {
         hud.toast('Ghost Rivals unlock at Level 2', 'info');
@@ -358,6 +360,7 @@ export class MetaLayer {
     this.refreshProfile();
     hud.setMedals(career.medalBoard());
     hud.setDaily(career.daily());
+    hud.setRivals?.(career.rivals(undefined, this.game.records));
     hud.setAchievements(career.achievements());
     hud.setGarage(career.garage());
   }
@@ -455,6 +458,12 @@ export class MetaLayer {
       carId: this.career.activeCarId?.() || this.career.profile.cosmetics?.car,
       settings: this.game.settings,
     });
+    if (this.duel && this.duel.modeId !== modeId) this.duel = null;
+    if (this.duel) {
+      this.career.run.rivalId = this.duel.id;
+      this.duel.clock = 0;
+      this.duel.finishedAt = null;
+    }
     this.recorder.discard();
     const profile = this.career.profile;
     const key = this.trackKey(modeId);
@@ -468,7 +477,33 @@ export class MetaLayer {
       if (data) choice = { data, kind: 'pb', playerId: profile.id };
     }
     if (!ghostsUnlocked) choice = null;
+    // A duel always shows the rival's car, whatever the ghost unlock or toggle says.
+    if (this.duel) {
+      choice = { data: this.duel.ghost, kind: 'rival' };
+      this.ghostVisible = true;
+    }
     this.setGhost(choice, modeId);
+  }
+
+  /** Race a rival: their pace ghost drives the event and crosses the line at their time. */
+  startDuel(rivalId) {
+    const rival = this.career.rivals(undefined, this.game.records).find((r) => r.id === rivalId);
+    if (!rival || rival.state === 'locked') {
+      this.hud.toast('Beat the rival before this one first', 'warn');
+      return;
+    }
+    const mode = getMode(rival.modeId);
+    const route = this.game.world?.routes?.[mode.route];
+    const ghost = route && buildPaceGhost(this.game.world, route, mode.laps || 1, rival.time, {
+      name: rival.name, paint: rival.paint, modeId: this.trackKey(rival.modeId),
+    });
+    if (!ghost) {
+      this.hud.toast('This duel is not available on this map', 'warn');
+      return;
+    }
+    this.duel = { id: rival.id, modeId: rival.modeId, ghost, catchUp: rival.catchUp, easeOff: rival.easeOff };
+    this.hud.toast(`${rival.name}: beat ${formatRaceTime(rival.time)} on ${rival.modeLabel}`, 'info');
+    this.game.beginRun(rival.modeId);
   }
 
   setGhost(choice, modeId = null) {
@@ -498,6 +533,12 @@ export class MetaLayer {
   frame(dt, state, drift, elapsed, camera, sessionHud = null) {
     this.career.trackFrame(dt, state, drift);
     if (this.recorder.active) this.recorder.sample(elapsed, state);
+    if (this.ghost?.kind === 'rival' && this.duel) {
+      this.stepRival(dt, elapsed, sessionHud);
+      this.updateGhost(this.duel.clock, camera, state.position);
+      this.flushEvents();
+      return;
+    }
     this.updateGhost(elapsed, camera, state.position);
     if (this.ghostSplitTable && sessionHud && elapsed > 0.2 && Number.isFinite(sessionHud.progress)) {
       const ghostTime = ghostTimeAtProgress(this.ghostSplitTable, sessionHud.progress);
@@ -506,6 +547,31 @@ export class MetaLayer {
       this.ghostDelta = null;
     }
     this.flushEvents();
+  }
+
+  /**
+   * Rubber-banded rival: their replay clock runs faster while you lead (catchUp) and, for the easier
+   * tiers, a touch slower when they are far ahead (easeOff), so the duel stays close but still has to be won.
+   */
+  stepRival(dt, elapsed, sessionHud) {
+    const duel = this.duel;
+    const total = duel.ghost.time;
+    const atYou = sessionHud && Number.isFinite(sessionHud.progress) ? ghostTimeAtProgress(this.ghostSplitTable, sessionHud.progress) : null;
+    // Seconds the rival leads by at your position (+ = you are behind), on the rival's own clock.
+    const lead = atYou === null || elapsed < 0.5 ? 0 : duel.clock - atYou;
+    let rate = 1;
+    if (lead < 0) rate = 1 + Math.min(duel.catchUp, -lead * 0.08);
+    else if (lead > 2.5) rate = 1 - Math.min(duel.easeOff, (lead - 2.5) * 0.02);
+    duel.clock = Math.min(total, duel.clock + dt * rate);
+    if (duel.finishedAt === null && duel.clock >= total) duel.finishedAt = elapsed;
+    this.ghostDelta = atYou === null || elapsed < 0.2 ? null : lead;
+  }
+
+  /** When the rival crossed (or, still racing, will cross) the line, on the run clock. */
+  rivalFinishTime(elapsed) {
+    const duel = this.duel;
+    if (!duel) return null;
+    return duel.finishedAt ?? elapsed + Math.max(0, duel.ghost.time - duel.clock);
   }
 
   updateGhost(elapsed, camera, focus) {
@@ -540,6 +606,7 @@ export class MetaLayer {
     const modeId = result.modeId;
     const beatGhost = this.ghost?.kind === 'leaderboard' && (modeId === 'drift' ? result.score > this.ghost.data.score : result.time < this.ghost.data.time);
     if (beatGhost) this.career.onBeatGhost();
+    if (this.duel && this.career.run?.rivalId) this.career.run.rivalFinish = this.rivalFinishTime(result.time);
     const rewards = this.career.finishRun(result, { settings: this.game.settings, carId: this.game.carId });
     if (rewards) rewards.upNext = this.upNext(modeId);
     const ghost = this.recorder.active ? this.recorder.finish(result.time, result.score) : null;
@@ -567,7 +634,7 @@ export class MetaLayer {
   upNext(modeId) {
     const nextId = this.career.nextEvent(modeId);
     const mode = nextId ? this.game.modes?.find((entry) => entry.id === nextId) : null;
-    return { modeId: mode ? mode.id : null, modeLabel: mode?.label || null, daily: this.career.daily(), unlock: this.career.nextUnlock() };
+    return { modeId: mode ? mode.id : null, modeLabel: mode?.label || null, daily: this.career.daily(), unlock: this.career.nextUnlock(), nextMap: this.career.nextMap?.() || null };
   }
 
   async submit(modeId, result, ghost) {
@@ -583,6 +650,7 @@ export class MetaLayer {
   }
 
   leaveRun() {
+    this.duel = null;
     const summary = this.career.run ? this.career.abandonRun() : null;
     this.recorder.discard();
     if (summary?.trialEnded || this.career.clearTrialCar()) {

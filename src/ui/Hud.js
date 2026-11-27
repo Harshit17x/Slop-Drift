@@ -39,6 +39,62 @@ export function formatDelta(seconds) {
   return `${sign}${Math.abs(seconds).toFixed(2)}`;
 }
 
+const AWARD_GROUPS = [
+  { id: 'racing', label: 'Racing', icon: 'trophy' },
+  { id: 'drifting', label: 'Drifting', icon: 'flame' },
+  { id: 'explorer', label: 'Explorer', icon: 'map' },
+  { id: 'garage', label: 'Garage', icon: 'spanner' },
+  { id: 'rivals', label: 'Rivals & streaks', icon: 'flag' },
+];
+
+/** One achievement card: big icon, name, what to do, a progress bar when it can be counted, the reward. */
+function awardCard(a) {
+  const group = AWARD_GROUPS.find((g) => g.id === a.group) || AWARD_GROUPS[0];
+  const p = a.progress;
+  const pct = a.unlocked ? 1 : p ? p.value / p.target : 0;
+  const count = p && !a.unlocked ? `<span class="sdh-award-count sdh-num">${formatInt(p.value)} / ${formatInt(p.target)}</span>` : '';
+  return `
+    <li class="sdh-award ${a.unlocked ? 'is-done' : 'is-open'} is-${esc(group.id)}" style="--p:${pct.toFixed(3)}">
+      <span class="sdh-award-icon">${a.unlocked ? ICON.check : ICON[group.icon]}</span>
+      <span class="sdh-award-main">
+        <b>${esc(a.title)}</b>
+        <small>${esc(a.description)}</small>
+        ${p || a.unlocked ? `<span class="sdh-award-bar"><i></i></span>` : ''}
+      </span>
+      <span class="sdh-award-side">${count}<em class="sdh-num">${a.unlocked ? 'Done' : `+${formatInt(a.xp)} XP`}</em></span>
+    </li>`;
+}
+
+/** Awards screen: "Almost there" (closest counted goals), then each group with its own done count. */
+function awardsMarkup(list) {
+  const close = list.filter((a) => !a.unlocked && a.progress && a.progress.value > 0)
+    .sort((x, y) => y.progress.value / y.progress.target - x.progress.value / x.progress.target).slice(0, 3);
+  const almost = close.length ? `
+    <section class="sdh-award-group is-almost"><h3>${ICON.speed}<span>Almost there</span></h3><ul>${close.map(awardCard).join('')}</ul></section>` : '';
+  return almost + AWARD_GROUPS.map((g) => {
+    const items = list.filter((a) => a.group === g.id);
+    if (!items.length) return '';
+    const done = items.filter((a) => a.unlocked).length;
+    // Open goals first (counted ones by progress), finished ones last.
+    items.sort((x, y) => (x.unlocked - y.unlocked) || ((y.progress ? y.progress.value / y.progress.target : 0) - (x.progress ? x.progress.value / x.progress.target : 0)));
+    return `
+      <section class="sdh-award-group is-${g.id}">
+        <h3>${ICON[g.icon]}<span>${g.label}</span><em class="sdh-num">${done} / ${items.length}</em></h3>
+        <ul>${items.map(awardCard).join('')}</ul>
+      </section>`;
+  }).join('');
+}
+
+/** Five mastery stars, `n` of them filled. */
+function masteryMarkup(n) {
+  return `<span class="sdh-mastery" title="Mastery ${n}/5" aria-label="Mastery ${n} of 5">${'<i class="is-on"></i>'.repeat(n)}${'<i></i>'.repeat(5 - n)}</span>`;
+}
+
+/** Contract progress: km goals keep one decimal, counts are whole. */
+function formatContract(value) {
+  return Number.isInteger(value) ? formatInt(value) : value.toFixed(1);
+}
+
 export function formatInt(value) {
   const n = Math.round(Number(value) || 0);
   const s = String(Math.abs(n));
@@ -289,6 +345,7 @@ export class Hud {
     this.players = [];
     this.ghost = null;
     this.notifyQueue = [];
+    this.rivals = [];
     this.notifyBusy = false;
     this.renaming = false;
     this.dialogOpen = false;
@@ -322,6 +379,7 @@ export class Hud {
     this.onRespawn = noop;
     this.onRename = noop;
     this.onStartDaily = noop;
+    this.onDuel = noop;
     this.onRaceGhost = noop;
     this.onOpenLeaderboard = noop;
     this.onLeaderboardRequest = noop;
@@ -557,6 +615,7 @@ export class Hud {
           <div class="sdh-title-chips">
             <span class="sdh-title-chip is-map" data-title="mapBadge">MUSSOORIE</span>
             <span class="sdh-title-chip" data-title="carBadge">RALLY HATCH</span>
+            <button type="button" class="sdh-title-chip is-goals" data-act="title-events" data-title="goals" hidden></button>
           </div>
           <div class="sdh-brand sdh-brand-xl"><span>SLOP DRIFT</span>${CHAI_GLASS}</div>
           <div class="sdh-loading-sub" data-title="mapSub">${MAP_SUBTITLES.mussoorie}</div>
@@ -658,9 +717,35 @@ export class Hud {
     this.renderGarageShowcase();
   }
 
+  /** A small drawing of a mode's road (from the minimap data) so event lists read as pictures. */
+  routeThumb(mode) {
+    const track = this.track;
+    const roadId = track?.routeRoads?.[mode?.route];
+    const road = track?.roads?.find((r) => r.id === roadId);
+    if (!road || road.points.length < 4) return '';
+    const key = `${mode.route}`;
+    if (this.routeThumbs?.has(key)) return this.routeThumbs.get(key);
+    const pts = road.points;
+    let minX = Infinity; let maxX = -Infinity; let minZ = Infinity; let maxZ = -Infinity;
+    for (let i = 0; i < pts.length; i += 2) {
+      minX = Math.min(minX, pts[i]); maxX = Math.max(maxX, pts[i]);
+      minZ = Math.min(minZ, pts[i + 1]); maxZ = Math.max(maxZ, pts[i + 1]);
+    }
+    const W = 64; const H = 40; const pad = 4;
+    const k = Math.min((W - pad * 2) / Math.max(1, maxX - minX), (H - pad * 2) / Math.max(1, maxZ - minZ));
+    const ox = (W - (maxX - minX) * k) / 2; const oz = (H - (maxZ - minZ) * k) / 2;
+    const step = Math.max(2, Math.floor(pts.length / 2 / 80)) * 2; // ~80 points is plenty at this size
+    const coords = [];
+    for (let i = 0; i < pts.length; i += step) coords.push(`${(ox + (pts[i] - minX) * k).toFixed(1)},${(oz + (pts[i + 1] - minZ) * k).toFixed(1)}`);
+    const svg = `<svg class="sdh-route-thumb" viewBox="0 0 ${W} ${H}" aria-hidden="true"><polyline points="${coords.join(' ')}${road.closed ? ` ${coords[0]}` : ''}" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${coords[0].split(',')[0]}" cy="${coords[0].split(',')[1]}" r="3" fill="currentColor"/></svg>`;
+    this.routeThumbs?.set(key, svg);
+    return svg;
+  }
+
   modeCardsMarkup() {
     return this.modes.map((mode, i) => `
       <button type="button" class="sdh-mode-card" data-mode="${esc(mode.id)}" style="--i:${i}">
+        ${this.routeThumb(mode)}
         <span class="sdh-mode-card-main">
           <span class="sdh-mode-card-label">${esc(mode.label)}</span>
           <span class="sdh-mode-card-tag">${esc(mode.tagline || '')}</span>
@@ -698,8 +783,13 @@ export class Hud {
                   <div class="sdh-daily-top"><span class="sdh-eyebrow">Aaj ka challenge</span><span class="sdh-streak" title="Daily streak">${ICON.flame}<b class="sdh-num" data-d="streak">0</b></span></div>
                   <div class="sdh-daily-text" data-d="text">Loading today’s challenge…</div>
                   <div class="sdh-daily-meta"><span data-d="mode"></span><span class="sdh-daily-xp" data-d="xp"></span></div>
+                  <ul class="sdh-contracts" data-d="contracts" aria-label="Daily contracts"></ul>
                 </div>
                 <button type="button" class="sdh-btn sdh-daily-go" data-act="daily">${ICON.play}<span data-d="btn">Start</span></button>
+              </section>
+              <section class="sdh-rivals" aria-label="Rivals" hidden>
+                <div class="sdh-section-label">Rivals</div>
+                <ul class="sdh-rival-list" data-rivals></ul>
               </section>
               <button type="button" class="sdh-party-entry" data-act="party">
                 <span class="sdh-party-entry-ico">${ICON.party}</span>
@@ -796,6 +886,7 @@ export class Hud {
             </div>
           </fieldset>
           ${toggle('cameraShake', 'Camera shake', 'At speed and on impacts')}
+          ${toggle('traffic', 'Traffic', 'Oncoming cars on hill climbs, descents and the expressway')}
           ${toggle('startGate', 'Title screen', 'Show the Drive, Garage and Map buttons after loading')}
           <div class="sdh-group-label">Controls</div>
         <div class="sdh-legend sdh-legend-settings">
@@ -836,11 +927,14 @@ export class Hud {
       switch (target.dataset.act) {
         case 'rename': this.startRename(); break;
         case 'daily': this.onStartDaily(); break;
+        case 'duel': this.onDuel(target.dataset.rival); break;
+        case 'goto-map': this.onSelectMap?.(target.dataset.map); break;
         case 'ghost': this.onToggleGhost(); break;
         case 'race-ghost': this.onRaceGhost(); break;
         case 'finish-next': if (this.finishNextMode) this.onStart(this.finishNextMode); break;
         case 'title-start': this.onTitleStart('garage'); break;
         case 'title-maps': this.onTitleStart('map'); break;
+        case 'title-events': this.onTitleStart('events'); break;
         case 'title-roam': this.onTitleRoam(); break;
         case 'portrait-ok': this.el.classList.add('is-portrait-ok'); break;
         case 'toggle-start-gate': {
@@ -1361,6 +1455,33 @@ export class Hud {
     this.applyScreen();
   }
 
+  /** Daily, contracts and the next rival: counted on the Events tab and title screen, listed on Map & Drive. */
+  renderChallenges() {
+    const d = this.daily;
+    const contracts = (d?.contracts || []).filter((c) => !c.done);
+    const rival = this.rivals.find((r) => r.state === 'open');
+    const count = (d && !d.done ? 1 : 0) + contracts.length + (rival ? 1 : 0);
+    const badge = this.q('[data-tab-count="events"]');
+    if (badge) {
+      badge.hidden = count === 0;
+      badge.textContent = String(count);
+    }
+    const chip = this.q('[data-title="goals"]');
+    if (chip) {
+      chip.hidden = count === 0;
+      chip.textContent = `${count} challenge${count === 1 ? '' : 's'}`;
+    }
+    const goals = this.q('[data-forza="goals"]');
+    if (!goals) return;
+    const rows = [];
+    if (d && !d.done) rows.push(`<button type="button" class="sdh-goal" data-act="daily">${ICON.flame}<span><small>Daily</small><b>${esc(d.text)}</b></span><em class="sdh-num">+${formatInt(d.xp)} XP</em></button>`);
+    if (rival) rows.push(`<button type="button" class="sdh-goal is-rival" data-act="duel" data-rival="${esc(rival.id)}">${ICON.play}<span><small>${esc(rival.tierLabel)} rival</small><b>${esc(rival.name)} · ${esc(rival.modeLabel)}</b></span><em class="sdh-num">+${formatInt(rival.credits)} CR</em></button>`);
+    if (contracts.length) rows.push(`<button type="button" class="sdh-goal" data-act="hub-tab" data-hub-tab="events">${ICON.check}<span><small>Contracts</small><b>${contracts.map((c) => `${esc(c.text)} ${formatContract(c.progress)}/${formatContract(c.goal)}`).join(' · ')}</b></span></button>`);
+    goals.innerHTML = rows.length ? `<span class="sdh-section-label">Challenges</span>${rows.join('')}` : '';
+    goals.dataset.empty = rows.length ? '' : '1';
+    goals.hidden = !rows.length || this.previewMapId !== this.mapId;
+  }
+
   /** The controls card on a new player's first drives (Game decides when). */
   showHowTo(on) {
     this.q('.sdh-howto')?.classList.toggle('is-on', Boolean(on));
@@ -1729,6 +1850,7 @@ export class Hud {
     n('volume').value = String(Math.round(s.volume * 100));
     n('abs').checked = s.abs;
     n('cameraShake').checked = s.cameraShake;
+    n('traffic').checked = s.traffic;
     const gateEl = n('startGate');
     if (gateEl) gateEl.checked = s.startGate;
     this.el?.style.setProperty('--marigold', UI_ACCENTS[s.uiAccent]);
@@ -1756,6 +1878,7 @@ export class Hud {
     out.volume = Number(n('volume').value) / 100;
     out.abs = n('abs').checked;
     out.cameraShake = n('cameraShake').checked;
+    out.traffic = n('traffic').checked;
     const gateEl = n('startGate');
     if (gateEl) out.startGate = gateEl.checked;
     return normalizeSettings(out);
@@ -1828,6 +1951,8 @@ export class Hud {
 
   setTrack(track) {
     this.track = track;
+    this.routeThumbs = new Map();
+    if (this.modes?.length) this.setModes(this.modes); // event cards gain their route pictures
     this.minimap.setTrack(track);
     this.updateElevationRoad();
     this.drawOverviews();
@@ -2052,7 +2177,7 @@ export class Hud {
           <span class="sdh-ach-count sdh-num"></span>
         </header>
         <div class="sdh-xp sdh-ach-bar"><i></i></div>
-        <ul class="sdh-ach-list"></ul>
+        <div class="sdh-awards"></div>
       </aside>`;
   }
 
@@ -2101,34 +2226,49 @@ export class Hud {
         <div class="sdh-xp sdh-xp-lg"><i style="transform:scaleX(${Math.max(0, Math.min(1, before.fraction || 0))})"></i></div>
         ${lines ? `<ul class="sdh-xp-lines">${lines}</ul>` : ''}
       </div>`;
+    const newMap = (r.unlocks || []).find((u) => u.slot === 'map');
+    const mapUnlock = newMap ? `
+      <div class="sdh-map-unlock">
+        <span><small>New map unlocked</small><b>${esc(MAPS[newMap.id.slice(4)]?.label || newMap.label)}</b></span>
+        <button type="button" class="sdh-btn sdh-btn-primary" data-act="goto-map" data-map="${esc(newMap.id.slice(4))}">${ICON.play}<span>Drive it</span></button>
+      </div>` : '';
     const unlocks = (r.unlocks || []).length ? `
       <div class="sdh-section-label">Unlocked</div>
-      <div class="sdh-chips">${r.unlocks.map((u) => `<span class="sdh-chip is-unlock">${ICON.car}${esc(u.label)}</span>`).join('')}</div>` : '';
+      <div class="sdh-chips">${r.unlocks.slice(0, 4).map((u) => `<span class="sdh-chip is-unlock">${ICON.car}${esc(u.label)}</span>`).join('')}${r.unlocks.length > 4 ? `<span class="sdh-chip">+${r.unlocks.length - 4} more</span>` : ''}</div>` : '';
     const ach = (r.achievements || []).length ? `
       <div class="sdh-section-label">Achievements</div>
       <ul class="sdh-ach-list sdh-ach-compact">${r.achievements.map((a) => `
         <li class="is-unlocked"><span class="sdh-ach-icon">${ICON.medal}</span><span class="sdh-ach-main"><b>${esc(a.title)}</b><small>${esc(a.description)}</small></span><span class="sdh-ach-xp sdh-num">+${formatInt(a.xp)}</span></li>`).join('')}
       </ul>` : '';
+    const rv = r.rival;
+    const rival = rv ? `
+      <div class="sdh-rival-result ${rv.won ? 'is-won' : 'is-lost'}">
+        <span><b>${rv.won ? `You beat ${esc(rv.name)}` : `${esc(rv.name)} wins`}</b><small>${rv.won ? `by ${Math.abs(rv.gap).toFixed(2)} s` : `You were ${rv.gap.toFixed(2)} s behind`}${rv.first ? ` · bounty +${formatInt(rv.xp)} XP +${formatInt(rv.credits)} CR` : ''}${rv.won && rv.next ? ` · next: ${esc(rv.next.name)} (${esc(rv.next.tierLabel)})` : ''}</small></span>
+      </div>` : '';
+    const m = r.mastery;
+    const mastery = m ? `
+      <div class="sdh-mastery-row"><span><b>${esc(m.label)} mastery</b><small>${m.next ? `${formatInt(m.xp)} / ${formatInt(m.next)} XP to the next star` : 'Fully mastered'}</small></span>${masteryMarkup(m.stars)}${m.newStars ? '<span class="sdh-new">NEW STAR</span>' : ''}</div>` : '';
     const daily = r.daily && r.daily.completed ? `
       <div class="sdh-daily-done">${ICON.check}<span>Daily challenge complete</span><span class="sdh-streak">${ICON.flame}<b class="sdh-num">${r.daily.streak}</b></span></div>` : '';
-    return `<section class="sdh-rewards">${medal}${xp}${daily}${unlocks}${ach}</section>`;
+    return `<section class="sdh-rewards">${mapUnlock}${rival}${medal}${xp}${mastery}${daily}${unlocks}${ach}</section>`;
   }
 
   /** Results screen: the daily challenge or streak and the closest unlock, so there is a reason to come back. */
   upNextMarkup(up) {
     if (!up) return '';
     const rows = [];
+    const row = (icon, title, detail, act = '') => rows.push(act
+      ? `<li><button type="button" class="sdh-upnext-row" data-act="${act}">${icon}<span><b>${title}</b><small>${detail}</small></span></button></li>`
+      : `<li><div class="sdh-upnext-row">${icon}<span><b>${title}</b><small>${detail}</small></span></div></li>`);
+    if (up.nextMap) row(ICON.lock, `Next map: ${esc(up.nextMap.label)}`, `Level ${up.nextMap.level} · ${formatInt(up.nextMap.xpToGo)} XP to go`);
     const daily = up.daily;
-    if (daily && !daily.done) {
-      const keep = daily.streak > 0 ? ` · keep your ${daily.streak}-day streak` : '';
-      rows.push(`<li><button type="button" class="sdh-upnext-row" data-act="daily">${ICON.flame}<span><b>Daily challenge</b><small>${esc(daily.text)} · +${formatInt(daily.xp)} XP${keep}</small></span></button></li>`);
-    } else if (daily?.done) {
-      rows.push(`<li><div class="sdh-upnext-row">${ICON.flame}<span><b>${daily.streak}-day streak</b><small>Come back tomorrow for a new challenge and day ${daily.streak + 1}</small></span></div></li>`);
-    }
-    if (up.unlock) {
-      rows.push(`<li><div class="sdh-upnext-row">${ICON.lock}<span><b>Next unlock: ${esc(up.unlock.label)}</b><small>Level ${up.unlock.level} · ${formatInt(up.unlock.xpToGo)} XP to go</small></span></div></li>`);
-    }
-    return rows.length ? `<div class="sdh-section-label">Up next</div><ul class="sdh-upnext">${rows.join('')}</ul>` : '';
+    if (daily && !daily.done) row(ICON.flame, 'Daily challenge', `${esc(daily.text)} · +${formatInt(daily.xp)} XP`, 'daily');
+    else if (daily?.done) row(ICON.flame, `${daily.streak}-day streak`, 'Back tomorrow');
+    const contract = (daily?.contracts || []).find((c) => !c.done);
+    if (contract) row(ICON.check, esc(contract.text), `${formatContract(contract.progress)} / ${formatContract(contract.goal)}`);
+    if (!up.nextMap && up.unlock) row(ICON.lock, `Next: ${esc(up.unlock.label)}`, `Level ${up.unlock.level} · ${formatInt(up.unlock.xpToGo)} XP to go`);
+    // Two rows at most: the next map and today's goal.
+    return rows.length ? `<div class="sdh-section-label">Up next</div><ul class="sdh-upnext">${rows.slice(0, 2).join('')}</ul>` : '';
   }
 
   animateRewards(r) {
@@ -2275,6 +2415,8 @@ export class Hud {
     const map = MAPS[this.previewMapId] || MAPS[this.mapId];
     if (!map || !this.el) return;
     const here = map.id === this.mapId;
+    const goalsEl = this.q('[data-forza="goals"]');
+    if (goalsEl) goalsEl.hidden = !here || goalsEl.dataset.empty === '1' || !goalsEl.innerHTML;
     const shot = this.q('.sdh-map-shot');
     if (shot) {
       const src = map.preview || '';
@@ -2315,11 +2457,16 @@ export class Hud {
         ...(map.highlights || []).map((text) => `<li class="sdh-map-chip">${esc(text)}</li>`),
       ].join('');
     }
+    let lockedMaps = 0;
     for (const tab of this.el.querySelectorAll('.sdh-forza-region')) {
       const id = tab.dataset.map;
       const mapState = this.garage?.maps?.[id];
       const mapUnlocked = mapState ? mapState.unlocked : true;
       const mapLv = mapState?.level || MAP_UNLOCKS[id]?.level || 1;
+      // Grid order: the map you are on, other open maps, the "Locked" heading, then locked maps by level.
+      const open = mapUnlocked || id === this.mapId;
+      tab.style.order = id === this.mapId ? '1' : open ? '2' : String(100 + mapLv);
+      if (!open) lockedMaps += 1;
       const on = id === map.id;
       tab.setAttribute('aria-pressed', String(on));
       tab.classList.toggle('is-current', on);
@@ -2331,8 +2478,11 @@ export class Hud {
         badge.textContent = isLoaded ? 'DRIVING' : !mapUnlocked ? `LV ${mapLv}` : `${this.eventCount(MAPS[id])} EVENTS`;
         badge.classList.toggle('is-loaded', isLoaded);
         badge.classList.toggle('is-locked', !isLoaded && !mapUnlocked);
+        if (!isLoaded && !mapUnlocked) badge.innerHTML = `${ICON.lock}LV ${mapLv}`;
       }
     }
+    const lockedHead = this.q('.sdh-region-group[data-group="locked"]');
+    if (lockedHead) lockedHead.hidden = lockedMaps === 0;
 
     // View toggle: vector road map is available for the currently loaded mountain.
     const showDrone = !here || this.forzaView === 'drone';
@@ -2389,6 +2539,7 @@ export class Hud {
         const med = here && kind !== 'none' ? this.medals[m.id]?.medal : null;
         return `
           <button type="button" class="sdh-forza-event${active ? ' is-selected' : ''}" ${here ? `data-act="forza-select-mode" data-fmode="${esc(m.id)}"` : 'disabled'}>
+            ${here ? this.routeThumb(m) : ''}
             <span class="sdh-fe-cat ${cat.cls}">${esc(cat.tag)}</span>
             <span class="sdh-fe-main"><b>${esc(m.label)}</b><small>${esc(m.tagline || '')}</small></span>
             <span class="sdh-fe-right">${med ? medalBadge(med) : ''}${best ? `<span class="sdh-num sdh-fe-best">${esc(best)}</span>` : ''}</span>
@@ -2480,15 +2631,7 @@ export class Hud {
     const total = this.achievements.length;
     this.q('.sdh-ach-count').textContent = `${done} / ${total}`;
     this.q('.sdh-ach-bar i').style.transform = `scaleX(${total ? done / total : 0})`;
-    this.q('[data-panel="achievements"] .sdh-ach-list').innerHTML = this.achievements.map((a) => {
-      const when = a.unlocked && a.at ? new Date(a.at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '';
-      return `
-        <li class="${a.unlocked ? 'is-unlocked' : 'is-locked'}">
-          <span class="sdh-ach-icon">${a.unlocked ? ICON.medal : ICON.lock}</span>
-          <span class="sdh-ach-main"><b>${esc(a.title)}</b><small>${esc(a.description)}</small></span>
-          <span class="sdh-ach-xp sdh-num">${a.unlocked ? esc(when) : `+${formatInt(a.xp)} XP`}</span>
-        </li>`;
-    }).join('');
+    this.q('[data-panel="achievements"] .sdh-awards').innerHTML = awardsMarkup(this.achievements);
   }
 
   /** @param {{items:Array, selected:{paint:string, rim:string, number:string, neon?:string, smoke?:string, car?:string}, favorites?:string[]}} garage */
@@ -2597,9 +2740,19 @@ export class Hud {
     this.renderGarageShowcase();
   }
 
+  /** Cars in the chosen sort, owned ones first and locked ones after them by unlock level. */
+  carsByLock(favs) {
+    const owned = (c) => this.garageCarEntry(c.id)?.unlocked ?? true;
+    const sorted = sortCars(CARS, this.carSort, favs);
+    return [
+      ...sorted.filter(owned),
+      ...sorted.filter((c) => !owned(c)).sort((a, b) => (CAR_UNLOCKS[a.id]?.level || 0) - (CAR_UNLOCKS[b.id]?.level || 0)),
+    ];
+  }
+
   stepCar(delta) {
     const favs = this.garage?.favorites || [];
-    const list = sortCars(CARS, this.carSort, favs);
+    const list = this.carsByLock(favs);
     if (!list.length) return;
     const idx = Math.max(0, list.findIndex((c) => c.id === this.selectedCarId()));
     const next = list[(idx + delta + list.length) % list.length];
@@ -2751,7 +2904,8 @@ export class Hud {
 
     const cardsEl = this.q('[data-g="cards"]');
     if (cardsEl) {
-      const sorted = sortCars(CARS, this.carSort, favs);
+      const sorted = this.carsByLock(favs);
+      let lockedHeaderShown = false;
       cardsEl.innerHTML = sorted.map((c) => {
         const cEntry = this.garageCarEntry(c.id);
         const cUpgrades = cEntry?.upgrades || this.garage?.carUpgrades?.[c.id];
@@ -2763,18 +2917,24 @@ export class Hud {
         const f = favs.has(c.id);
         const badgeText = !cUnlocked && !cTrial
           ? `LV ${CAR_UNLOCKS[c.id]?.level || 2}`
-          : cTrial ? 'TRIAL' : equipped ? 'SELECTED' : '';
-        return `
+          : cTrial ? 'TRIAL' : equipped ? 'SELECTED' : 'OWNED';
+        // A divider between the cars you own and the ones still locked.
+        const divider = !cUnlocked && !lockedHeaderShown
+          ? `<div class="sdh-lock-divider" aria-hidden="true">${ICON.lock}<span>LOCKED</span></div>` : '';
+        if (!cUnlocked) lockedHeaderShown = true;
+        return `${divider}
           <div class="sdh-car-card${selected ? ' is-selected' : ''}${!cUnlocked && !cTrial ? ' is-locked' : ''}" role="option" aria-selected="${selected}">
             <button type="button" class="sdh-car-card-main" data-act="car-select" data-car="${esc(c.id)}">
               ${c.thumbnail ? `<img class="sdh-car-card-img" src="${esc(c.thumbnail)}" alt="" decoding="async">` : ''}
+              ${!cUnlocked && !cTrial ? `<span class="sdh-lock-badge" aria-label="Locked until level ${CAR_UNLOCKS[c.id]?.level || 2}">${ICON.lock}</span>` : ''}
               <span class="sdh-car-card-top">
                 <span class="sdh-car-card-name">${esc(c.label.toUpperCase())}</span>
                 <span class="sdh-class-badge sdh-num is-${esc(cCls.band)}">${esc(cCls.code)}</span>
               </span>
               <span class="sdh-car-card-foot">
                 <span class="sdh-car-card-dt">${esc(c.drivetrain)} · ${esc(c.gearboxLabel)}</span>
-                ${badgeText ? `<span class="sdh-car-card-eq${!cUnlocked && !cTrial ? ' is-lock' : ''}">${esc(badgeText)}</span>` : ''}
+                ${cUnlocked ? masteryMarkup(cEntry?.mastery?.stars || 0) : ''}
+                ${badgeText ? `<span class="sdh-car-card-eq${!cUnlocked && !cTrial ? ' is-lock' : badgeText === 'OWNED' ? ' is-owned' : ''}">${!cUnlocked && !cTrial ? ICON.lock : ''}${esc(badgeText)}</span>` : ''}
               </span>
             </button>
             <button type="button" class="sdh-car-card-fav${f ? ' is-fav' : ''}" data-act="car-card-fav" data-car="${esc(c.id)}" aria-label="Favorite ${esc(c.label)}" aria-pressed="${f}">
@@ -2948,9 +3108,32 @@ export class Hud {
   // ---------------------------------------------------------------- daily, players, ghost, notifications
 
   /** @param {import('../core/contracts.js').DailyChallenge|null} daily */
+  /** The current map's rivals (Career.rivals()). */
+  setRivals(rivals) {
+    const list = Array.isArray(rivals) ? rivals : [];
+    this.rivals = list;
+    this.renderChallenges();
+    const box = this.q('.sdh-rivals');
+    box.hidden = list.length === 0;
+    this.q('[data-rivals]').innerHTML = list.map((r) => {
+      const locked = r.state === 'locked';
+      const beaten = r.state === 'beaten';
+      return `
+        <li class="sdh-rival is-${esc(r.tier)} is-${esc(r.state)}" title="${esc(r.bio)}">
+          <span class="sdh-rival-tier">${esc(r.tierLabel)}</span>
+          <div class="sdh-rival-main">
+            <b>${esc(r.name)}</b>
+            <small>${esc(r.modeLabel)} · <span class="sdh-num">${esc(formatTime(r.time))}</span></small>
+          </div>
+          <button type="button" class="sdh-btn sdh-rival-go" data-act="duel" data-rival="${esc(r.id)}" ${locked ? 'disabled' : ''} aria-label="${locked ? 'Locked' : beaten ? 'Rematch' : 'Duel'} ${esc(r.name)}">${locked ? ICON.lock : beaten ? ICON.check : ICON.play}<span>${locked ? '' : beaten ? 'Again' : `+${formatInt(r.credits)}`}</span></button>
+        </li>`;
+    }).join('');
+  }
+
   setDaily(daily) {
     this.daily = daily || null;
     this.renderDaily();
+    this.renderChallenges();
   }
 
   renderDaily() {
@@ -2959,6 +3142,8 @@ export class Hud {
     card.classList.toggle('is-empty', !d);
     card.classList.toggle('is-done', Boolean(d?.done));
     const set = (k, v) => { this.q(`[data-d="${k}"]`).textContent = v; };
+    this.q('[data-d="contracts"]').innerHTML = (d?.contracts || []).map((c) => `
+      <li class="${c.done ? 'is-done' : ''}"><span>${c.done ? ICON.check : ''}${esc(c.text)}</span><b class="sdh-num">${c.done ? 'Done' : `${formatContract(c.progress)}/${formatContract(c.goal)}`}</b><i style="transform:scaleX(${c.goal ? c.progress / c.goal : 0})"></i></li>`).join('');
     if (!d) {
       set('text', 'No challenge today');
       set('mode', ''); set('xp', ''); set('streak', '0'); set('btn', 'Start');
@@ -2968,7 +3153,7 @@ export class Hud {
     const extra = [d.timeOfDay ? d.timeOfDay.charAt(0).toUpperCase() + d.timeOfDay.slice(1) : '', d.clean ? 'No resets' : ''].filter(Boolean).join(' · ');
     set('text', d.text || '');
     set('mode', `${d.modeLabel || d.modeId}${extra ? ` · ${extra}` : ''}`);
-    set('xp', d.done ? 'Completed' : `+${formatInt(d.xp)} XP`);
+    set('xp', d.done ? 'Completed' : `+${formatInt(d.xp)} XP${d.boost > 1 ? ` · x${d.boost} streak` : ''}`);
     set('streak', String(d.streak || 0));
     set('btn', d.done ? 'Replay' : 'Start');
     this.q('[data-act="daily"]').disabled = false;
@@ -3010,7 +3195,8 @@ export class Hud {
     const g = this.ghost;
     chip.classList.toggle('is-on', Boolean(g));
     chip.classList.toggle('is-hidden-ghost', Boolean(g) && g.visible === false);
-    chip.querySelector('span').textContent = g ? (g.kind === 'pb' ? 'Ghost · Your best' : `Ghost · ${g.name || 'Rival'}`) : '';
+    chip.querySelector('span').textContent = g ? (g.kind === 'pb' ? 'Ghost · Your best' : g.kind === 'rival' ? `Rival · ${g.name}` : `Ghost · ${g.name || 'Rival'}`) : '';
+    this.q('.sdh-ghost-delta .sdh-k').textContent = g?.kind === 'rival' ? 'RIVAL' : 'GHOST';
   }
 
   /** @param {import('../core/contracts.js').CareerEvent} event Queued: one card at a time. */
@@ -3196,6 +3382,15 @@ export class Hud {
     const speed = Math.round(Math.abs(f.speedKmh || 0) * (mph ? KMH_TO_MPH : 1));
     v.speed.setKey(speed, String);
     v.speedFast.set(speed >= (mph ? 102 : 165) || Boolean(f.boosting));
+    // Wind streaks: in from 160 km/h, full by 240, strong whenever the nitrous is lit.
+    const kmh = Math.abs(f.speedKmh || 0);
+    const fx = Math.round(Math.max(f.boosting ? 0.75 : 0, Math.min(1, (kmh - 160) / 80)) * 10) / 10;
+    if (fx !== this.speedFx) {
+      this.speedFx = fx;
+      this.speedFxEl ??= this.q('.sdh-speedfx');
+      this.speedFxEl.style.setProperty('--fx', String(Math.max(0, fx)));
+      this.speedFxEl.classList.toggle('is-wind', fx > 0); // animate only while visible: an idle infinite animation still costs a composite every frame
+    }
     const gear = f.gear ?? 'N';
     v.gear.setKey(gear, String);
     v.reverse.set(gear === 'R');

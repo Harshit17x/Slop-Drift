@@ -4,6 +4,7 @@ import { Career } from '../src/meta/Career.js';
 import { mirroredStorage, profileXp } from '../src/platform/progressStorage.js';
 import { CrazyGamesPlatform } from '../src/platform/CrazyGames.js';
 import { ClipZones, findApexes } from '../src/render/ClipZones.js';
+import { judgePass, spawnTraffic, trafficPose } from '../src/game/Traffic.js';
 
 let failures = 0;
 let passes = 0;
@@ -93,6 +94,24 @@ check('a drift through an apex pays once', clips.check(at(z0.x), { active: true 
 check('driving through without drifting pays nothing', clips.check(at(clips.zones[1].x), { active: false }) === null);
 clips.check(at(z0.x + 100), { active: false });
 check('leaving the zone re-arms it', clips.check(at(z0.x), { active: true }) !== null);
+
+// ---- traffic: layout, motion and near-miss judging
+const openRoute = { closed: false, direction: 1, startS: 100, finishS: 2100, length: 2000 };
+const cars = spawnTraffic(openRoute, 2300, 'mussoorie:climb');
+check('traffic is dense and fixed per event', cars.length === 15 && JSON.stringify(cars) === JSON.stringify(spawnTraffic(openRoute, 2300, 'mussoorie:climb')));
+check('no traffic car starts on the grid', cars.every((c) => c.s0 - openRoute.startS >= 180));
+const openRoad = { closed: false, length: 2300 };
+const toward = cars.find((c) => c.oncoming);
+const ahead = cars.find((c) => !c.oncoming);
+check('both oncoming cars and cars to overtake', toward && ahead);
+check('oncoming cars drive at the player, the others away', trafficPose(openRoad, openRoute, toward, 5).s < trafficPose(openRoad, openRoute, toward, 0).s
+  && trafficPose(openRoad, openRoute, ahead, 5).s > trafficPose(openRoad, openRoute, ahead, 0).s);
+check('speeds vary between cars', new Set(cars.map((c) => Math.round(c.speed))).size > 4 && cars.every((c) => c.speed >= 15 && c.speed <= 26));
+const late = trafficPose(openRoad, openRoute, cars[0], 1000);
+check('a car that passes the start comes back from the far end', late.s >= 40 && late.s <= 2160);
+check('side by side at speed with clear air is a near miss', judgePass(0, 3, 30) === 'nearMiss' && judgePass(1, -2.5, 25) === 'nearMiss');
+check('too slow is not a near miss', judgePass(0, 3, 15) === null);
+check('overlapping is a crash, far away is nothing', judgePass(0.5, 1, 30) === 'crash' && judgePass(0, 6, 30) === null && judgePass(8, 0.5, 30) === null);
 
 console.log(`\n${passes} passed, ${failures} failed`);
 if (failures > 0) process.exit(1);

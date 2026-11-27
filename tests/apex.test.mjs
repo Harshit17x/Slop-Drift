@@ -13,9 +13,13 @@ import {ApexService,boxFor} from '../src/game/apexSport.js';
 
 const t=performance.now(),world=await new World(MAPS.apex.config).build(),{main,bridge,under,pit}=world.apex;
 console.log('World build',Math.round(performance.now()-t),'ms');
-const frame=(road,s)=>road.frameAt(s,{});
-// Menu initialization reads all road outlines before the first rendered frame.
+// The game calls this for the minimap right after building the world (Game.init): it must not throw.
 const mapData = world.getMapData();
+assert(mapData.roads.length === world.roads.length && mapData.roads.every(r => r.points.length >= 4), 'minimap data for every Apex road');
+const spawn = world.getSpawn('loop', world.routes.loop.startS);
+assert(Number.isFinite(spawn.position.y) && Math.abs(Math.hypot(spawn.quaternion.x, spawn.quaternion.y, spawn.quaternion.z, spawn.quaternion.w) - 1) < 1e-3, 'Apex spawn sits on the deck with a unit rotation');
+const frame = (road, s) => road.frameAt(s, {});
+// Menu initialization reads all road outlines before the first rendered frame.
 assert.equal(mapData.roads.length, world.roads.length);
 for (const route of Object.values(world.routes)) {
   const road = mapData.roads.find(r => r.id === mapData.routeRoads[route.id]);

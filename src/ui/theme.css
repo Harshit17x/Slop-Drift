@@ -152,7 +152,7 @@
   --board: #17191C;         /* charcoal panel */
   --wood: #6B4A2B;          /* flat frame brown */
   --asphalt: #3B3833;
-  /* Truck-art colour, for celebration moments only */
+  /* Truck-art colour */
   --marigold: #F2B01E;
   --truck-red: #C8321E;
   --signal-green: #2E7D4F;
@@ -172,10 +172,10 @@
   --font-hud: "Chakra Petch", "Khand", "Arial Narrow", sans-serif;
   --font-hud-num: "Saira Condensed", "Teko", "Arial Narrow", sans-serif;
 
-  --line: 1.5px;            /* thin outline */
-  --rim: rgba(255, 255, 255, 0.14);   /* faint edge instead of a black outline */
-  --hard: 0 10px 28px rgba(0, 0, 0, 0.38);   /* soft lift, no offset stickers */
-  --hard-sm: 0 3px 10px rgba(0, 0, 0, 0.3);
-  --r: 6px;
-  --snap: cubic-bezier(.3, 1.45, .5, 1);   /* slight overshoot: a sign slapped on */
+  --line: 1px;              /* hairline edge */
+  --rim: rgba(255, 255, 255, 0.08);   /* faint edge instead of a black outline */
+  --hard: 0 12px 32px rgba(0, 0, 0, 0.42);   /* soft lift */
+  --hard-sm: 0 4px 14px rgba(0, 0, 0, 0.32);
+  --r: 14px;
+  --snap: cubic-bezier(.2, .9, .25, 1);    /* quick, soft settle */
 }

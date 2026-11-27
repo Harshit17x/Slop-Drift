@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   CONFIG, MODES, SURFACE_PROPS, detectInitialQuality, getMode, getQualityPreset, modesForWorld, neonLevel, nextAutoQuality,
-  loadRecords, loadSettings, normalizeSettings, saveRecords, saveSettings,
+  getSmoke, loadRecords, loadSettings, normalizeSettings, saveRecords, saveSettings,
 } from '../config.js';
 import { clamp } from './math.js';
 import { nextFrame } from './yield.js';
@@ -35,6 +35,7 @@ import { loadCarModels, hasCarModel, trimCarModels } from '../render/ModelCar.js
 import { getCar } from '../vehicle/cars.js';
 import { applyCarUpgrades, effectiveNitroStats, hasCarNitro } from '../vehicle/upgradeTuning.js';
 import { PartyRace } from '../game/PartyRace.js';
+import { Traffic, NEAR_MISS_BONUS } from '../game/Traffic.js';
 import { CrazyGamesPlatform } from '../platform/CrazyGames.js';
 
 // Parks the car (menu, countdown). Handbrake only: holding the brake pedal at a standstill would
@@ -46,6 +47,12 @@ const HOLD = Object.freeze({ throttle: 0, brake: 0, steer: 0, handbrake: true, b
  *   loading -> menu -> countdown -> running <-> paused -> finished -> menu
  * Everything else (world, vehicle, session, views, HUD, audio) is a collaborator it wires together.
  */
+/** Forward gears as numbers for comparing shifts ('N' and 'R' rank lowest). */
+function gearRank(gear) {
+  const n = Number(gear);
+  return Number.isFinite(n) ? n : 0;
+}
+
 export class Game {
   constructor(root) {
     this.root = root;
@@ -196,6 +203,7 @@ export class Game {
     this.hud.setMap(this.map.id);
     this.hud.setTrack(this.world.getMapData());
     this.meta = new MetaLayer({ career: this.career, hud: this.hud, scene: this.scene, wheelLayout: this.vehicle.wheelLayout, game: this, mapId: this.map.id });
+    this.traffic = new Traffic(this.scene, this.vehicle.wheelLayout);
     if (this.map.id === 'tokyo') {
       const { TokyoNight } = await import('../game/TokyoNight.js');
       this.adventure = new TokyoNight(this);
@@ -435,7 +443,7 @@ export class Game {
    */
   selectMap(mapId) {
     const map = MAPS[mapId];
-    if (!map || this.state !== 'menu') return false;
+    if (!map || (this.state !== 'menu' && this.state !== 'finished')) return false; // 'finished': Drive it on a new-map unlock
     if (map.id === this.map?.id) {
       this.hud.toast(`Already driving ${map.label}`, 'good');
       return false;
@@ -460,6 +468,7 @@ export class Game {
     this.partyRace?.onLeaveRun();
     this.meta?.leaveRun();
     this.meta?.leaveRoom();
+    this.traffic?.clear();
     this.state = 'menu';
     this.session = null;
     this.apexPractice?.reset();
@@ -522,6 +531,13 @@ export class Game {
     this.nitroCapacity = nitroStats.capacity;
     this.nitro = nitroStats.capacity;
     this.fujimiClipsHit = new Set();
+    this.smokeShown = null;
+    if (this.settings.traffic && mode.id !== 'apex-meeting') {
+      this.traffic.start(this.world, mode, `${this.map.id}:${mode.id}`);
+      this.traffic.update(0, { position: { x: Infinity, z: Infinity }, speed: 0 });
+    } else {
+      this.traffic.clear();
+    }
     this.stuckTimer = 0;
     this.world.bridge?.reset();
     this.world.washout?.reset();
@@ -845,17 +861,43 @@ export class Game {
       }
     }
     const drift = this.drift.update(dt, state, controls);
+    // Combo smoke: the stock white smoke heats up with the multiplier (x2 cyan, x3 pink, x4+ gold).
+    const ownSmoke = this.career?.profile.cosmetics.smoke || 'white';
+    const smokeId = ownSmoke !== 'white' ? ownSmoke
+      : drift.multiplier >= 4 ? 'gold' : drift.multiplier >= 3 ? 'pink' : drift.multiplier >= 2 ? 'cyan' : 'white';
+    if (smokeId !== this.smokeShown) {
+      this.smokeShown = smokeId;
+      this.effects.setSmokeColor?.(getSmoke(smokeId).rgb);
+    }
     // Fujimi's clipping zones: a drift through one pays a bonus into the running drift.
     const clip = this.scenery.clipZone?.(state, drift);
     if (clip) {
       this.drift.score += clip.bonus;
       this.hud.toast(`${clip.name} · clip +${clip.bonus}`, 'good');
       this.hud.flashStyleCallout?.({ kind: 'clip', label: clip.name.toUpperCase(), bonus: clip.bonus });
+      this.career?.onClip?.();
       this.audio.stylePing?.('transition');
       if (this.fujimiClipsHit && this.scenery.zones) {
         this.fujimiClipsHit.add(clip.name);
         if (this.fujimiClipsHit.size >= this.scenery.zones.length) this.meta?.career?.onFujimiAllClips?.();
       }
+    }
+
+    const pass = this.traffic.update(this.session.hud.elapsed, state);
+    if (pass === 'nearMiss') {
+      // Near miss: points into the running drift (or straight into the bank), combo kept alive, a nitro top-up.
+      if (drift.active) this.drift.score += NEAR_MISS_BONUS;
+      else this.drift.bank += NEAR_MISS_BONUS;
+      if (this.drift.comboTimer > 0) this.drift.comboTimer = this.drift.comboWindow;
+      this.nitro = Math.min(nitroStats.capacity, this.nitro + 15);
+      this.hud.flashStyleCallout?.({ kind: 'nearMiss', label: 'NEAR MISS', bonus: NEAR_MISS_BONUS });
+      this.audio.stylePing?.('transition');
+      this.career?.onNearMiss?.();
+    } else if (pass === 'crash') {
+      this.vehicle.velocity.multiplyScalar(0.35);
+      if (drift.active) this.drift.endDrift('wipeout');
+      this.effects.sparkShower(state, 24, 1.4);
+      this.hud.toast('Crashed into traffic · combo lost', 'warn');
     }
 
     if (drift.styleEvent) {
@@ -886,7 +928,13 @@ export class Game {
     this.audioFlags.drifting = drift.active;
     this.audioFlags.boosting = boosting;
     this.audio.update(dt, state, this.audioFlags);
-    if (state.shifted) this.audio.shift();
+    if (state.shifted) {
+      this.audio.shift();
+      // Upshift at the redline: camera tilt.
+      if (gearRank(state.gear) > gearRank(this.lastGear) && this.lastRpmN > 0.9) this.cameraRig.shiftKick?.(1);
+    }
+    this.lastGear = state.gear;
+    this.lastRpmN = state.rpmMax > 0 ? state.rpm / state.rpmMax : 0;
     if(this.state==='running')this.adventure?.checkBounds(dt,state);
     this.checkStuck(dt, state);
     return state;
