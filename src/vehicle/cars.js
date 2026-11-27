@@ -83,7 +83,7 @@ export const CARS = Object.freeze([
     thumbnail: HAS_URL ? new URL('../assets/ui/car-gt.webp', import.meta.url).href : null,
     ratings: Object.freeze({ acceleration: 9.4, topSpeed: 9.6, handling: 9.5, control: 7.2 }),
     specs: Object.freeze({
-      massKg: 1250, peakTorqueNm: 525, redlineRpm: 9250, gears: 6,
+      massKg: 1265, peakTorqueNm: 525, redlineRpm: 9250, gears: 6,
       layoutLabel: 'RWD · Flat-six', aeroLabel: 'Swan-neck wing', nitro: false,
     }),
     model: HAS_URL ? new URL('../assets/cars/gt3r.glb', import.meta.url).href : null,
@@ -127,7 +127,7 @@ export const CARS = Object.freeze([
     // Race weight depends on BoP. Torque map, axle loads, gearing, tyre curves,
     // dampers and aero coefficients below are simulation setup estimates.
     tuning: {
-      mass: 1250, com: { y: 0.40, z: 0.22 },
+      mass: 1265, com: { y: 0.40, z: 0.22 },
       inertiaBox: { width: 2.04, height: 1.24, length: 4.619 },
       geometry: { frontAxleZ: -1.2535, rearAxleZ: 1.2535, halfTrack: 0.87, frontHalfTrack: 0.86,
         wheelRadius: 0.355, frontWheelRadius: 0.34, wheelCenterY: 0.355 },
@@ -143,7 +143,8 @@ export const CARS = Object.freeze([
       },
       steering: { maxLockDeg: 29, mechanicalLockDeg: 34, rate: 3.8, returnRate: 6.2 },
       // Slick mu at the static corner load; load sensitivity takes ~6 % off it at the limit.
-      tire: { mu: 1.6, frontGrip: 1, rearGrip: 1.025, peakSlipDeg: 6.6, slideRatio: 0.83,
+      tire: { slickThermal: { initial: 52, optimum: 78, heatCapacity: 14500 },
+        relaxationLength: 0.42, combinedBraking: true, mu: 1.6, frontGrip: 1, rearGrip: 1.025, peakSlipDeg: 6.6, slideRatio: 0.83,
         falloff: 1.45, tractionControl: 0.45, gravelPeakDeg: 10, gravelSlideRatio: 0.76, loadSensitivity: 0.1,
         surfaceGrip: { [SURFACE.GRAVEL]: 0.76, [SURFACE.GRASS]: 0.64, [SURFACE.DIRT]: 0.78,
           [SURFACE.MUD]: 0.63, [SURFACE.SNOW]: 0.52, [SURFACE.HARDPACK]: 0.86, [SURFACE.WATER]: 0.57 } },
@@ -156,7 +157,7 @@ export const CARS = Object.freeze([
         gearRatios: [3.15, 2.22, 1.72, 1.40, 1.19, 1.02], finalDrive: 4.10, shiftTime: 0.065,
       },
       brakes: { maxForce: 24800, frontBias: 0.584, absRatio: 0.95 },
-      aero: { dragArea: 1.08, liftArea: 2.7, downforceFront: 0.42 },
+      aero: { airborneWingShare: 0.4, dragArea: 1.08, liftArea: 2.7, downforceFront: 0.42 },
       body: {
         contactPoints: scalePoints(BASE_TUNING.body.contactPoints, 1.10, 0.92, 1.05),
         collisionSpheres: scalePoints(BASE_TUNING.body.collisionSpheres, 1.13, 0.94, 1.13),

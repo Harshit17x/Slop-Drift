@@ -54,6 +54,11 @@ export class TerrainView {
       grid: this.grid,
       mountain: world.config.mountain,
     });
+    if(world.apex){
+      this.cutRock=new THREE.TextureLoader().load(new URL('../assets/maps/apex-cut-rock.webp',import.meta.url).href);
+      this.cutRock.colorSpace=THREE.SRGBColorSpace;this.cutRock.wrapS=this.cutRock.wrapT=THREE.MirroredRepeatWrapping;
+      this.cutRock.anisotropy=4;this.uniforms.uCutRock={value:this.cutRock};
+    }
     if(world.config.map==='hollow'){
       this.yardGravel=new THREE.TextureLoader().load(new URL('../assets/maps/alpine-shoulder.webp',import.meta.url).href);
       this.yardGravel.colorSpace=THREE.SRGBColorSpace;
@@ -513,6 +518,7 @@ export class TerrainView {
     this.controlTexture.dispose();
     this.sunShadeTexture.dispose();
     this.noiseTexture.dispose();
+    this.cutRock?.dispose();
     this.yardGravel?.dispose();
     this.group.parent?.remove(this.group);
   }

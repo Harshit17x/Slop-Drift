@@ -1,0 +1,199 @@
+{
+  "build": "production",
+  "stats": {
+    "gpu": "ANGLE (Intel, Intel(R) UHD Graphics (0x0000A7A8) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "viewport": [
+      1262,
+      704
+    ],
+    "quality": "Medium",
+    "rendererOnlyMs": {
+      "median": 8,
+      "p95": 9.899999998509884
+    },
+    "draw": {
+      "frame": 809,
+      "calls": 364,
+      "triangles": 491724,
+      "points": 3300,
+      "lines": 0
+    },
+    "memory": {
+      "geometries": 357,
+      "textures": 46
+    },
+    "loadStagesMs": [
+      [
+        "Starting up",
+        195
+      ],
+      [
+        "Surveying Apex International Motorsport Park",
+        92
+      ],
+      [
+        "Cutting the ridge and grading the circuit",
+        278
+      ],
+      [
+        "Opening the pit lane",
+        12
+      ],
+      [
+        "Shaping the terrain",
+        184
+      ],
+      [
+        "Filling the lake",
+        1043
+      ],
+      [
+        "Paving the roads",
+        1786
+      ],
+      [
+        "Building the town",
+        3
+      ],
+      [
+        "Building roadside scenery",
+        1218
+      ],
+      [
+        "Lighting the sky",
+        3498
+      ],
+      [
+        "Warming the engine",
+        1114
+      ]
+    ]
+  },
+  "weekend": {
+    "wetness": 0.5730000927712559,
+    "aiMetres": 9.267499999999965,
+    "serviceStops": 1,
+    "fuel": 90,
+    "layout": "gp",
+    "opponents": 3,
+    "gridTimings": [
+      {
+        "n": 0,
+        "median": 9.700000002980232,
+        "p95": 45.70000000298023,
+        "triangles": 348236,
+        "calls": 220
+      },
+      {
+        "n": 3,
+        "median": 10,
+        "p95": 13.399999998509884,
+        "triangles": 379150,
+        "calls": 249
+      },
+      {
+        "n": 7,
+        "median": 10.900000005960464,
+        "p95": 13.100000001490116,
+        "triangles": 545096,
+        "calls": 353
+      }
+    ],
+    "program": {
+      "grid": [
+        1,
+        2,
+        0,
+        -1
+      ],
+      "stages": 3,
+      "replaySeconds": 48.875,
+      "recordedCars": 4,
+      "finishFlag": "CHEQUERED"
+    },
+    "timeTrial": {
+      "ghost": 524,
+      "best": 52.236374463333604
+    },
+    "academy": "School complete · 5/5 gates"
+  },
+  "drive": {
+    "tiers": [
+      {
+        "quality": "Low",
+        "trees": 13635,
+        "triangles": 182680
+      },
+      {
+        "quality": "Medium",
+        "trees": 18426,
+        "triangles": 294838
+      },
+      {
+        "quality": "High",
+        "trees": 24009,
+        "triangles": 306274
+      },
+      {
+        "quality": "Ultra",
+        "trees": 24940,
+        "triangles": 306674
+      }
+    ],
+    "segments": [
+      {
+        "section": "Grid to pit exit",
+        "quality": "Medium",
+        "weather": "clear",
+        "renderWidth": 978,
+        "renderHeight": 545,
+        "frames": 1094,
+        "wallSeconds": 20.015699999999995,
+        "meanFps": 54.65709418106787,
+        "medianMs": 16.69999999999709,
+        "p95Ms": 33.30000000000291,
+        "displacement": 672.4454706087548
+      },
+      {
+        "section": "Summit Ascension",
+        "quality": "Medium",
+        "weather": "light",
+        "renderWidth": 914,
+        "renderHeight": 510,
+        "frames": 1050,
+        "wallSeconds": 20.015600000000006,
+        "meanFps": 52.459081916105426,
+        "medianMs": 16.69999999999709,
+        "p95Ms": 33.39999999999418,
+        "displacement": 647.1571321453646
+      },
+      {
+        "section": "Thunder Bowl",
+        "quality": "Medium",
+        "weather": "clear",
+        "renderWidth": 883,
+        "renderHeight": 492,
+        "frames": 1079,
+        "wallSeconds": 20.016,
+        "meanFps": 53.90687450039968,
+        "medianMs": 16.69999999999709,
+        "p95Ms": 33.30000000001746,
+        "displacement": 251.42231791907741
+      },
+      {
+        "section": "Summit · Low quality",
+        "quality": "Low",
+        "weather": "light",
+        "renderWidth": 883,
+        "renderHeight": 492,
+        "frames": 957,
+        "wallSeconds": 20.032399999999996,
+        "meanFps": 47.77260837443343,
+        "medianMs": 16.70000000001164,
+        "p95Ms": 33.39999999999418,
+        "displacement": 600.9039759117285
+      }
+    ]
+  },
+  "errors": []
+}

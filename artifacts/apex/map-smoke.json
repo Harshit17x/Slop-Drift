@@ -1,0 +1,25 @@
+{
+  "mobile": {
+    "viewport": [
+      844,
+      390
+    ],
+    "buttonWidth": 80.859375,
+    "course": "loop"
+  },
+  "maps": [
+    {
+      "id": "tokyo",
+      "state": "running"
+    },
+    {
+      "id": "hollow",
+      "state": "running"
+    },
+    {
+      "id": "apex",
+      "state": "running"
+    }
+  ],
+  "errors": []
+}

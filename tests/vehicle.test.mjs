@@ -770,6 +770,42 @@ function testCars() {
   }
 }
 
+function testGtCombinedGrip() {
+  const tune = CARS.find(car => car.id === 'gt').tuning;
+  function stop(grip, steer) {
+    const world = { waterLevel: -Infinity, sampleGround: (x, z, o) => fillGround(o, 0, 0, 1, 0, 0, grip) };
+    const car = makeVehicle(world, 'Balanced', { driftAssist: 0 });
+    car.setHandling('Balanced', tune);
+    run(car, 1, () => controls());
+    car.velocity.set(0, 0, -100 / 3.6);
+    let distance = 0, peakUse = 0, lateral = 0;
+    for (let i = 0; i < 600; i++) {
+      const before = car.position.clone();
+      const state = car.step(DT, controls({ brake: 1, steer }));
+      distance += horizDist(before, car.position);
+      for (const w of car.wheels) {
+        if (!w.contact || w.blend < 1 || w.muN < 10) continue;
+        const use = Math.hypot(w.fx + w.accX / DT, w.fy + w.accY / DT) / w.muN;
+        peakUse = Math.max(peakUse, use);
+        lateral = Math.max(lateral, Math.abs(w.fy));
+      }
+      if (state.speed < 0.1) {
+        const temperatures = car.wheels.map(wheel => wheel.temperature);
+        return { distance, peakUse, lateral, spread: Math.max(...temperatures) - Math.min(...temperatures) };
+      }
+    }
+    throw new Error('GT3 failed to stop');
+  }
+  const dry = stop(1, 0), damp = stop(0.7, 0), trail = stop(1, 0.65);
+  check('GT3 slick temperatures diverge during a turning stop', trail.spread > 0.1, trail.spread.toFixed(2) + ' °C spread');
+  check('GT3 stops farther on reduced-grip asphalt', damp.distance > dry.distance * 1.2,
+    dry.distance.toFixed(1) + ' m dry, ' + damp.distance.toFixed(1) + ' m reduced grip');
+  check('GT3 trail braking shares longitudinal and lateral grip', trail.lateral > 500 &&
+    trail.peakUse <= 1.001 && trail.distance > dry.distance,
+    trail.distance.toFixed(1) + ' m turning, ' + trail.peakUse.toFixed(3) + ' peak utilisation');
+}
+
+testGtCombinedGrip();
 testBarrier();
 testReverse();
 testNaNRecovery();

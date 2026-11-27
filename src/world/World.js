@@ -74,6 +74,7 @@ export class World {
       onProgress(fraction, label);
       await pause();
     };
+    if (config.map === 'apex') return (await import('./Apex.js')).buildApex(this,stage);
     if (config.map === 'tokyo') {
       const { buildTokyo } = await import('./Tokyo.js');
       return buildTokyo(this, stage);
@@ -728,24 +729,47 @@ export class World {
     }
     const road = this.config.road;
     let bestClass = 9;
+    let bestDistance = Infinity;
     let bestY = 0;
+    let bestSurface = SURFACE.GRASS;
+    let surfaceGrip = 1, selectedWetness = 0;
     let gradX = 0;
     let gradZ = 0;
     let bestRoad = -1;
     let roadSurface = SURFACE.ASPHALT;
     let wet = 0;
+    const physical = this.apex ? this.apex.roadsAt(x,z) : this.roads;
 
-    for (let r = 0; r < this.roads.length; r += 1) {
-      const current = this.roads[r];
+    for (let r = 0; r < physical.length; r += 1) {
+      const current = physical[r];
       if (!current.locate(x, z, scratchLocation, this.layered ? referenceY : undefined) || scratchLocation.beyondEnd) continue;
-      if (this.layered && scratchLocation.y > referenceY + 1.65) continue;
+      if (this.layered && scratchLocation.y + (this.apex ? scratchLocation.lateral * scratchLocation.bank : 0) > referenceY + 1.65) continue;
       const halfWidth = scratchLocation.halfWidth;
       const a = scratchLocation.distance;
-      if (a > halfWidth + current.vergeEdge) continue;
+      const reach = current.vergeEdge + current.escapeAt(scratchLocation);
+      if (a > halfWidth + reach) continue;
       const side = scratchLocation.lateral < 0 ? -1 : 1;
       const offset = current.profileAt(a, halfWidth);
-      const surfaceClass = a <= halfWidth ? 0 : a <= halfWidth + current.shoulderEdge ? 1 : 2;
+      let surfaceClass = a <= halfWidth ? 0 : a <= halfWidth + current.shoulderEdge ? 1 : 2;
       let y = scratchLocation.y + side * a * scratchLocation.bank + offset;
+      if (this.apex) {
+        const mouth = (side < 0 ? current.openLeft : current.openRight)[scratchLocation.index];
+        const kerb = mouth || current.pitApron ? 0 : this.apex.kerb(scratchLocation.s,scratchLocation.lateral,halfWidth,scratchLocation.curvature);
+        y += kerb;
+        if(kerb>0) surfaceClass=0;
+        roadSurface=kerb>0?SURFACE.KERB:this.apex.surface(current,scratchLocation.s)==='asphalt'?SURFACE.ASPHALT:SURFACE.CONCRETE;
+        if (a > halfWidth + current.vergeEdge) {
+          const edge = halfWidth + current.vergeEdge;
+          const width = reach - current.vergeEdge;
+          const beyond = a - edge;
+          const rx = side * scratchLocation.rx, rz = side * scratchLocation.rz;
+          const edgeY = scratchLocation.y + side * edge * scratchLocation.bank - current.config.vergeDrop;
+          y = this.apex.runoffHeight(this.grid, x - rx * beyond, z - rz * beyond, rx, rz, edgeY, beyond, width);
+          Road.profileSlope = (y - edgeY) / beyond - side * scratchLocation.bank;
+          surfaceClass = 1;
+        }
+        wet=(this.apex.wetness||0)*(.78+.22*Math.min(1,a/halfWidth));
+      }
       if (this.bridge) {
         if (inWashout(scratchLocation.s)) continue;
         if (this.washout.missed && scratchLocation.s >= WASHOUT.bank && scratchLocation.s < WASHOUT.bank + 8) {
@@ -764,11 +788,14 @@ export class World {
       // The verge is soft ground: where another road's bed has been cut higher, the ground wins.
       if (surfaceClass === 2 && !this.layered) y = Math.max(y, this.grid.heightAt(x, z));
       // A lower crossing must never take a tyre off the shoulder of an upper deck.
-      const differentDeck = this.layered && bestClass < 9 && Math.abs(y-bestY) > 1.65;
-      if (differentDeck ? y > bestY : surfaceClass < bestClass || (surfaceClass === bestClass && y > bestY)) {
+      const differentDeck = this.layered && bestClass < 9 && Math.abs(y-bestY) > (this.apex ? 5 : 1.65);
+      if (differentDeck ? y > bestY : surfaceClass < bestClass || (surfaceClass === bestClass && (this.apex ? (surfaceClass === 0 ? current.id < bestRoad : a < bestDistance) : y > bestY))) {
         bestClass = surfaceClass;
         bestY = y;
-        bestRoad = r;
+        bestDistance = a;
+        selectedWetness = wet;
+        if (this.apex) surfaceGrip = surfaceClass === 0 ? this.apex.surfaceState.grip(current,scratchLocation,wet) : 1;
+        bestRoad = current.id;
         if (this.config.map === 'hollow') {
           roadSurface = r === 9 ? SURFACE.DIRT : r === 2
             ? (scratchLocation.s>=1830 && scratchLocation.s<1870 ? SURFACE.WOOD : scratchLocation.s > 3310 && scratchLocation.s < 3480 ? SURFACE.MUD : SURFACE.GRAVEL)
@@ -776,6 +803,12 @@ export class World {
         }
         // Fujimi's Container Snake is a gravel rally sector.
         if (this.gravel && scratchLocation.s >= this.gravel[0] && scratchLocation.s <= this.gravel[1]) roadSurface = SURFACE.GRAVEL;
+        bestSurface = surfaceClass === 0 ? roadSurface
+          : surfaceClass === 1 ? SURFACE.GRAVEL : SURFACE.GRASS;
+        if(this.apex && surfaceClass===1 && a>halfWidth+.6){
+          const shoulder=this.apex.shoulder(current,scratchLocation.index,side);
+          bestSurface=shoulder==='paved'?SURFACE.ASPHALT:shoulder==='grass'?SURFACE.GRASS:SURFACE.GRAVEL;
+        }
         const lateralSlope = scratchLocation.bank + side * Road.profileSlope;
         // Horizontal tangent is (rz, -rx); height gradient = grade * tangent + lateralSlope * right.
         gradX = scratchLocation.grade * scratchLocation.rz + lateralSlope * scratchLocation.rx;
@@ -797,6 +830,7 @@ export class World {
           bestClass = surfaceClass;
           bestY = y;
           bestRoad = plaza.roadId;
+          bestSurface = surfaceClass === 0 ? SURFACE.ASPHALT : SURFACE.GRASS;
           const slope = beyond > 0 && distance > 0 ? -road.vergeDrop / road.verge / distance : 0;
           gradX = dx * slope;
           gradZ = dz * slope;
@@ -806,15 +840,15 @@ export class World {
 
     if (bestClass < 9) {
       const inverse = 1 / Math.sqrt(gradX * gradX + gradZ * gradZ + 1);
-      const surface = bestClass === 0 ? roadSurface : bestClass === 1 ? SURFACE.GRAVEL : SURFACE.GRASS;
+      const surface = bestSurface;
       const props = SURFACE_PROPS[surface];
       out.y = bestY;
       out.nx = -gradX * inverse;
       out.ny = inverse;
       out.nz = -gradZ * inverse;
       out.surface = surface;
-      out.grip = props.grip * (1 - 0.43 * wet);
-      out.rolling = props.rolling * (1 + wet);
+      out.grip = props.grip * (1 - 0.43 * (this.apex ? selectedWetness : wet)) * surfaceGrip * (this.apex?.tyreGrip??1);
+      out.rolling = props.rolling * (1 + (this.apex ? selectedWetness : wet));
       out.roughness = props.roughness;
       out.roadId = bestRoad;
       return out;
@@ -849,13 +883,26 @@ export class World {
   locate(x, z, out, roadId = -1, referenceY) {
     const layerY = this.layered ? referenceY : undefined;
     out.roadId = -1;
+    if (roadId >= 0 && this.apex) {
+      const road=this.roads[roadId];out.pit=false;
+      if(road.locate(x,z,out,referenceY) && (referenceY===undefined || Math.abs(out.y+out.bank*out.lateral-referenceY)<4) && out.distance<=out.halfWidth+1.1)return out;
+      // The pit lane runs alongside the timing line. Project the legal pit
+      // lane onto layouts sharing this straight, including the pit-wall side.
+      const pit=this.apex.pit;
+      if(pit.locate(x,z,scratchLocationB,referenceY) && !scratchLocationB.beyondEnd && scratchLocationB.distance<6 &&
+        road.locate(x,z,out,referenceY) && out.distance<27 && Math.abs(out.y-(referenceY??out.y))<2){
+        out.lateral=0;out.pit=true;return out;
+      }
+      out.roadId=-1;return out;
+    }
     if (roadId >= 0) {
       if (this.roads[roadId].locate(x, z, out, layerY) && layerY !== undefined && Math.abs(out.y-layerY)>3) out.roadId=-1;
       return out;
     }
     let best = Infinity;
-    for (let r = 0; r < this.roads.length; r += 1) {
-      if (this.roads[r].locate(x, z, scratchLocationB, layerY) && (layerY === undefined || Math.abs(scratchLocationB.y-layerY)<3) && scratchLocationB.distance < best) {
+    const physical = this.apex ? this.apex.roadsAt(x,z) : this.roads;
+    for (let r = 0; r < physical.length; r += 1) {
+      if (physical[r].locate(x, z, scratchLocationB, layerY) && (layerY === undefined || Math.abs(scratchLocationB.y-layerY)<3) && scratchLocationB.distance < best) {
         best = scratchLocationB.distance;
         Object.assign(out, scratchLocationB);
       }
@@ -871,18 +918,23 @@ export class World {
     out.nx = 0;
     out.nz = 0;
 
-    for (let r = 0; r < this.roads.length; r += 1) {
-      const current = this.roads[r];
+    const physical = this.apex ? this.apex.roadsAt(x,z) : this.roads;
+    for (let r = 0; r < physical.length; r += 1) {
+      const current = physical[r];
       if (!current.locate(x, z, scratchLocation, this.layered ? y : undefined) || scratchLocation.beyondEnd) continue;
-      if (this.layered && y < scratchLocation.y-0.6) continue;
-      const railAt = scratchLocation.halfWidth + road.shoulder + road.railOffset;
+      if (this.layered && !this.apex && y < scratchLocation.y - 0.6) continue;
+      const railAt = scratchLocation.halfWidth + road.shoulder + road.railOffset + current.escapeAt(scratchLocation);
       const a = Math.abs(scratchLocation.lateral);
       // Only the road side of a rail is solid; a car that is already beyond it is left alone.
       if (a + radius <= railAt || a > railAt + 1.1) continue;
-      const near = scratchLocation.u < 0.5 ? scratchLocation.index : (scratchLocation.index + 1) % current.count;
+      const near = this.apex || scratchLocation.u < 0.5 ? scratchLocation.index : (scratchLocation.index + 1) % current.count;
       const side = scratchLocation.lateral < 0 ? -1 : 1;
       if (!(side < 0 ? current.railLeft[near] : current.railRight[near])) continue;
-      const surfaceY = scratchLocation.y + scratchLocation.lateral * scratchLocation.bank;
+      const heights = side < 0 ? current.railBaseLeft : current.railBaseRight;
+      const i = scratchLocation.index;
+      const surfaceY = heights ? heights[i] + (heights[(i+1)%current.count]-heights[i])*scratchLocation.u
+        : scratchLocation.y + scratchLocation.lateral * scratchLocation.bank;
+      if (this.apex && y < surfaceY - .6) continue;
       if (y - surfaceY > road.railHeight + 0.3) continue;
       const depth = a + radius - railAt;
       if (depth > out.depth) {
@@ -1085,8 +1137,21 @@ export class World {
         heights.push(road.py[i]);
       };
       for (let i = 0; i < road.count; i += 3) add(i);
+    if (this.apex) {
+      // Timing ribbons only define the heading. Respawn on the physical deck underneath.
+      const hit = this.sampleGround(frame.x,frame.z,{},frame.y+.45);
+      out.position.y = hit.y;
+      const rx = frame.ty*hit.nz - frame.tz*hit.ny;
+      const ry = frame.tz*hit.nx - frame.tx*hit.nz;
+      const rz = frame.tx*hit.ny - frame.ty*hit.nx;
+      const scale = d / Math.hypot(rx,ry,rz);
+      const x = rx*scale, y = ry*scale, z = rz*scale;
+      basisToQuaternion(x,y,z,hit.nx,hit.ny,hit.nz,
+        y*hit.nz-z*hit.ny,z*hit.nx-x*hit.nz,x*hit.ny-y*hit.nx,out.quaternion);
+      return out;
+    }
       if (!road.closed) add(road.count - 1);
-      return { id: road.id, closed: road.closed, points, heights, layered: this.layered, parkade: this.layered && road.id===4 };
+      return { id: road.id, closed: road.closed, points, heights, layered: this.layered && !this.apex, parkade: this.config.map==='tokyo' && road.id===4 };
     });
     const start = this.roads[LOOP].frameAt(this.routes.loop.startS, scratchFrame);
     const markers = [{ x: start.x, z: start.z, kind: 'start' }];

@@ -8,7 +8,7 @@ const STORAGE_KEY = 'slop-drift-settings-v2';
 const RECORDS_KEY = 'slop-drift-records-v1';
 
 /** Surface ids returned by World.sampleGround(). Index into SURFACE_PROPS. */
-export const SURFACE = Object.freeze({ ASPHALT: 0, GRAVEL: 1, GRASS: 2, DIRT: 3, ROCK: 4, SNOW: 5, WATER: 6, MUD: 7, WOOD: 8, HARDPACK: 9, COBBLE: 10 });
+export const SURFACE = Object.freeze({ ASPHALT: 0, GRAVEL: 1, GRASS: 2, DIRT: 3, ROCK: 4, SNOW: 5, WATER: 6, MUD: 7, WOOD: 8, HARDPACK: 9, COBBLE: 10, CONCRETE: 11, KERB: 12 });
 
 export const SURFACE_PROPS = Object.freeze([
   Object.freeze({ name: 'asphalt', grip: 1.0, rolling: 0.012, roughness: 0.02 }),
@@ -22,6 +22,8 @@ export const SURFACE_PROPS = Object.freeze([
   Object.freeze({ name: 'wet timber', grip: 0.7, rolling: 0.022, roughness: 0.15 }),
   Object.freeze({ name: 'hardpack', grip: 0.90, rolling: 0.015, roughness: 0.14 }),
   Object.freeze({ name:'wet cobblestone', grip:.93, rolling:.016, roughness:.17 }),
+  Object.freeze({name:'concrete',grip:.96,rolling:.014,roughness:.09}),
+  Object.freeze({name:'painted kerb',grip:.86,rolling:.018,roughness:.19}),
 ]);
 
 /**
@@ -41,6 +43,7 @@ export const MODES = Object.freeze([
   Object.freeze({ id: 'drift', label: 'Drift Session', tagline: '120 s · score attack', route: 'loop', laps: 0, timeLimit: 120 }),
   Object.freeze({ id: 'peak', label: 'Nag Tibba Hill Climb', tagline: 'Switchbacks to the top', route: 'peak', laps: 1, tab: 'Nag Tibba' }),
   Object.freeze({ id: 'peakdown', label: 'Nag Tibba Descent', tagline: 'Hairpins all the way down', route: 'peakdown', laps: 1, tab: 'Nag Descent' }),
+  ...[['gp','Grand Prix'],['ridge','Mountain Circuit'],['international','International Sprint'],['bowl','Stadium Circuit'],['academy','Motorsport Academy']].map(([id,label])=>Object.freeze({id,label,tagline:'APEX International Motorsport Park',route:id,laps:1})),
   ...[
     ['shibuya','Neon Crown','3 km · Shibuya Neon Circuit'],
     ['express','Metropolitan Expressway','9 km · elevated sweepers and tunnels'],
@@ -66,6 +69,7 @@ export function getMode(id) {
 export function modesForWorld(world) {
   const routes = world?.routes || {};
   const modes=MODES.filter((mode) => Object.prototype.hasOwnProperty.call(routes, mode.route));
+  if(world?.config?.map==='apex')return modes.map(mode=>({...mode,label:({sprint:'Endurance Qualifying',circuit:'Endurance Race',roam:'Open Track Day'})[mode.id]||mode.label,tagline:mode.id==='roam'?'Explore the paddock and all six layouts':mode.id==='drift'?'Two-minute drift exhibition':`${(routes[mode.route].metres/1000).toFixed(2)} km · ${mode.laps} ${mode.laps===1?'lap':'laps'}`}));
   if(world?.config?.map==='tokyo')return modes.map(mode=>{
     const overrides={sprint:['Tokyo Midnight Circuit','5 km · Minato and Electric Town'],circuit:['Midnight Endurance','Two laps of Tokyo'],roam:['City Explorer','Explore districts and collect night photographs']};
     return overrides[mode.id]?{...mode,label:overrides[mode.id][0],tagline:overrides[mode.id][1]}:mode;
