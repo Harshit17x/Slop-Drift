@@ -3,11 +3,22 @@ import { HollowWeather } from './HollowWeather.js';
 import { inDepot } from '../world/hollowDistricts.js';
 import { buildCreekIndustry } from './hollowIndustry.js';
 import { buildLandmarks } from './hollowLandmarks.js';
+import { buildHollowCave } from './HollowCave.js';
+import { HollowBats } from './HollowBats.js';
+import { buildHorrorProps } from './hollowHorror.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as T from 'three';
 import { createRandom } from '../world/noise.js';
 
 const sheetURL = new URL('../assets/maps/hollow-facades.webp',import.meta.url).href;
+function spillTexture() {
+  const canvas=document.createElement('canvas');canvas.width=canvas.height=64;
+  const c=canvas.getContext('2d'),g=c.createRadialGradient(32,32,0,32,32,32);
+  g.addColorStop(0,'rgba(255,224,164,.95)');g.addColorStop(.35,'rgba(255,160,66,.42)');
+  g.addColorStop(.7,'rgba(255,110,30,.12)');g.addColorStop(1,'rgba(255,90,20,0)');
+  c.fillStyle=g;c.fillRect(0,0,64,64);
+  const map=new T.CanvasTexture(canvas);map.colorSpace=T.SRGBColorSpace;return map;
+}
 // Two cutout planes preserve the crown silhouette as the car passes the tree.
 function winterTree(tile) {
   const positions=[],uv=[],indices=[];
@@ -45,6 +56,7 @@ function signTexture(text) {
 export class HollowCreekTown {
   constructor({world,quality}) {
     this.group=new T.Group();this.group.name='Hollow Creek districts';
+    this.world=world;
     this.lamps=[];this.clock=0;this.outage=0;this.chunks=[];this.textures=[];
     const random=createRandom(3927), cube=new T.BoxGeometry(),roof=gable();
     const stone=new T.MeshStandardMaterial({color:0x465054,roughness:.88,side:T.DoubleSide});
@@ -133,6 +145,45 @@ export class HollowCreekTown {
     const spill=new T.PlaneGeometry(1,1);spill.rotateX(-Math.PI/2);
     this.parts.spill=[spill,new T.MeshBasicMaterial({map:lightMap,color:0xd3bd8c,transparent:true,depthWrite:false,blending:T.AdditiveBlending,polygonOffset:true,polygonOffsetFactor:-1})];
     this.parts.tunnelLamp=[cube,amber];this.parts.exitLamp=[cube,amber];this.parts.trainLamp=[cube,amber];
+    // Horror dressing and the abandoned train. The candle spill reuses the
+    // lamp falloff map so every warm light has the same soft footprint.
+    const boneMat=new T.MeshStandardMaterial({color:0xd8ceb6,roughness:.93});
+    const pumpkinMat=new T.MeshStandardMaterial({color:0x9b4a17,roughness:.84});
+    const pumpkinGlow=new T.MeshBasicMaterial({color:0xffb45c});
+    const soilMat=new T.MeshStandardMaterial({color:0x2b241c,roughness:1});
+    const clothMat=new T.MeshStandardMaterial({color:0x6e6047,roughness:.96});
+    const burlapMat=new T.MeshStandardMaterial({color:0xb39a72,roughness:.95});
+    const hatMat=new T.MeshStandardMaterial({color:0x241f1a,roughness:.96});
+    const rustMat=new T.MeshStandardMaterial({color:0x5c4438,roughness:.96,metalness:.18});
+    const darkGlass=new T.MeshBasicMaterial({color:0x0a1113});
+    const vineMat=new T.MeshStandardMaterial({color:0x3a4a2c,roughness:.96});
+    const trainBodyMat=new T.MeshStandardMaterial({color:0x4a4f4c,roughness:.8,metalness:.35});
+    const trainRoofMat=new T.MeshStandardMaterial({color:0x3a3c38,roughness:.9,metalness:.2});
+    this.parts.candle=[cube,new T.MeshStandardMaterial({color:0xd8cfae,roughness:.82})];
+    this.parts.flame=[new T.ConeGeometry(.5,1,6),new T.MeshBasicMaterial({color:0xffb45a})];
+    this.parts.candleSpill=[spill,new T.MeshBasicMaterial({map:lightMap,color:0xffa45a,transparent:true,opacity:.5,depthWrite:false,blending:T.AdditiveBlending,polygonOffset:true,polygonOffsetFactor:-1})];
+    this.parts.skull=[new T.SphereGeometry(.5,8,6),boneMat];
+    this.parts.bone=[cube,boneMat];
+    this.parts.pumpkin=[new T.SphereGeometry(.5,10,7),pumpkinMat];
+    this.parts.stem=[new T.CylinderGeometry(.5,.62,1,6),new T.MeshStandardMaterial({color:0x43502a,roughness:.9})];
+    this.parts.pumpkinFace=[cube,pumpkinGlow];
+    this.parts.mound=[new T.SphereGeometry(.5,10,6),soilMat];
+    this.parts.grave=[cube,new T.MeshStandardMaterial({color:0x6d706a,roughness:.95})];
+    this.parts.scareBody=[cube,clothMat];
+    this.parts.scareHead=[new T.SphereGeometry(.5,9,7),burlapMat];
+    this.parts.scareHat=[new T.ConeGeometry(.5,1,7),hatMat];
+    this.parts.rust=[cube,rustMat];
+    this.parts.glass=[cube,darkGlass];
+    this.parts.carWheel=[new T.CylinderGeometry(.5,.5,1,14).rotateZ(Math.PI/2),iron];
+    this.parts.vine=[cube,vineMat];
+    this.parts.trainBody=[cube,trainBodyMat];
+    this.parts.trainRoof=[cube,trainRoofMat];
+    this.parts.trainWindow=[cube,darkGlass];
+    this.parts.trainWheel=[new T.CylinderGeometry(.5,.5,1,14).rotateX(Math.PI/2),iron];
+    this.parts.boiler=[new T.CylinderGeometry(.5,.5,1,14).rotateZ(Math.PI/2),trainBodyMat];
+    this.parts.stack=[new T.CylinderGeometry(.42,.52,1,10),iron];
+    this.parts.dome=[new T.SphereGeometry(.5,10,6),trainBodyMat];
+    this.textures.push(this.parts.candleSpill[1].map);
     for(const rd of world.roads) {
       let pole=null;
       for(let s=12,i=0;s<rd.length;s+=rd.id===2?36:rd.id===1?16:rd.id===0&&s<1750?18:23,i++){
@@ -144,6 +195,10 @@ export class HollowCreekTown {
           if(world.depots.some(depot=>inDepot(x,z,depot,9)) || !clear(x,z,Math.min(d*.56+1,w*.57)) || rd.id===9 || (rd.id===1 && Math.abs(s-470)<30 && side<0) ||
              Object.values(world.sites).some(p=>Math.hypot(p.x-x,p.z-z)<(p.id==='factory'?45:32)) ||
              Math.hypot((world.creek.x-x)/102,(world.creek.z-z)/90)<1.1)continue;
+          // Nothing is built on the massif: houses would hang off the cave roof
+          // or be swallowed by the portal face.
+          if(world.cave && rd.id===world.cave.roadId && s>world.cave.s0-100 && s<world.cave.s1+100)continue;
+          if(world.cave && world.heightAt(x,z)-f.y>9)continue;
           if(rd.id===2 && (s<1800 || s>5200) && i%7!==0)continue;
           const y=world.heightAt(x,z)-.48;
           const type=rd.id===1?(i%7===0?2:0):rd.id===2?(i%5===0?3:0):Math.floor(s/590)%3===1?1:i%4===0?3:0;
@@ -238,7 +293,9 @@ export class HollowCreekTown {
               for(const v of [-.85,.85])place('iron',x+f.tx*v,y+.22,z+f.tz*v,.22,.48,.4);}
           }
         }
-        if(i%2===0){
+        const cavePole=world.cave && rd.id===world.cave.roadId && s>world.cave.s0-46 && s<world.cave.s1+46;
+        if(cavePole){pole=null;}
+        else if(i%2===0){
           const x=f.x+(rd.config.halfWidth+2)*f.rx,z=f.z+(rd.config.halfWidth+2)*f.rz,y=world.heightAt(x,z);
           if(!clear(x,z,.35)){pole=null;continue;}
           place('wood',x,y+3.6,z,.22,7.2,.22,yaw);
@@ -278,18 +335,7 @@ export class HollowCreekTown {
     const dial=new T.CanvasTexture(clock);dial.colorSpace=T.SRGBColorSpace;this.textures.push(dial);
     this.parts.clock=[cube,new T.MeshStandardMaterial({map:dial})];
     place('clock',tower.x,tower.y+15,tower.z,6.08,3.9,6.08,tower.yaw);
-    // The old railway gallery covers the track. Its posts sit outside tyre clearance.
-    for(let i=0;i<=22;i++){
-      const s=2460+i*4,f=world.roads[2].frameAt(s,{}),yaw=Math.atan2(f.tx,f.tz);
-      place('stone',f.x,f.y+6.1,f.z,13,.7,4.35,yaw);
-      for(const side of [-1,1]){
-        if(side===1 && i>=7 && i<=17)continue;
-        place(i%3?'wall3':'stone',f.x+6.1*side*f.rx,f.y+3,f.z+6.1*side*f.rz,.65,6,i%3?4.25:1,yaw);
-      }
-      if(i===10)place('exitLamp',f.x+4.8*f.rx,f.y+3.7,f.z+4.8*f.rz,.28,.5,.28);
-      if(i%5===0)place('tunnelLamp',f.x,f.y+5.65,f.z,1.25,.15,.24,yaw);
-    }
-    for(const [idx,r,s] of [[0,1,425],[3,2,2427],[4,0,60],[5,2,4940],...world.roads.slice(3,9).map(rd=>[rd.id%2===1?0:2,rd.id,32])]){
+    for(const [idx,r,s] of [[0,1,425],[3,2,3930],[4,0,60],[5,2,4940],...world.roads.slice(3,9).map(rd=>[rd.id%2===1?0:2,rd.id,32])]){
       const p=feature(r,s,7.6);
       place('wood',p.x,p.y+1.55,p.z,.17,3.1,.17,p.yaw);
       place('sign'+idx,p.x,p.y+2.75,p.z,4.7,.92,.13,p.yaw);
@@ -301,14 +347,35 @@ export class HollowCreekTown {
       this.parts[key]=[cube,new T.MeshStandardMaterial({map,roughness:.72})];signs.set(label,key);return key;
     };
     this.parts.window=[cube,new T.MeshBasicMaterial({color:0x87c6ad})];
-    buildLandmarks(world,place,registerSign,obstacles);
+    buildLandmarks(world,place,registerSign,obstacles,beam);
+    // A single oil lamp at the station canopy: the only warm light on this
+    // stretch of road, just enough to silhouette the rusted train.
+    const rail=world.sites.rail;
+    if(rail){
+      const side=Math.sign(rail.offset);
+      const lx=rail.x-rail.rx*12.2*side, lz=rail.z-rail.rz*12.2*side;
+      const lamp=new T.PointLight(0xffa45a,10,26,2);
+      lamp.position.set(lx,rail.y+3.0,lz);
+      this.group.add(lamp);this.stationLamp=lamp;
+      const glow=new T.Sprite(new T.SpriteMaterial({map:this.parts.spill[1].map,color:0xffb060,transparent:true,opacity:.5,blending:T.AdditiveBlending,depthWrite:false}));
+      glow.position.copy(lamp.position);glow.scale.set(2.6,2.6,1);
+      this.group.add(glow);this.stationGlow=glow;
+    }
     buildCreekIndustry(world,place,beam,registerSign,obstacles);
+    // The cave replaces the old gallery. Its rock shell and roof hide the
+    // cutting, while the instanced bats and sparse roadside dressing carry the
+    // horror outside.
+    const cave=buildHollowCave(world,random);
+    if(cave){this.cave=cave;this.group.add(cave.group);obstacles.push(...cave.obstacles);}
+    this.bats=new HollowBats(world,random);this.group.add(this.bats.group);
+    buildHorrorProps(world,place,random,clear,obstacles,world.cave);
     // Stone foundations, collapsed fencing, evergreen silhouettes and gutters
     // keep the roadside readable as it changes from settlement into forest.
     for(let s=0;s<world.roads[2].length;s+=11){
       const f=world.roads[2].frameAt(s,{});
       for(const side of [-1,1]){
         const off=side*(9+random()*36),x=f.x+off*f.rx,z=f.z+off*f.rz;
+        if(world.cave && s>world.cave.s0-60 && s<world.cave.s1+60 && Math.abs(off)<34)continue;
         if(!clear(x,z,3)||world.depots.some(d=>inDepot(x,z,d,5))||Object.values(world.sites).some(p=>Math.hypot(p.x-x,p.z-z)<38))continue;
         const y=world.heightAt(x,z),h=7+random()*9;
         const crown=h*(.74+.25*random());
@@ -326,12 +393,13 @@ export class HollowCreekTown {
     // the clear silhouettes of the ferry, mine entrance and timber headframe.
     const outer=world.roads[2];
     for(let s=8;s<outer.length;s+=8.4){
+      if(world.cave && s>world.cave.s0-60 && s<world.cave.s1+60)continue;
       const f=outer.frameAt(s,{}),offset=-(outer.config.halfWidth+4+random()*7);
       const x=f.x+offset*f.rx,z=f.z+offset*f.rz;
       if(!clear(x,z,2.4) || world.depots.some(d=>inDepot(x,z,d,8)) ||
          Object.values(world.sites).some(p=>Math.hypot(x-p.x,z-p.z)<38))continue;
       const y=world.heightAt(x,z), rot=Math.atan2(f.tx,f.tz);
-      if(s>3200 && s<4640){
+      if((s>3200 && s<3900) || (s>4600 && s<4800)){
         const h=2+.9*Math.sin(s/28)+random()*1.8;
         place('setwall',x,y+h*.46,z,2.6,h,7.8,rot);
         place('rock',x-2*f.rx,y+h*.75,z-2*f.rz,4.8,h,5.6,rot);
@@ -437,12 +505,40 @@ export class HollowCreekTown {
     for(const group of this.chunks){
       for(const mesh of group.children)mesh.receiveShadow=shadows;
     }
+    this.cave?.group.traverse(o=>{if(o.isMesh)o.receiveShadow=shadows;});
     this.weather?.setQuality?.(q);
   }
-  update(position,dt=0,night=this.weather.night){
+  update(position,dt=0,night=this.weather.night,carPosition=position){
     for(const group of this.chunks) group.visible=Math.abs(position.x-group.userData.cx)<this.range && Math.abs(position.z-group.userData.cz)<this.range;
-    this.weather.update(position,dt,night,(this.weatherStrength??1)*this.effectScale);
     this.clock+=dt;this.windTime.value=this.clock;
+    let insideCave=false;
+    const cave=this.world?.cave;
+    if(cave && carPosition){
+      const loc=this.caveLoc||(this.caveLoc={});
+      if(this.world.locate(carPosition.x,carPosition.z,loc) && loc.roadId===cave.roadId && !loc.beyondEnd &&
+         loc.s>=cave.s0 && loc.s<=cave.s1 && loc.distance<cave.shellHalf+2.5){
+        insideCave=true;this.caveS=loc.s;
+      }
+    }
+    if(insideCave && !this.insideCave && this.bats){
+      this.caveVisits=(this.caveVisits||0)+1;
+      const road=this.world.roads[cave.roadId],mid=(cave.s0+cave.s1)*.5;
+      const dir=this.caveS<mid?1:-1;
+      const f=road.frameAt(this.caveS+dir*16,{});
+      const ceiling=f.y+cave.shellHeight-1.2;
+      this.bats.burst(f.x,f.y+4.5,f.z,28,dir*f.tx,dir*f.tz,ceiling);
+      this.bats.spawnAmbient({x:f.x,y:f.y,z:f.z},10,ceiling);
+      this.onCaveEnter?.();
+    }
+    this.insideCave=insideCave;
+    this.weather.update(position,dt,night,(this.weatherStrength??1)*this.effectScale,insideCave);
+    this.cave?.update(dt,carPosition,insideCave);
+    this.bats?.update(dt,this.clock,carPosition,insideCave,night);
+    if(this.stationLamp){
+      const flicker=.86+.1*Math.sin(this.clock*7.3)+.04*Math.sin(this.clock*19.7);
+      this.stationLamp.intensity=10*flicker;
+      this.stationGlow.material.opacity=.42+.12*flicker;
+    }
     this.gate.position.y=this.gateBase+(this.exitKnown?4.25:0);
     if(this.outage>0)this.outage=Math.max(0,this.outage-dt);
     for(const light of this.lamps){
@@ -459,11 +555,14 @@ export class HollowCreekTown {
   }
   dispose(){
     this.weather.dispose();
+    this.cave?.dispose();
+    this.bats?.dispose();
     if(this.coupe){
       const resources=new Set();this.coupe.traverse(o=>{if(o.isMesh){resources.add(o.geometry);resources.add(o.material);}});
       resources.forEach(r=>r.dispose());
     }
     this.lake.geometry.dispose();this.lake.material.dispose();for(const light of this.lamps)light.mesh.material.dispose();
+    this.stationLamp?.dispose();this.stationGlow?.material.dispose();
     this.group.traverse(o=>{if(o.isInstancedMesh)o.dispose();});
     for(const item of new Set(Object.values(this.parts).flat()))item.dispose();
     for(const tex of this.textures)tex.dispose();

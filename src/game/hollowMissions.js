@@ -34,8 +34,8 @@ export function hollowMissions(world) {
     place('echoes','Echoes of the Past','Recover the station log, the ward note and the ferry manifest.',
       ['rail','hospital','wharf'].map(id=>({...site(id),clue:sites[id].story}))),
     place('ghost','Ghost Circuit','Race a recorded Hollow Creek lap. A first solo lap records an opponent.',[],{race:'sprint'}),
-    place('route','The Forgotten Route','Find the tunnel, take its side passage and emerge at the mine.',
-      [at('Signal Tunnel',2,2480),at('Unmarked cutting',9,100),at('Mine exit',9,world.roads[9].length-12)]),
+    place('route','The Forgotten Route','Find the mine cutting, take its side passage and emerge at the mine.',
+      [at('Mine approach',2,2440),at('Unmarked cutting',9,100),at('Mine exit',9,world.roads[9].length-12)]),
     place('drift','Drift After Dark','Bank 120 drift points in each marked district.',
       [at('Clock Square',1,460,0,105),at('Station approach',0,1550,0,120),{...site('factory'),radius:34}],{score:120}),
     place('driver','The Lost Driver','Follow the tyre marks from the pumps and the distress signal into the mill.',
@@ -47,7 +47,7 @@ export function hollowMissions(world) {
     place('escape','Escape the Fog','Run three rally stages through the quarter, the town and the mining hills.',
       [at('Quarter start',1,640),at('Old Town gate',1,950),junction(5,false,'Church lane'),
        junction(5,true,'Main circuit'),at('Town gate',0,2290),junction(6,false,'Mill turnoff'),
-       junction(6,true,'Outer circuit'),at('Ridge gate',2,4300),at('Mill finish',2,4980)]),
+       junction(6,true,'Outer circuit'),at('Cave gate',2,3980),at('Mill finish',2,4980)]),
   ];
 }
 
