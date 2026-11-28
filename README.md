@@ -49,7 +49,7 @@ The previews in `src/assets/maps/previews/` are captured from the live worlds, n
 | Handbrake | `Space` | A |
 | Nitro | `Shift` | B |
 | Camera | `C` | Y |
-| Look back / free look | `B` / right-drag | R3 / right stick |
+| Look back / free look | `B` / `Left Alt` to capture or release the mouse, or hold right-drag | R3 / right stick |
 | Reset to the road | `R` | X |
 | Shift down / up (manual) | `Q` / `E` | Bumpers |
 | Automatic or manual gearbox | `T` | View |

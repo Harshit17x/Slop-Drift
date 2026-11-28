@@ -1,4 +1,4 @@
-import { MODES, PAINT_OPTIONS, SMOKE_OPTIONS, getMode, getNeon, getSmoke } from '../config.js';
+import { MODES, PAINT_OPTIONS, getMode, getNeon } from '../config.js';
 import { createRandom } from '../world/noise.js';
 import { CARS, getCar } from '../vehicle/cars.js';
 import {
@@ -95,7 +95,7 @@ function newProfile(now) {
     },
     medals: {},
     achievements: {},
-    cosmetics: { paint: 'pearl', rim: 'silver', number: '27', neon: 'off', smoke: 'white', car: 'hatch' },
+    cosmetics: { paint: 'pearl', rim: 'silver', number: '27', neon: 'off', car: 'hatch' },
     favorites: [],
     daily: { date: '', done: false, lastDoneDate: null, streak: 0 },
     contracts: { date: '', progress: {}, done: {} },
@@ -113,7 +113,7 @@ function normalizeProfile(raw, now) {
   profile.stats = { ...base.stats, ...(raw.stats || {}) };
   profile.cosmetics = { ...base.cosmetics, ...(raw.cosmetics || {}) };
   if (!CARS.some((car) => car.id === profile.cosmetics.car)) profile.cosmetics.car = base.cosmetics.car;
-  if (!SMOKE_OPTIONS.some((s) => s.id === profile.cosmetics.smoke)) profile.cosmetics.smoke = base.cosmetics.smoke;
+  delete profile.cosmetics.smoke; // Retired cosmetic in older saves.
   profile.favorites = Array.isArray(raw.favorites)
     ? [...new Set(raw.favorites.filter((id) => CARS.some((car) => car.id === id)))]
     : [];
@@ -684,7 +684,6 @@ export class Career {
       }
       if (def.slot === 'rim') color = RIM_OPTIONS.find((rim) => rim.id === def.value)?.color ?? null;
       if (def.slot === 'neon') color = getNeon(def.value).color;
-      if (def.slot === 'smoke') color = getSmoke(def.value).color;
       return {
         id: def.id, slot: def.slot, value: def.value, label: def.label, color, skinUrl,
         finishTag, flopColor, creviceColor, unlocked: this.isUnlocked(def), requirement: this.requirementText(def),
@@ -695,9 +694,6 @@ export class Career {
     });
     items.splice(items.findIndex((item) => item.slot === 'neon'), 0, {
       id: 'neon:off', slot: 'neon', value: 'off', label: 'No neon', color: null, unlocked: true, requirement: '',
-    });
-    items.splice(items.findIndex((item) => item.slot === 'smoke'), 0, {
-      id: 'smoke:white', slot: 'smoke', value: 'white', label: 'Pure White smoke', color: SMOKE_OPTIONS[0].color, unlocked: true, requirement: '',
     });
     items.unshift(...CARS.map((car) => {
       const upgrades = this.carUpgrades(car.id);
@@ -770,8 +766,6 @@ export class Career {
       this.trialCar = null;
     } else if (slot === 'neon' && value === 'off') {
       this.profile.cosmetics.neon = 'off';
-    } else if (slot === 'smoke' && value === 'white') {
-      this.profile.cosmetics.smoke = 'white';
     } else {
       const def = UNLOCKS.find((entry) => entry.slot === slot && entry.value === value);
       if (!def || !this.isUnlocked(def)) return false;

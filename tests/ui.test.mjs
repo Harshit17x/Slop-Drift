@@ -7,7 +7,7 @@ import { formatTime, formatDelta, formatInt, recordKind, formatTarget, medalFor,
 import { applyDeadzone, isFormField, KEY_BINDINGS, PAD_BUTTONS } from '../src/input/Input.js';
 import { normalizeTrack } from '../src/ui/Minimap.js';
 import * as THREE from 'three';
-import { MODES, DEFAULT_SETTINGS, PAINT_OPTIONS, SKIN_OPTIONS, SMOKE_OPTIONS, getSkin, getSmoke, normalizeSettings, detectInitialQuality, getQualityPreset, nextAutoQuality, QUALITY_PRESETS } from '../src/config.js';
+import { MODES, DEFAULT_SETTINGS, PAINT_OPTIONS, SKIN_OPTIONS, SURFACE, getSkin, normalizeSettings, detectInitialQuality, getQualityPreset, nextAutoQuality, QUALITY_PRESETS } from '../src/config.js';
 import { buildGhostSplitTable, ghostTimeAtProgress } from '../src/game/MetaLayer.js';
 import { Effects } from '../src/render/Effects.js';
 import { underglowFrame } from '../src/render/underglowLight.js';
@@ -348,8 +348,36 @@ test('adaptive hardware quality detection, underglow slot caps, and idle Effects
   trimCarModels(['hatch']);
 });
 
-test('SMOKE_OPTIONS and live ghost split table interpolation', () => {
-  assert.ok(SMOKE_OPTIONS.length >= 6 && getSmoke('cyan').rgb[2] > 0.8);
+test('each grounded tyre emits its surface palette on slides and landings', () => {
+  const fx = new Effects(new THREE.Scene());
+  const forward = new THREE.Vector3(0, 0, -1);
+  const state = { speed: 22, velocity: forward.clone().multiplyScalar(22), forward, right: new THREE.Vector3(1, 0, 0), landing: 5 };
+  const palettes = [
+    [[SURFACE.ASPHALT, SURFACE.CONCRETE, SURFACE.COBBLE, SURFACE.KERB], [0.78, 0.78, 0.78]],
+    [[SURFACE.MUD], [0.22, 0.125, 0.055]], [[SURFACE.DIRT, SURFACE.HARDPACK], [0.62, 0.52, 0.4]],
+    [[SURFACE.GRAVEL, SURFACE.ROCK], [0.57, 0.55, 0.51]], [[SURFACE.GRASS], [0.36, 0.42, 0.24]],
+    [[SURFACE.WATER], [0.75, 0.86, 0.95]], [[SURFACE.SNOW], [0.95, 0.97, 1]], [[SURFACE.WOOD], null],
+  ];
+  const colors = new Map(palettes.flatMap(([surfaces, rgb]) => surfaces.map(surface => [surface, rgb])));
+  for (const surface of Object.values(SURFACE)) {
+    state.wheels = [surface, SURFACE.ASPHALT, SURFACE.MUD, SURFACE.SNOW].map((type, i) => ({
+      contact: i !== 3, slip: 2, surface: type, contactPoint: { x: i * 10, y: 0, z: 0 }, contactNormal: { x: 0, y: 1, z: 0 },
+    }));
+    const start = fx.cursor;
+    fx.emit(0.1, state);
+    const emitted = new Set();
+    for (let p = start; p < fx.cursor; p++) {
+      const wheel = Math.round(fx.positions[p * 3] / 10) || 0;
+      const rgb = colors.get(state.wheels[wheel].surface);
+      assert.deepEqual(fx.colors.slice(p * 4, p * 4 + 3), Float32Array.from(rgb));
+      emitted.add(wheel);
+    }
+    assert.deepEqual(emitted, new Set(surface === SURFACE.WOOD ? [1, 2] : [0, 1, 2]));
+  }
+  fx.dispose();
+});
+
+test('live ghost split table interpolation', () => {
   const fakeWorld = {
     roads: [{ length: 100 }],
     routes: { climb: { roadId: 0, closed: false, direction: 1, startS: 0, finishS: 100, length: 100 } },

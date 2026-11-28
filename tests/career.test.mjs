@@ -6,7 +6,7 @@ import {
 } from '../src/meta/catalog.js';
 import { trackKey, parseTrackKey, modeOfTrack } from '../src/meta/trackKey.js';
 import { MAPS } from '../src/world/maps.js';
-import { PAINT_OPTIONS, SMOKE_OPTIONS, MODES, modesForWorld } from '../src/config.js';
+import { PAINT_OPTIONS, MODES, modesForWorld } from '../src/config.js';
 import { CARS, getCar } from '../src/vehicle/cars.js';
 import { applyCarUpgrades, effectiveCarRatings, effectiveClassInfo, hasCarNitro } from '../src/vehicle/upgradeTuning.js';
 import { DriftScorer } from '../src/vehicle/DriftScorer.js';
@@ -41,7 +41,6 @@ check('xp curve starts at level 1 with 0 xp', xpForLevel(1) === 0 && levelForXp(
 check('xp curve is increasing', [2, 3, 4, 5, 10, 20].every((l) => xpForLevel(l + 1) > xpForLevel(l)));
 check('levelForXp inverts xpForLevel', [2, 5, 9, 17].every((l) => levelForXp(xpForLevel(l)) === l && levelForXp(xpForLevel(l) - 1) === l - 1));
 check('every paint unlock has a paint colour', UNLOCKS.filter((u) => u.slot === 'paint').every((u) => PAINT_OPTIONS.some((p) => p.id === u.value)));
-check('every smoke unlock has a smoke colour', UNLOCKS.filter((u) => u.slot === 'smoke').every((u) => SMOKE_OPTIONS.some((s) => s.id === u.value)));
 check('every achievement unlock requirement exists', UNLOCKS.filter((u) => u.requires.achievement).every((u) => ACHIEVEMENTS.some((a) => a.id === u.requires.achievement)));
 check('medal targets are ordered', Object.values(MEDAL_TARGETS).every((t) => (t.kind === 'time' ? t.bronze > t.silver && t.silver > t.gold && t.gold > t.author : t.bronze < t.silver && t.silver < t.gold && t.gold < t.author)));
 check('achievement ids are unique', new Set(ACHIEVEMENTS.map((a) => a.id)).size === ACHIEVEMENTS.length);
@@ -129,7 +128,7 @@ for (const modeId of ['sprint', 'circuit', 'climb']) {
   career.beginRun({ modeId });
   career.finishRun(result(modeId, { time: MEDAL_TARGETS[modeId].gold - 0.1 }));
 }
-check('3 golds unlock Sunburst and Crimson smoke', career.unlockedIds().has('paint:sunburst') && career.unlockedIds().has('smoke:crimson') && !before.has('paint:sunburst'));
+check('3 golds unlock Sunburst', career.unlockedIds().has('paint:sunburst') && !before.has('paint:sunburst'));
 for (const modeId of ['descent']) {
   career.beginRun({ modeId });
   career.finishRun(result(modeId, { time: MEDAL_TARGETS[modeId].gold - 0.1 }));
@@ -144,7 +143,7 @@ check('5 golds unlock gold rims', career.unlockedIds().has('rim:gold'));
 // --- car/map/feature locks, early unlock, trial car, and upgrades
 career = new Career({ storage: memoryStorage(), now });
 check('only Rally Hatch and Mussoorie unlocked at Level 1', career.isCarUnlocked('hatch') && !career.isCarUnlocked('thar') && !career.isCarUnlocked('gt') && career.isMapUnlocked('mussoorie') && !career.isMapUnlocked('tokyo'));
-check('features locked at Level 1 and unlock as driver levels up', !career.isFeatureUnlocked('ghosts') && !career.isFeatureUnlocked('smoke') && FEATURE_UNLOCKS.length >= 6);
+check('features locked at Level 1 and unlock as driver levels up', !career.isFeatureUnlocked('ghosts') && !career.isFeatureUnlocked('tuning-2') && FEATURE_UNLOCKS.length >= 6);
 check('cannot pick locked car directly', career.setCosmetic('car', 'gt') === false && career.activeCarId() === 'hatch');
 career.beginRun({ modeId: 'sprint' });
 check('1-run trial car temporarily equips locked car and clears on finish', career.startTrialCar('gt') && career.activeCarId() === 'gt' && career.finishRun(result('sprint', { time: 200 })) && career.activeCarId() === 'hatch');
@@ -178,11 +177,11 @@ check('can pick a free paint', career.setCosmetic('paint', 'ember') === true && 
 check('custom number locked at level 1', career.setCosmetic('number', '9') === false);
 career.addXp(xpForLevel(5));
 check('custom number after level 5', career.setCosmetic('number', '9x9') === true && career.profile.cosmetics.number === '99');
-check('smoke color locked at Lv1, unlocks by Lv5', career.setCosmetic('smoke', 'cyan') === true && career.profile.cosmetics.smoke === 'cyan');
+check('retired smoke colours cannot be equipped', !career.setCosmetic('smoke', 'cyan'));
 check('silver rims always allowed', career.setCosmetic('rim', 'silver'));
 const garage = career.garage();
-check('garage lists every unlock plus silver rims, no neon, white smoke and cars', garage.items.length === UNLOCKS.length + 3 + CARS.length
-  && garage.items.some((i) => i.id === 'rim:silver') && garage.items.some((i) => i.id === 'neon:off') && garage.items.some((i) => i.id === 'smoke:white'));
+check('garage lists every unlock plus silver rims, no neon and cars', garage.items.length === UNLOCKS.length + 2 + CARS.length
+  && garage.items.some((i) => i.id === 'rim:silver') && garage.items.some((i) => i.id === 'neon:off') && !garage.items.some((i) => i.slot === 'smoke'));
 check('neon is off by default and always switchable off', garage.selected.neon === 'off' && career.setCosmetic('neon', 'off'));
 check('cyan neon fits at level 5', career.setCosmetic('neon', 'cyan') && career.profile.cosmetics.neon === 'cyan');
 check('ice neon locked until level 12', career.setCosmetic('neon', 'ice') === false && career.profile.cosmetics.neon === 'cyan');

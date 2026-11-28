@@ -882,6 +882,7 @@ export class Hud {
           ${toggle('abs', 'ABS', 'Stops the wheels locking when you brake hard')}
           ${seg('touchSteer', 'Touch steering', [{ value: 'arrows', label: 'Arrows' }, { value: 'slider', label: 'Slider' }], 'Phones and tablets. Slider steers gradually; arrows are easier.')}
           <div class="sdh-group-label">Graphics</div>
+          ${toggle('motionBlur', 'Motion blur', 'Blur passing scenery at speed')}
           ${seg('quality', 'Quality', ['Auto', ...Object.keys(QUALITY_PRESETS)].map((k) => ({ value: k, label: k })), 'Auto lowers detail by itself if the game runs slowly.')}
           ${this.mapId === 'apex' ? '' : seg('timeOfDay', 'Time of day', TIME_OF_DAY.map((k) => ({ value: k, label: cap(k) })))}
           <div class="sdh-group-label">Sound &amp; display</div>
@@ -905,6 +906,7 @@ export class Hud {
             <span><kbd>Shift</kbd> Nitro</span>
             <span><kbd>Q</kbd><kbd>E</kbd> Shift gear</span>
             <span><kbd>C</kbd> Camera · <kbd>B</kbd> Look back</span>
+            <span><kbd>Left Alt</kbd> Toggle mouse look · Right-drag for a quick look</span>
             <span><kbd>H</kbd> Lights · <kbd>G</kbd> Neon</span>
             <span><kbd>R</kbd> Respawn</span>
             <span><kbd>Esc</kbd> Pause</span>
@@ -1889,6 +1891,7 @@ export class Hud {
     n('driftAssist').checked = s.driftAssist;
     n('volume').value = String(Math.round(s.volume * 100));
     n('abs').checked = s.abs;
+    n('motionBlur').checked = s.motionBlur;
     n('cameraShake').checked = s.cameraShake;
     n('traffic').checked = s.traffic;
     const gateEl = n('startGate');
@@ -1917,6 +1920,7 @@ export class Hud {
     out.driftAssist = n('driftAssist').checked;
     out.volume = Number(n('volume').value) / 100;
     out.abs = n('abs').checked;
+    out.motionBlur = n('motionBlur').checked;
     out.cameraShake = n('cameraShake').checked;
     out.traffic = n('traffic').checked;
     const gateEl = n('startGate');
@@ -2674,7 +2678,7 @@ export class Hud {
     this.q('[data-panel="achievements"] .sdh-awards').innerHTML = awardsMarkup(this.achievements);
   }
 
-  /** @param {{items:Array, selected:{paint:string, rim:string, number:string, neon?:string, smoke?:string, car?:string}, favorites?:string[]}} garage */
+  /** @param {{items:Array, selected:{paint:string, rim:string, number:string, neon?:string, car?:string}, favorites?:string[]}} garage */
   setGarage(garage) {
     this.garage = garage || { items: [], selected: {}, favorites: [] };
     const activeCar = this.garage.trialCar || this.garage.selected?.car || 'hatch';
@@ -2684,15 +2688,15 @@ export class Hud {
     this.lastActiveCar = activeCar;
     const items = this.garage.items || [];
     const sel = this.garage.selected || {};
-    for (const slot of ['paint', 'rim', 'neon', 'smoke']) {
+    for (const slot of ['paint', 'rim', 'neon']) {
       const grid = this.q(`[data-slot-grid="${slot}"]`);
       if (!grid) continue;
       grid.innerHTML = items.filter((it) => it.slot === slot).map((it) => {
-        const on = (sel[slot] || (slot === 'smoke' ? 'white' : '')) === it.value;
+        const on = sel[slot] === it.value;
         const locked = !it.unlocked;
         const color = Number.isFinite(it.color) ? hex(it.color) : 'transparent';
         const isSkin = slot === 'paint';
-        const swatchKind = isSkin ? ' is-skin' : slot === 'rim' ? ' is-rim' : slot === 'neon' ? (it.value === 'rainbow' ? ' is-neon is-rainbow' : it.value === 'off' ? ' is-neon is-off' : ' is-neon') : slot === 'smoke' ? ' is-smoke' : '';
+        const swatchKind = isSkin ? ' is-skin' : slot === 'rim' ? ' is-rim' : slot === 'neon' ? (it.value === 'rainbow' ? ' is-neon is-rainbow' : it.value === 'off' ? ' is-neon is-off' : ' is-neon') : '';
         const flop = Number.isFinite(it.flopColor) ? hex(it.flopColor) : color;
         const crevice = Number.isFinite(it.creviceColor) ? hex(it.creviceColor) : color;
         const skinBg = isSkin && it.skinUrl

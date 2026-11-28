@@ -105,6 +105,8 @@ export class CameraRig {
     this.kick = 0; // redline-shift tilt, decays to 0
     this.kickVel = 0;
     this.orbitAngle = 0;
+    this.lookYaw = 0;
+    this.lookPitch = 0;
     this.blendTime = 1;
     this.blendFromPosition = new THREE.Vector3();
     this.blendFromQuaternion = new THREE.Quaternion();
@@ -173,6 +175,10 @@ export class CameraRig {
     const lookBack = Boolean(input?.lookBack);
     const freeLook = input?.freeLook?.active ? input.freeLook : null;
     const snap = this.needsSnap;
+    // Ease back along the orbit after release, including when looking behind the car.
+    const recenter = snap ? 0 : Math.exp(-9 * dt);
+    this.lookYaw = freeLook ? freeLook.x : this.lookYaw * recenter;
+    this.lookPitch = freeLook ? freeLook.y : this.lookPitch * recenter;
     const speedT = smoothstep(TUNING.speedFovStart, TUNING.speedFovEnd, planarSpeed);
 
     // ---- slide detection: the angle between where the nose points and where the car is going
@@ -280,16 +286,12 @@ export class CameraRig {
       position.copy(offset).applyQuaternion(state.quaternion).add(state.position);
       // In the seat the head tips a little down, so the dash, the wheel and the hands sit in view.
       const headTilt = cockpit && !lookBack ? (this.cockpitEye.pitch ?? -0.1) : 0;
-      euler.set((freeLook ? freeLook.y : 0) + headTilt, (freeLook ? freeLook.x : 0) + (lookBack ? Math.PI : 0), 0, 'YXZ');
+      euler.set(this.lookPitch + headTilt, this.lookYaw + (lookBack ? Math.PI : 0), 0, 'YXZ');
       desiredQuaternion.copy(this.interiorQuaternion).multiply(lookQuaternion.setFromEuler(euler));
       fovTarget = CONFIG.camera.fovBase + interiorSpeedFov + (cockpit ? 7 : 3) + 4.5 * this.boost;
     } else {
-      let yaw = this.yaw + (lookBack ? Math.PI : 0);
-      let pitchLift = 0;
-      if (freeLook) {
-        yaw -= freeLook.x;
-        pitchLift = -freeLook.y * this.distance;
-      }
+      const yaw = this.yaw + (lookBack ? Math.PI : 0) - this.lookYaw;
+      const pitchLift = -this.lookPitch * this.distance;
       const dirX = Math.sin(yaw);
       const dirZ = -Math.cos(yaw);
       const rightX = Math.cos(yaw);
