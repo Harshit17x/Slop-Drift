@@ -1590,13 +1590,6 @@ export class TokyoCity {
     const a=this.world.parkade,x=p.x-a.cx,z=p.z-a.cz;
     return p.y<6*FLOOR_RISE-.8 && ((x*a.ax+z*a.az)/67)**2+((x*a.bx+z*a.bz)/41)**2<1;
   }
-  smokeLight(base,brake){
-    if(!this.tint)this.tint=new T.Color();
-    this.tint.copy(base);
-    if(this.lights[0].intensity)this.tint.lerp(this.lights[0].color,.37);
-    if(brake)this.tint.lerp(this.brakeTint||=new T.Color(0xff4b3c),.43);
-    return this.tint;
-  }
   setQuality(q){this.radius=q?.shadowMapSize===0?420:650;}
   update(pos,dt=0,night=true,driver=pos){
     this.time+=dt;this.horizon.position.set(pos.x,110,pos.z);

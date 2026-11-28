@@ -208,6 +208,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   transmission: 'auto',
   volume: 0.8,
   cameraShake: true,
+  motionBlur: !globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
   startGate: true,
   traffic: true,
   touchSteer: 'arrows',
@@ -243,21 +244,6 @@ export const NEON_OPTIONS = Object.freeze([
 
 export function getNeon(id) {
   return NEON_OPTIONS.find((neon) => neon.id === id) || NEON_OPTIONS[0];
-}
-
-/** Tyre smoke colours (unlocks in src/meta/catalog.js). */
-export const SMOKE_OPTIONS = Object.freeze([
-  Object.freeze({ id: 'white', label: 'Pure White', color: 0xe8eaed, rgb: [0.9, 0.9, 0.91] }),
-  Object.freeze({ id: 'amber', label: 'Marigold Haze', color: 0xf2b01e, rgb: [0.96, 0.72, 0.16] }),
-  Object.freeze({ id: 'cyan', label: 'Electric Cyan', color: 0x22e8ff, rgb: [0.22, 0.9, 0.98] }),
-  Object.freeze({ id: 'pink', label: 'Sakura Pink', color: 0xff5fa2, rgb: [0.98, 0.38, 0.66] }),
-  Object.freeze({ id: 'crimson', label: 'Crimson Torch', color: 0xff3b30, rgb: [0.96, 0.24, 0.2] }),
-  Object.freeze({ id: 'lime', label: 'Acid Lime', color: 0xb6e34a, rgb: [0.72, 0.92, 0.28] }),
-  Object.freeze({ id: 'gold', label: '24K Gold Dust', color: 0xffd24d, rgb: [0.98, 0.84, 0.32] }),
-]);
-
-export function getSmoke(id) {
-  return SMOKE_OPTIONS.find((smoke) => smoke.id === id) || SMOKE_OPTIONS[0];
 }
 
 /** Underglow brightness by time of day: full at night, half at dawn and dusk, faint by day. */
@@ -301,6 +287,7 @@ export function normalizeSettings(input = {}) {
     transmission: merged.transmission === 'manual' ? 'manual' : 'auto',
     volume: clamp01(merged.volume, DEFAULT_SETTINGS.volume),
     cameraShake: Boolean(merged.cameraShake),
+    motionBlur: Boolean(merged.motionBlur),
     startGate: Boolean(merged.startGate),
     traffic: Boolean(merged.traffic),
     touchSteer: merged.touchSteer === 'slider' ? 'slider' : 'arrows',

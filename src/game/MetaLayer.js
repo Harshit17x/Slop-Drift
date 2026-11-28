@@ -1,5 +1,5 @@
 import { getCar } from '../vehicle/cars.js';
-import { getMode, getNeon, getPaint, getSmoke, MODES } from '../config.js';
+import { getMode, getNeon, getPaint, MODES } from '../config.js';
 import { RIM_OPTIONS, medalTargets } from '../meta/catalog.js';
 import { LEGACY_MAP, modeOfTrack, trackKey } from '../meta/trackKey.js';
 import { GhostRecorder } from '../ghost/GhostRecorder.js';
@@ -378,7 +378,6 @@ export class MetaLayer {
       this.game.setCar(activeCarId);
       car = this.game.car;
     }
-    this.game.effects?.setSmokeColor?.(getSmoke(cosmetics.smoke).rgb);
     car.setLook({
       paint: getPaint(cosmetics.paint),
       rimColor: (RIM_OPTIONS.find((rim) => rim.id === cosmetics.rim) || RIM_OPTIONS[0]).color,

@@ -1,8 +1,9 @@
-// Keyboard, mouse (right-drag free look), gamepad and touch input.
+// Keyboard, mouse (captured or right-drag free look), gamepad and touch input.
 // Produces one Controls-compatible snapshot per frame (see src/core/contracts.js), plus edge-triggered
 // UI actions. Touch controls are only shown on coarse-pointer devices or after a real touch event.
 
 import { CONFIG } from '../config.js';
+import { wrapAngle } from '../core/math.js';
 
 export const KEY_BINDINGS = Object.freeze({
   throttle: ['KeyW', 'ArrowUp'],
@@ -12,6 +13,7 @@ export const KEY_BINDINGS = Object.freeze({
   handbrake: ['Space'],
   boost: ['ShiftLeft', 'ShiftRight'],
   camera: ['KeyC'],
+  mouseLook: ['AltLeft'],
   respawn: ['KeyR'],
   shiftUp: ['KeyE'],
   shiftDown: ['KeyQ'],
@@ -129,7 +131,7 @@ export class Input {
     this.pending = new Set(); // edge actions since the last update()
 
     // Mouse free look
-    this.look = { dragging: false, x: 0, y: 0 };
+    this.look = { dragging: false, wantsLock: false, x: 0, y: 0 };
 
     // Gamepad
     this.prevPadButtons = [];
@@ -164,6 +166,13 @@ export class Input {
       if (event.metaKey || event.ctrlKey) return; // browser shortcuts (Cmd+R, Ctrl+W ...) must not drive
       const actions = this.codeToActions.get(code);
       if (!actions) return;
+      if (actions.includes('mouseLook')) {
+        if (!this.drivingEnabled) return;
+        event.preventDefault();
+        // Pointer lock needs a user gesture, so request it directly in the key handler.
+        if (!event.repeat) this.toggleMouseLook();
+        return;
+      }
       if (PREVENT_DEFAULT.has(code)) event.preventDefault();
       if (!this.heldCodes.has(code)) {
         this.heldCodes.add(code);
@@ -222,7 +231,7 @@ export class Input {
     this.releaseKeys();
     this.releaseTouch();
     this.pending.clear();
-    this.look.dragging = false;
+    this.releaseMouseLook();
   }
 
   key(action) {
@@ -231,7 +240,52 @@ export class Input {
 
   // ---------------------------------------------------------------- mouse
 
+  get mouseLocked() {
+    return document.pointerLockElement === this.root;
+  }
+
+  releaseMouseLook() {
+    this.look.wantsLock = this.look.dragging = false;
+    this.look.x = this.look.y = 0;
+    if (this.mouseLocked) document.exitPointerLock();
+  }
+
+  async toggleMouseLook() {
+    if (this.look.wantsLock || this.mouseLocked) {
+      this.releaseMouseLook();
+      return;
+    }
+    if (!this.root.requestPointerLock) {
+      this.onMouseLockError();
+      return;
+    }
+    this.look.wantsLock = true;
+    try {
+      await this.root.requestPointerLock();
+      if (!this.look.wantsLock && this.mouseLocked) document.exitPointerLock();
+    } catch {
+      if (this.look.wantsLock) this.onMouseLockError();
+    }
+  }
+
   installPointer() {
+    this.onMouseLockError = () => {
+      this.look.wantsLock = false;
+      this.onMouseLookUnavailable?.();
+    };
+    this.onLockChange = () => {
+      if (!this.mouseLocked || !this.look.wantsLock) this.releaseMouseLook();
+    };
+    this.onLockedMove = (event) => {
+      if (this.mouseLocked && this.look.wantsLock) {
+        this.look.x = wrapAngle(this.look.x - event.movementX * 0.004);
+        this.look.y = clamp(this.look.y - event.movementY * 0.003, -FREE_LOOK_Y, FREE_LOOK_Y);
+      }
+    };
+    document.addEventListener('mousemove', this.onLockedMove);
+    document.addEventListener('pointerlockchange', this.onLockChange);
+    this.onLockError = () => { if (this.look.wantsLock) this.onMouseLockError(); };
+    document.addEventListener('pointerlockerror', this.onLockError);
     this.onContextMenu = (event) => {
       if (this.look.dragging || event.target?.tagName === 'CANVAS' || this.touchRoot.contains(event.target)) {
         event.preventDefault();
@@ -249,12 +303,12 @@ export class Input {
         this.touchSeen = false;
         this.refreshTouchVisibility();
       }
-      if (event.pointerType === 'mouse' && event.button === 2 && !isFormField(event.target) && !isActivatable(event.target)) {
+      if (this.drivingEnabled && !this.mouseLocked && event.pointerType === 'mouse' && event.button === 2 && !isFormField(event.target) && !isActivatable(event.target)) {
         this.look.dragging = true;
       }
     };
     this.onPointerMove = (event) => {
-      if (!this.look.dragging) return;
+      if (!this.look.dragging || this.mouseLocked) return;
       if (!(event.buttons & 2)) {
         this.look.dragging = false;
         return;
@@ -412,7 +466,10 @@ export class Input {
     if (next) this.touchStaged = false;
     if (next !== this.drivingEnabled) {
       this.drivingEnabled = next;
-      if (!next) this.releaseTouch(); // a finger already on a pedal at GO keeps pressing it
+      if (!next) {
+        this.releaseTouch(); // a finger already on a pedal at GO keeps pressing it
+        this.releaseMouseLook();
+      }
       // Keep physical keys (their keyup still arrives) so holding W through GO works, but drop queued edges.
       this.pending.delete('shiftUp');
       this.pending.delete('shiftDown');
@@ -495,7 +552,7 @@ export class Input {
 
     let lookX = this.look.x;
     let lookY = this.look.y;
-    let lookActive = this.look.dragging;
+    let lookActive = this.look.dragging || this.mouseLocked;
 
     if (pad) {
       throttle = Math.max(throttle, pad.throttle);
@@ -538,6 +595,9 @@ export class Input {
   }
 
   destroy() {
+    document.removeEventListener('mousemove', this.onLockedMove);
+    document.removeEventListener('pointerlockchange', this.onLockChange);
+    document.removeEventListener('pointerlockerror', this.onLockError);
     window.removeEventListener('keydown', this.onKeyDown, { passive: false });
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.onBlur);

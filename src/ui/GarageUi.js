@@ -224,8 +224,6 @@ export function garageHubMarkup() {
               <div class="sdh-cos-grid" data-slot-grid="rim"></div>
               <div class="sdh-group-label">Neon underglow <small class="sdh-group-hint">shines at night · G toggles</small></div>
               <div class="sdh-cos-grid" data-slot-grid="neon"></div>
-              <div class="sdh-group-label">Tyre drift smoke <small class="sdh-group-hint">unlocks at Level 3+</small></div>
-              <div class="sdh-cos-grid" data-slot-grid="smoke"></div>
               <div class="sdh-group-label">Door number</div>
               <label class="sdh-number-field">
                 <input class="sdh-number-input sdh-num" type="text" inputmode="numeric" maxlength="2" pattern="[0-9]{1,2}" aria-label="Door number">

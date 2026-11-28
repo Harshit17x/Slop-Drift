@@ -2970,11 +2970,6 @@ button.sdh-upnext-row:hover, button.sdh-upnext-row:focus-visible { outline: 3px 
 .sdh-upg-btn:disabled { opacity: 0.55; cursor: not-allowed; }
 .sdh-upgrade-locked { padding: 0.8em; border: 2px dashed rgba(244, 241, 232, 0.35); font-size: 0.9em; line-height: 1.35; opacity: 0.9; }
 
-.sdh-cos-swatch.is-smoke {
-  background: radial-gradient(circle at 38% 38%, #ffffff 0%, var(--c) 45%, rgba(20, 17, 13, 0.55) 100%);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--c) 65%, transparent), var(--hard-sm);
-}
-
 .sdh-cr-total { font-size: 1.35em; color: var(--deodar); margin-right: 0.2em; }
 .sdh-btn-bonus { background: var(--signal-green-ink); color: var(--chalk); border-color: var(--ink); }
 

@@ -9,14 +9,23 @@ const SKID_LIFE = 14; // seconds a tyre mark stays visible
 const SKID_HALF_WIDTH = 0.12;
 const GRAVITY = 9.81;
 
+// Choose at the contact patch so a tyre on the verge throws different material from one on the road.
+const TYRE_TRAIL = Object.freeze({
+  [SURFACE.ASPHALT]: 'wisp', [SURFACE.CONCRETE]: 'wisp', [SURFACE.KERB]: 'wisp', [SURFACE.COBBLE]: 'wisp',
+  [SURFACE.GRAVEL]: 'grit', [SURFACE.ROCK]: 'grit', [SURFACE.HARDPACK]: 'dust', [SURFACE.DIRT]: 'dust',
+  [SURFACE.MUD]: 'mud', [SURFACE.GRASS]: 'grass', [SURFACE.SNOW]: 'snow', [SURFACE.WATER]: 'splash',
+  [SURFACE.WOOD]: null,
+});
+
 // [r, g, b, alpha, size m, growth m/s, life s, gravity m/s², emissive, drag 1/s, fade-in fraction]
 const STYLES = Object.freeze({
   // Tyre smoke: big, slow, lingering billows of burnt rubber.
-  smoke: [0.9, 0.9, 0.91, 0.58, 0.9, 2.8, 2.8, -0.35, 0, 2.4, 0.1],
+  smoke: [0.78, 0.78, 0.78, 0.58, 0.9, 2.8, 2.8, -0.35, 0, 2.4, 0.1],
   // A thin, quick wisp for light slides and lock-ups.
-  wisp: [0.9, 0.9, 0.91, 0.34, 0.5, 1.7, 1.4, -0.4, 0, 2.0, 0.1],
+  wisp: [0.78, 0.78, 0.78, 0.34, 0.5, 1.7, 1.4, -0.4, 0, 2.0, 0.1],
   mud: [0.22, 0.125, 0.055, 0.94, 0.13, 0.09, 0.52, 9.8, 0, 0.35, 0],
   dust: [0.62, 0.52, 0.4, 0.42, 0.55, 1.9, 1.4, 0.4, 0, 1.8, 0.08],
+  grit: [0.57, 0.55, 0.51, 0.42, 0.55, 1.9, 1.4, 0.4, 0, 1.8, 0.08],
   grass: [0.36, 0.42, 0.24, 0.42, 0.35, 1.2, 0.7, 1.4, 0, 1.6, 0.05],
   snow: [0.95, 0.97, 1.0, 0.5, 0.4, 1.5, 0.8, 1.0, 0, 1.6, 0.05],
   nitroCore: [0.42, 0.73, 1, 0.98, 0.14, 0.12, 0.076, 0, 1, 0.5, 0],
@@ -49,7 +58,7 @@ const particleVertex = /* glsl */ `
 const particleFragment = /* glsl */ `
   varying vec4 vColor;
   varying float vSeed;
-  uniform vec3 uLight;
+  uniform float uLight;
   float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
   float noise(vec2 p) {
     vec2 i = floor(p);
@@ -77,8 +86,7 @@ const particleFragment = /* glsl */ `
     // Lit from above: the top of each puff is brighter, the underside and dense noise cores darker.
     float shade = mix(0.72, 1.06, 0.5 - 0.5 * p.y) * (0.82 + 0.3 * n);
     // Smoke scatters sky light, so it stays paler than the lit ground around it.
-    vec3 light = min(vec3(1.0), uLight * 1.35 + 0.08);
-    gl_FragColor = vec4(vColor.rgb * light * shade, alpha * puff);
+    gl_FragColor = vec4(vColor.rgb * uLight * shade, alpha * puff);
   }
 `;
 
@@ -180,7 +188,6 @@ export class Effects {
     scene.add(this.group);
     this.intensity = 1;
     this.time = 0;
-    this.smokeColor = [0.9, 0.9, 0.91];
 
     // --- particles
     this.positions = new Float32Array(MAX_PARTICLES * 3);
@@ -206,7 +213,7 @@ export class Effects {
     particleGeometry.setAttribute('aSize', new THREE.BufferAttribute(this.sizes, 1).setUsage(THREE.DynamicDrawUsage));
     particleGeometry.setAttribute('aSeed', new THREE.BufferAttribute(this.seeds, 1));
     this.particleMaterial = new THREE.ShaderMaterial({
-      uniforms: { uScale: { value: 600 }, uLight: { value: new THREE.Color(1, 1, 1) } },
+      uniforms: { uScale: { value: 600 }, uLight: { value: 1 } },
       vertexShader: particleVertex,
       fragmentShader: particleFragment,
       transparent: true,
@@ -321,16 +328,8 @@ export class Effects {
 
   /** Scene light level so smoke is not glowing white at night. */
   setLight(color) {
-    this.particleMaterial.uniforms.uLight.value.copy(color);
-  }
-
-  /** Set RGB [0..1, 0..1, 0..1] tint for tyre smoke and wisp particles. */
-  setSmokeColor(rgb) {
-    if (Array.isArray(rgb) && rgb.length >= 3) {
-      this.smokeColor = [clamp(rgb[0], 0, 1), clamp(rgb[1], 0, 1), clamp(rgb[2], 0, 1)];
-    } else {
-      this.smokeColor = [0.9, 0.9, 0.91];
-    }
+    const luminance = 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
+    this.particleMaterial.uniforms.uLight.value = clamp(luminance * 1.35 + 0.08, 0.08, 1);
   }
 
   setViewport(height, fovDegrees) {
@@ -345,16 +344,15 @@ export class Effects {
     this.cursor = (this.cursor + 1) % this.maxParticles;
     if (this.life[i] <= 0) this.particlesAlive += 1;
     const jitter = 0.7 + Math.random() * 0.6;
-    const customSmoke = kind === 'smoke' || kind === 'wisp';
     this.positions[i * 3] = x;
     this.positions[i * 3 + 1] = y;
     this.positions[i * 3 + 2] = z;
     this.velocities[i * 3] = vx + (Math.random() - 0.5) * 1.2;
     this.velocities[i * 3 + 1] = vy + Math.random() * 0.8;
     this.velocities[i * 3 + 2] = vz + (Math.random() - 0.5) * 1.2;
-    this.colors[i * 4] = customSmoke ? this.smokeColor[0] : style[0];
-    this.colors[i * 4 + 1] = customSmoke ? this.smokeColor[1] : style[1];
-    this.colors[i * 4 + 2] = customSmoke ? this.smokeColor[2] : style[2];
+    this.colors[i * 4] = style[0];
+    this.colors[i * 4 + 1] = style[1];
+    this.colors[i * 4 + 2] = style[2];
     this.colors[i * 4 + 3] = 0;
     this.baseAlpha[i] = Math.min(0.98, style[3] * jitter);
     this.sizes[i] = style[4] * scale * jitter;
@@ -488,9 +486,15 @@ export class Effects {
       const wheel = state.wheels[i];
       const trail = this.trails[i];
       const rear = i >= 2;
+      const material = TYRE_TRAIL[wheel.surface];
+      const rubber = material === 'wisp';
+      if (wheel.contact && material && state.landing > 2.5) {
+        const p = wheel.contactPoint;
+        this.burst(material, p.x, p.y + 0.15, p.z, Math.min(4, Math.round(state.landing * 0.5 * this.intensity)), 2.2);
+      }
       // Burnouts smoke at walking pace; marks and dust need the car to be moving.
-      const spinning = wheel.contact && wheel.slip > 1.25 && wheel.surface === SURFACE.ASPHALT;
-      const overRaw = wheel.contact ? Math.max(wheel.slip - 1, wheel.surface === SURFACE.ASPHALT ? slide * (rear ? 1 : 0.35) : 0) : 0;
+      const spinning = wheel.contact && wheel.slip > 1.25 && rubber;
+      const overRaw = wheel.contact ? Math.max(wheel.slip - 1, rubber ? slide * (rear ? 1 : 0.35) : 0) : 0;
       // Sliding heats the tread fast; it cools over about a second.
       const heat = this.tyreHeat[i] = clamp(this.tyreHeat[i] + (overRaw > 0.05 ? overRaw * 2.6 : -1.1) * dt, 0, 1);
       if (!wheel.contact || (speed < 2.5 && !(spinning && speed > 0.3))) {
@@ -499,11 +503,12 @@ export class Effects {
       }
       const point = wheel.contactPoint;
       const over = overRaw;
-      let kind = null;
+      let kind = material;
       let rate = 0; // particles per second
       let mark = 0;
       let scale = 1;
-      if (wheel.surface === SURFACE.ASPHALT) {
+      if (rubber) {
+        kind = null;
         if (over > 0.02) {
           // A proper slide (drift, burnout, handbrake) pours out thick smoke from the rear tyres;
           // a light scrub or a locked front wheel only wisps.
@@ -517,18 +522,15 @@ export class Effects {
           scale = 0.85 + clamp(speed / 30, 0, 0.7) + (heavy ? clamp(over - 0.5, 0, 0.6) : 0);
           mark = speed > 2.5 ? clamp(0.25 + over * 0.7, 0, 0.75) : 0;
         }
-      } else if (wheel.surface === SURFACE.MUD) {
-        kind = 'mud';
+      } else if (kind === 'mud') {
         rate = clamp(speed + over * 14, 4, 38);
         mark = 0.28 + clamp(over, 0, 1) * 0.3;
-      } else if (wheel.surface === SURFACE.WOOD) {
+      } else if (!kind) {
         trail.active = false;
         continue;
-      } else if (wheel.surface === SURFACE.WATER) {
-        kind = 'splash';
+      } else if (kind === 'splash') {
         rate = 30 * clamp(speed / 15, 0.2, 1);
       } else {
-        kind = wheel.surface === SURFACE.SNOW ? 'snow' : wheel.surface === SURFACE.GRASS ? 'grass' : 'dust';
         rate = 16 * clamp(speed / 22, 0.1, 1) * (1 + clamp(over, 0, 1.5));
         mark = 0.16 + clamp(over, 0, 1) * 0.2;
       }
@@ -594,9 +596,6 @@ export class Effects {
       this.sparkClock = 0;
     }
 
-    if (state.landing > 2.5) {
-      this.burst(state.surface === SURFACE.ASPHALT ? 'wisp' : 'dust', state.position.x, state.position.y + 0.15, state.position.z, Math.min(18, Math.round(state.landing * 2 * this.intensity)), 2.2);
-    }
     if (state.boosting) {
       // Time-based emission anchored at the car's tailpipe / exhaust openings.
       this.nitroClock += Math.min(dt, 0.1) * 58 * this.intensity;

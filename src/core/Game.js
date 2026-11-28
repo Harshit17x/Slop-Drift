@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   CONFIG, MODES, SURFACE_PROPS, detectInitialQuality, getMode, getQualityPreset, modesForWorld, neonLevel, nextAutoQuality,
-  getSmoke, loadRecords, loadSettings, normalizeSettings, saveRecords, saveSettings,
+  loadRecords, loadSettings, normalizeSettings, saveRecords, saveSettings,
 } from '../config.js';
 import { clamp } from './math.js';
 import { nextFrame } from './yield.js';
@@ -26,6 +26,7 @@ import { Atmosphere } from '../render/Atmosphere.js';
 import { CarVisual } from '../render/CarVisual.js';
 import { CameraRig } from '../render/CameraRig.js';
 import { Effects } from '../render/Effects.js';
+import { SpeedBlur } from '../render/SpeedBlur.js';
 import { CarDamage } from '../render/CarDamage.js';
 import { Career } from '../meta/Career.js';
 import { MetaLayer } from '../game/MetaLayer.js';
@@ -112,6 +113,7 @@ export class Game {
     this.hud.setStageMode?.('3d');
     this.hud.showLoading(0, 'Starting up');
     this.input = new Input({ root: this.root, touchRoot: this.hud.touchRoot });
+    this.input.onMouseLookUnavailable = () => this.hud.toast('Mouse capture unavailable. Hold the right mouse button to look around.', 'info');
     this.audio = new AudioEngine({ volume: this.settings.volume });
     this.platform.addMuteListener((muted) => this.audio.setPlatformMuted(muted));
     this.bindHud();
@@ -294,6 +296,7 @@ export class Game {
     };
     this.canvas.addEventListener('webglcontextlost', this.onContextLost);
     this.canvas.addEventListener('webglcontextrestored', this.onContextRestored);
+    this.speedBlur = new SpeedBlur();
     this.scene = new THREE.Scene();
   }
 
@@ -566,7 +569,6 @@ export class Game {
     this.nitroCapacity = nitroStats.capacity;
     this.nitro = nitroStats.capacity;
     this.fujimiClipsHit = new Set();
-    this.smokeShown = null;
     if (this.traffic && this.settings.traffic) {
       this.traffic.start(this.world, mode, `${this.map.id}:${mode.id}`);
       this.traffic.update(0, { position: { x: Infinity, z: Infinity }, speed: 0 });
@@ -684,6 +686,7 @@ export class Game {
       }
     });
     // Materials are gathered synchronously; the compile itself runs in parallel where the GPU allows.
+    if (this.settings.motionBlur) this.renderer.compileAsync(this.speedBlur.pass, this.speedBlur.camera).catch(() => {});
     const done = this.renderer.compileAsync(this.scene, this.cameraRig.camera).catch(() => {});
     for (const node of hidden) node.visible = false;
     return done;
@@ -972,14 +975,6 @@ export class Game {
       }
     }
     const drift = this.drift.update(dt, state, controls);
-    // Combo smoke: the stock white smoke heats up with the multiplier (x2 cyan, x3 pink, x4+ gold).
-    const ownSmoke = this.career?.profile.cosmetics.smoke || 'white';
-    const smokeId = ownSmoke !== 'white' ? ownSmoke
-      : drift.multiplier >= 4 ? 'gold' : drift.multiplier >= 3 ? 'pink' : drift.multiplier >= 2 ? 'cyan' : 'white';
-    if (smokeId !== this.smokeShown) {
-      this.smokeShown = smokeId;
-      this.effects.setSmokeColor?.(getSmoke(smokeId).rgb);
-    }
     // Drift clipping zones across mountain, Fujimi, city, jungle, hollow & GP courses.
     const clip = this.scenery.clipZone?.(state, drift) || this.checkCourseClips(state, drift);
     if (clip) {
@@ -1204,7 +1199,7 @@ export class Game {
       this.effects.update(dt);
       this.water.update(dt, camera);
     }
-    this.effects.setLight(this.scenery.smokeLight?.(this.atmosphere.ambientColor,state.brake>0.1) ?? this.atmosphere.ambientColor);
+    this.effects.setLight(this.atmosphere.ambientColor);
     this.effects.setViewport(this.renderer.domElement.height, camera.fov);
     this.atmosphere.update(paused ? 0 : dt, camera, state.position);
     this.terrain?.update(camera);
@@ -1216,6 +1211,9 @@ export class Game {
     this.roads.jungle?.update(camera.position);
     this.updateHud(state);
     this.renderer.render(this.scene, camera);
+    if (this.state === 'running' && this.settings.motionBlur && !photoCamera) {
+      this.speedBlur.render(this.renderer, camera, state, this.cameraRig.mode === 'cockpit');
+    }
   }
 
   /** On a player's first three drives, show the controls until they get moving. */
@@ -1242,6 +1240,7 @@ export class Game {
   /** The graphics preset (settings.quality, or the level Auto resolved to) applied to every view. */
   applyQuality() {
     const quality = getQualityPreset(this.settings.quality, this.autoQuality);
+    this.speedBlur.uniforms.economical.value = quality.shadowMapSize === 0;
     this.applyPixelRatio(quality);
     const shadows = quality.shadowMapSize > 0;
     if (this.renderer.shadowMap.enabled !== shadows) {
@@ -1336,6 +1335,7 @@ export class Game {
     this.adventure?.dispose();
     this.audio?.dispose();
     this.damage?.dispose();
+    this.speedBlur?.dispose();
     this.effects?.dispose();
     this.car?.dispose();
     this.scenery?.dispose();

@@ -167,16 +167,15 @@ export const LEGACY_GATES = Object.freeze({
 export const FEATURE_UNLOCKS = Object.freeze([
   Object.freeze({ id: 'ghosts', label: 'Ghost Rivals & Live Split Delta', level: 2, summary: 'Race your Personal Best and global leaderboard ghosts.' }),
   Object.freeze({ id: 'tuning-1', label: 'Garage Upgrades Stage 1', level: 2, summary: 'Unlock Stage 1 engine, tires, nitrous & brake kits.' }),
-  Object.freeze({ id: 'smoke', label: 'Custom Tire Smoke Colors', level: 4, summary: 'Unlock colored drift smoke trails in the Garage.' }),
   Object.freeze({ id: 'tuning-2', label: 'Garage Upgrades Stage 2', level: 5, summary: 'Unlock twin-scroll turbos, angle kits & dual N2O.' }),
   Object.freeze({ id: 'pro-bonus', label: 'Pro Difficulty Bonus (+30%)', level: 6, summary: 'Earn +15% XP & CR each for unassisted handling and Manual gears.' }),
   Object.freeze({ id: 'tuning-3', label: 'Pro Race Spec Stage 3', level: 9, summary: 'Unlock top-tier forged internals, compounds & cryo N2O.' }),
-  Object.freeze({ id: 'author-hunt', label: 'Author Medal Challenges', level: 12, summary: 'Unlock prestigious Author targets & gold smoke finishes.' }),
+  Object.freeze({ id: 'author-hunt', label: 'Author Medal Challenges', level: 12, summary: 'Unlock prestigious Author targets.' }),
 ]);
 
 /**
  * Cosmetics. `paint` entries extend PAINT_OPTIONS in src/config.js by id, `neon` ones NEON_OPTIONS,
- * `smoke` ones SMOKE_OPTIONS; `rim` and `number` are extra slots.
+ * `rim` and `number` are extra slots.
  */
 export const UNLOCKS = Object.freeze([
   { id: 'paint:pearl', slot: 'paint', value: 'pearl', label: 'Himalayan Topo', requires: { level: 1 } },
@@ -210,12 +209,6 @@ export const UNLOCKS = Object.freeze([
   { id: 'neon:violet', slot: 'neon', value: 'violet', label: 'Violet neon', requires: { level: 9 } },
   { id: 'neon:ice', slot: 'neon', value: 'ice', label: 'Ice White neon', requires: { level: 12 } },
   { id: 'neon:rainbow', slot: 'neon', value: 'rainbow', label: 'Rainbow neon', requires: { achievement: 'night-run' } },
-  { id: 'smoke:amber', slot: 'smoke', value: 'amber', label: 'Marigold Haze smoke', requires: { level: 3 } },
-  { id: 'smoke:cyan', slot: 'smoke', value: 'cyan', label: 'Electric Cyan smoke', requires: { level: 5 } },
-  { id: 'smoke:pink', slot: 'smoke', value: 'pink', label: 'Sakura Pink smoke', requires: { level: 7 } },
-  { id: 'smoke:crimson', slot: 'smoke', value: 'crimson', label: 'Crimson Torch smoke', requires: { medalCount: { tier: 'gold', count: 3 } } },
-  { id: 'smoke:lime', slot: 'smoke', value: 'lime', label: 'Acid Lime smoke', requires: { achievement: 'combo-5k' } },
-  { id: 'smoke:gold', slot: 'smoke', value: 'gold', label: '24K Gold Dust smoke', requires: { achievement: 'first-author' } },
   { id: 'paint:minato-gold', slot: 'paint', value: 'minato-gold', label: 'Minato Gold', requires: { achievement: 'tokyo-tower' } },
   { id: 'paint:saltline', slot: 'paint', value: 'saltline', label: 'Saltline Service', requires: { achievement: 'hollow-pumps' } },
   { id: 'paint:obsidian', slot: 'paint', value: 'obsidian', label: 'Obsidian Oni', requires: { achievement: 'all-gold' } },
