@@ -58,6 +58,16 @@ assert.equal(collide(),true);w.mineOpen=true;assert.equal(collide(),false);
 assert.equal(w.sampleGround(w.dock.x,w.dock.z,{}).surface,SURFACE.WOOD);
 assert.equal(w.sampleGround(w.creek.x,w.creek.z,{}).surface,SURFACE.WATER);
 assert.equal(modesForWorld(w)[0].label,'Hollow Creek Circuit');
+// The cave is a real bore through a solid massif: the terrain closes over the
+// carriageway instead of leaving an open trench, and the approach stays open.
+assert.ok(w.cave && w.cave.s1-w.cave.s0>=500,'cave is at least 500 m');
+for(const s of [w.cave.s0+20,(w.cave.s0+w.cave.s1)/2,w.cave.s1-20]){
+  const f=w.roads[w.cave.roadId].frameAt(s,{});
+  assert.ok(w.grid.heightAt(f.x,f.z)-f.y>15,'massif closes over the cave at '+Math.round(s));
+}
+const approach=w.roads[w.cave.roadId].frameAt(w.cave.s0-45,{});
+assert.ok(w.grid.heightAt(approach.x,approach.z)-approach.y<8,'cave approach stays open');
+assert.ok(w.cave.shellHalf>=9&&w.cave.shellHeight>=11,'cave bore clears the carriageway');
 const defs=hollowMissions(w);assert.equal(new Set(defs.map(d=>d.id)).size,14);
 assert.equal(Object.keys(w.sites).length,8);assert.equal(defs.find(d=>d.id==='transmission').goals.length,5);
 for(const def of defs)for(const p of def.goals)assert.ok(Number.isFinite(p.x+p.y+p.z));
@@ -66,4 +76,4 @@ const j=new HollowJournal(storage);
 j.found.add('garage');j.completed.add('pursuit');j.active={id:'transmission',index:3};j.exitKnown=true;j.settings.scares=0;j.save();
 const reload=new HollowJournal(storage);assert.deepEqual([...reload.found],['garage']);
 assert.ok(reload.completed.has('pursuit'));assert.equal(reload.active.index,3);assert.ok(reload.exitKnown);assert.equal(reload.settings.scares,0);
-console.log('Hollow Creek survey, seams, ground surfaces, mine gate, mission data and journal passed. 3D loop distances (main / inner / outer):',measured.map(Math.round));
+console.log('Hollow Creek survey, seams, ground surfaces, cave massif, mine gate, mission data and journal passed. 3D loop distances (main / inner / outer):',measured.map(Math.round));

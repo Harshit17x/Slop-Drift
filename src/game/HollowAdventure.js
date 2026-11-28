@@ -11,6 +11,10 @@ export class HollowAdventure {
     this.journal=new HollowJournal(storage);this.missions=hollowMissions(game.world);
     this.sound=new HollowSound(game.audio,this.journal.settings);
     this.events=new HollowEncounters(game,this.sound,this.journal);
+    if(game.scenery){
+      game.scenery.onThunder=(delay,gain,muffle)=>this.sound.thunder(delay,gain,muffle);
+      game.scenery.onCaveEnter=()=>{this.sound.play('bats',.95);this.sound.play('cave',.65);};
+    }
     this.radio=new HollowRadio(game.root,this.missions,this.journal,id=>this.accept(id),()=>this.takePhoto());
     this.roadLocation={};this.lastRoad=null;this.offMapTime=0;this.boundsCheck=0;
     this.refreshMap();this.clock=0;this.nextRead=0;this.saveAt=0;
@@ -105,6 +109,7 @@ export class HollowAdventure {
   update(dt,state,drift){
     const g=this.game,roam=g.mode.id==='roam',pos=state.position;
     this.clock+=dt;g.scenery.weatherStrength=this.journal.settings.weather;
+    this.sound.insideCave=!!g.scenery.insideCave;
     let nearest=this.sites[0],near=Infinity;
     for(const s of this.sites){const d=distance(s,pos);if(d<near){near=d;nearest=s;}}
     this.sound.update(dt,nearest,near,state);

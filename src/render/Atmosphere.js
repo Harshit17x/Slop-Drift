@@ -376,12 +376,12 @@ export class Atmosphere {
       this.fog.color.setHex(preset.moon ? 0x293f50 : 0x6f939f);
       this.scene.background=this.fog.color.clone();
       this.fogColor.copy(this.fog.color);
-      this.fog.density=preset.moon ? .0095 : .0074;
+      this.fog.density=preset.moon ? .0102 : .0074;
       this.sun.color.setHex(0xadcddc);
-      this.sun.intensity=preset.moon ? .85 : 2.4;
+      this.sun.intensity=preset.moon ? .62 : 2.4;
       this.hemisphere.color.setHex(0xa2c2cc);
       this.hemisphere.groundColor.setHex(0x34454a);
-      this.hemisphere.intensity=1.2;
+      this.hemisphere.intensity=preset.moon ? .98 : 1.2;
       this.stars.visible=false;
     }
     if (this.world?.bridge) {

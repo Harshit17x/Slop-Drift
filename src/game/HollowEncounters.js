@@ -18,7 +18,7 @@ export class HollowEncounters {
     this.pos=new T.Vector3();this.rot=new T.Quaternion();this.frame={};this.loc={};this.visits=0;
   }
   clear(){
-    this.watcher.visible=false;this.phantom.setVisible(false);this.path=null;this.inside=false;
+    this.watcher.visible=false;this.phantom.setVisible(false);this.path=null;this.insideCave=false;this.atMine=false;
     this.game.scenery.outage=0;this.game.scenery.townBlackout=false;
   }
   trigger(key,chance,seconds,action){
@@ -62,13 +62,22 @@ export class HollowEncounters {
       this.ink.opacity=Math.max(0,Math.min(.9,(distance(p,this.watcher.position)-12)/23,(this.watchEnd-this.time)/2));
       if(this.ink.opacity<=.01)this.watcher.visible=false;
     }
-    const tunnel=loc.roadId===2 && loc.distance<8 && loc.s>2457 && loc.s<2552;
-    if(tunnel&&!this.inside){
-      this.visits++;town.tunnelPhase=this.visits;this.sound.play('tunnel',.75);
+    const cave=world.cave;
+    const inCave=cave&&loc.roadId===cave.roadId&&!loc.beyondEnd&&loc.distance<cave.shellHalf+2.5&&loc.s>cave.s0&&loc.s<cave.s1;
+    if(inCave&&!this.insideCave){
+      this.caveVisits=(this.caveVisits||0)+1;town.cavePhase=this.caveVisits;
+    }
+    this.insideCave=inCave;
+    // The mine cutting forks off long before the cave. Reveal it on the mine
+    // approach, where the driver can actually see the old service road.
+    const approach=loc.roadId===2&&!loc.beyondEnd&&loc.distance<12&&loc.s>2360&&loc.s<2520;
+    if(approach&&!this.atMine){
+      this.visits++;
       const reveal=()=>{this.journal.exitKnown=true;this.journal.save();this.game.hud.toast('A green service lamp reveals the mine cutting on your right.','info');};
       if(!this.journal.exitKnown && (def?.id==='route'||this.visits>1 && this.random()<.28))reveal();
     }
-    this.inside=tunnel;town.exitKnown=this.journal.exitKnown||def?.id==='route';world.mineOpen=town.exitKnown;
+    this.atMine=approach;
+    town.exitKnown=this.journal.exitKnown||def?.id==='route';world.mineOpen=town.exitKnown;
     if(this.time>=this.next && state.speed>2 && loc.roadId>=0){
       this.next=this.time+11+this.random()*15;
       const rd=world.roads[loc.roadId],dir=(state.forward.x*loc.tx+state.forward.z*loc.tz)<0?-1:1;

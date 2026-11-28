@@ -6,7 +6,7 @@ export const HOLLOW_SITES = [
   ['wharf','Silent Waterfront',0,2350,-22,'Nobody collected the last ferry manifest. Every passenger signed in the same hand.'],
   ['hospital','Abandoned Hospital',0,3910,23,'All ward clocks stopped when the emergency frequency went silent.'],
   ['church','Forgotten Church',1,515,-23,'The sexton rang the evacuation bell long after the last train left.'],
-  ['mine','Underground Mine',2,2680,19,'An old survey shows a maintenance cut behind the tunnel.'],
+  ['mine','Underground Mine',2,2680,19,'An old survey shows a maintenance cut behind the ridge.'],
   ['factory','Forgotten Factory',2,4980,-34,'Fresh circular skid marks break the dust in the assembly hall.'],
 ];
 export function anchor(world,roadId,s,offset=0) {
