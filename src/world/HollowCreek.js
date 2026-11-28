@@ -10,7 +10,7 @@ const TAU = Math.PI * 2;
 // The old gallery is replaced by a natural massif on the Vanishing Road. The
 // road keeps its surveyed grade while the mountain is raised around it; a
 // rendered rock shell and roof strip turn the carved cutting into a cave.
-const CAVE = { s0: 3950, s1: 4550, slotHalf: 20, roofHalf: 22, shellHalf: 9.5, shellHeight: 11.5, height: 168, radius: 230 };
+const CAVE = { s0: 3950, s1: 4550, roofHalf: 22, shellHalf: 9.5, shellHeight: 11.5, height: 168, radius: 230 };
 function elevation(x,z) {
   return 19 + 5*Math.sin(x/167) + 6*Math.cos(z/194) + 3*Math.sin((x-z)/95)
     +40*Math.exp(-(((x+850)/245)**2+((z+590)/210)**2));
@@ -126,7 +126,7 @@ export async function buildHollowCreek(world,stage) {
   // two portal walls in HollowCave, so the cutting is never visible.
   {
     const {size,cell,heights,half}=world.grid,c=world.cave;
-    const pad=250,otherRoads=world.roads.filter(rd=>rd.id!==c.roadId),loc={};
+    const pad=380,otherRoads=world.roads.filter(rd=>rd.id!==c.roadId),loc={};
     const minX=Math.max(0,Math.floor((caveMinX-pad+half)/cell)),maxX=Math.min(size-1,Math.ceil((caveMaxX+pad+half)/cell));
     const minZ=Math.max(0,Math.floor((caveMinZ-pad+half)/cell)),maxZ=Math.min(size-1,Math.ceil((caveMaxZ+pad+half)/cell));
     for(let iz=minZ;iz<=maxZ;iz++){
@@ -137,10 +137,10 @@ export async function buildHollowCreek(world,stage) {
         // on a bend the sample distance overstates the lateral offset and the
         // cut slope would poke through the shell.
         if(!caveRoad.locate(x,z,loc)||loc.beyondEnd||loc.s<c.s0||loc.s>c.s1)continue;
-        if(loc.distance<=c.slotHalf){
-          heights[iz*size+ix]=Math.min(heights[iz*size+ix],loc.y+loc.lateral*loc.bank);
-          continue;
-        }
+        // Close the massif over the carriageway too, not just beside it. The
+        // terrain is single-sided, so from inside the cave its underside is
+        // culled and the rock shell is all that draws; from outside the
+        // mountain reads as unbroken rock instead of a trench with a lid.
         // Other roads keep their carved corridor even where the massif's
         // outer skirt reaches them.
         let blocked=false;

@@ -1,4 +1,4 @@
-import * as T from 'three';
+﻿import * as T from 'three';
 
 // A natural rock shell is swept along the surveyed road. The terrain keeps the
 // carriageway carved; this module hides the cutting with a roof strip, two
@@ -119,17 +119,23 @@ function sweepShell(world, random) {
     travelled += steps[i];
     const f = road.frameAt(s, {});
     const jitter = (random() - .5) * 1.6;
+    // Slow pinches and swells make chambers and necks instead of a constant bore.
+    const pinch = 1 + .10 * Math.sin(s * .021 + .7) + .055 * Math.sin(s * .053 + 2.1);
     for (let j = 0; j < ring; j += 1) {
       const a = Math.PI * (1 - j / (ring - 1));
-      // Three superimposed waves at different frequencies break the tube into
-      // buttresses, ledges and hollows instead of a smooth extruded arch.
+      // Superimposed waves break the tube into buttresses, ledges and hollows.
+      // The higher frequencies carry most of the amplitude: a cave wall is
+      // craggy at arm's length, not a gently rippled pipe.
       const wobble = 1
-        + .055 * Math.sin(s * .091 + a * 2.7)
-        + .038 * Math.sin(s * .233 - a * 5.1)
-        + .022 * Math.sin(s * .571 + a * 8.3);
-      const rx = (cave.shellHalf + .35) * wobble;
-      const ry = (cave.shellHeight + .35)
-        * (.94 + .055 * Math.sin(s * .067 + a * 2.3) + .028 * Math.sin(s * .311 - a * 4.9));
+        + .085 * Math.sin(s * .091 + a * 2.7)
+        + .062 * Math.sin(s * .233 - a * 5.1)
+        + .040 * Math.sin(s * .571 + a * 8.3)
+        + .028 * Math.sin(s * 1.31 - a * 12.7)
+        + .018 * Math.sin(s * 2.9 + a * 19.1);
+      const rx = (cave.shellHalf + .35) * wobble * pinch;
+      const ry = (cave.shellHeight + .35) * pinch
+        * (.90 + .075 * Math.sin(s * .067 + a * 2.3) + .045 * Math.sin(s * .311 - a * 4.9)
+          + .025 * Math.sin(s * 1.07 + a * 9.3));
       let lat = Math.cos(a) * rx;
       let y = Math.sin(a) * ry;
       if (j === 0 || j === ring - 1) { lat *= 1.03; y = -1.5; }
@@ -156,40 +162,6 @@ function sweepShell(world, random) {
     for (let j = 0; j < ring - 1; j += 1) {
       const a = i * ring + j, b = a + ring, c = a + 1, d = b + 1;
       indices.push(a, b, d, a, d, c);
-    }
-  }
-  const geometry = new T.BufferGeometry();
-  geometry.setAttribute('position', new T.Float32BufferAttribute(positions, 3));
-  geometry.setAttribute('color', new T.Float32BufferAttribute(colors, 3));
-  geometry.setAttribute('uv', new T.Float32BufferAttribute(uvs, 2));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  return geometry;
-}
-
-function roofStrip(world) {
-  const cave = world.cave, road = world.roads[cave.roadId];
-  const half = cave.roofHalf, cols = 12, step = 6;
-  const rows = Math.ceil((cave.s1 - cave.s0 - 2) / step) + 1;
-  const positions = [], colors = [], uvs = [], indices = [];
-  const colour = new T.Color();
-  for (let i = 0; i < rows; i += 1) {
-    const s = cave.s0 + 1 + ((cave.s1 - cave.s0 - 2) * i) / (rows - 1);
-    const f = road.frameAt(s, {});
-    for (let j = 0; j <= cols; j += 1) {
-      const lat = -half + (2 * half * j) / cols;
-      const x = f.x + lat * f.rx, z = f.z + lat * f.rz;
-      positions.push(x, cave.surface(x, z) + .14, z);
-      const n = .5 + .5 * Math.sin(x * .037 + z * .029);
-      colour.setRGB(.035 + .04 * n, .034 + .038 * n, .032 + .034 * n);
-      colors.push(colour.r, colour.g, colour.b);
-      uvs.push((lat + half) / 4, s / 8);
-    }
-  }
-  for (let i = 0; i < rows - 1; i += 1) {
-    for (let j = 0; j < cols; j += 1) {
-      const a = i * (cols + 1) + j, b = a + cols + 1, c = a + 1, d = b + 1;
-      indices.push(a, b, c, b, d, c);
     }
   }
   const geometry = new T.BufferGeometry();
@@ -294,8 +266,11 @@ export function buildHollowCave(world, random) {
   // a hangar. The walls stay black and only the exit glows.
   const shellRock = rock.clone();
   shellRock.fog = false;
+  // Faceted normals at this ring density read as broken rock; smooth normals
+  // turn the whole bore into a plaster tube under the headlights.
+  shellRock.flatShading = true;
+  shellRock.needsUpdate = true;
   add(sweepShell(world, random), shellRock);
-  add(roofStrip(world), rock);
   add(portalFace(world, random, cave.s0, -1), rock);
   add(portalFace(world, random, cave.s1, 1), rock);
 
