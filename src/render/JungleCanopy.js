@@ -25,15 +25,19 @@ export class JungleCanopy {
     const atlas = new THREE.TextureLoader().load(foliageUrl);
     atlas.colorSpace = THREE.SRGBColorSpace;
     atlas.anisotropy = 4;
-    this.foliage = new THREE.MeshStandardMaterial({map:atlas,alphaTest:0.36,side:THREE.DoubleSide,roughness:0.84});
+    this.foliage = new THREE.MeshLambertMaterial({map:atlas,alphaTest:0.36,side:THREE.DoubleSide});
     this.foliage.onBeforeCompile = shader => {
+      // The folded cards share canopy-volume normals. Keep those normals pointing
+      // out of the crown even when the camera sees the reverse of a card.
+      shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_begin>',
+        '#include <normal_fragment_begin>\nnormal *= faceDirection;');
       shader.uniforms.uBreeze = this.wind;
       shader.vertexShader = 'uniform float uBreeze;\n' + shader.vertexShader.replace('#include <begin_vertex>',
         '#include <begin_vertex>\ntransformed.x += 0.025 * position.y * sin(uBreeze * 1.3 + instanceMatrix[3].x * 0.13 + instanceMatrix[3].z * 0.17);');
     };
-    this.bark = new THREE.MeshStandardMaterial({map:barkTexture(),roughness:0.94});
-    this.garden = new THREE.MeshStandardMaterial({vertexColors:true,roughness:0.84,side:THREE.DoubleSide});
-    this.litter = new THREE.MeshStandardMaterial({color:0x6d5f44,roughness:0.97,side:THREE.DoubleSide});
+    this.bark = new THREE.MeshLambertMaterial({map:barkTexture()});
+    this.garden = new THREE.MeshLambertMaterial({vertexColors:true,side:THREE.DoubleSide});
+    this.litter = new THREE.MeshLambertMaterial({color:0x6d5f44,side:THREE.DoubleSide});
     this.beams = shaftMaterial();
     this.shapes = {
       trunk: new THREE.CylinderGeometry(0.62,1,1,8),

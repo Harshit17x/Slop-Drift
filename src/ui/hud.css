@@ -2363,7 +2363,7 @@ button.sdh-upnext-row:hover, button.sdh-upnext-row:focus-visible { outline: 3px 
 .sdh-car-card-top { padding-right: 1.9em; }
 .sdh-car-card-name { font-weight: 700; font-size: 0.98em; letter-spacing: 0.06em; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6); }
 .sdh-car-card-top .sdh-class-badge { font-size: 0.92em; padding: 0.04em 0.4em 0; }
-.sdh-car-card-dt { font-size: 0.76em; font-weight: 700; letter-spacing: 0.08em; color: var(--whitewash); }
+.sdh-car-card-role { font-size: 0.76em; font-weight: 700; letter-spacing: 0.08em; color: var(--whitewash); }
 .sdh-car-card-eq {
   padding: 0.05em 0.45em 0;
   background: var(--marigold);
@@ -2699,7 +2699,7 @@ button.sdh-upnext-row:hover, button.sdh-upnext-row:focus-visible { outline: 3px 
   .sdh-garage-stage { min-height: 8.5em; max-height: 23dvh; order: -1; }
   .sdh-garage-left { width: 100%; max-height: none; overflow: visible; padding: 0.6em 0.8em; gap: 0.38em; }
   .sdh-car-hero { font-size: clamp(1.8em, 6vw, 2.35em); }
-  .sdh-car-blurb { display: none; }
+  .sdh-car-blurb { font-size: 0.9em; }
   .sdh-stat-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.35em 0.7em; }
   .sdh-stat-val { font-size: 1.25em; }
   .sdh-garage-custom { max-height: 24em; }
@@ -3114,9 +3114,9 @@ button.sdh-upnext-row:hover, button.sdh-upnext-row:focus-visible { outline: 3px 
 .sdh-forza-region.is-locked { border-style: dashed; opacity: 0.8; }
 .sdh-forza-region-badge { display: inline-flex; align-items: center; gap: 0.25em; }
 .sdh-forza-region-badge svg { width: 0.95em; height: 0.95em; }
-/* Narrow strips: let the card footer wrap instead of squeezing the drivetrain into a column. */
+/* Narrow strips: let the card footer wrap instead of squeezing the vehicle role into a column. */
 .sdh-car-card-foot { flex-wrap: wrap; row-gap: 0.25em; }
-.sdh-car-card-dt { white-space: nowrap; }
+.sdh-car-card-role { white-space: nowrap; }
 
 /* Challenges count on the Events tab and the title screen. */
 .sdh-tab-count { position: absolute; top: -0.45em; right: -0.45em; min-width: 1.35em; height: 1.35em; padding: 0 0.3em; display: grid; place-items: center; border-radius: 999px; background: var(--truck-red); color: var(--chalk); border: 2px solid var(--ink); font-size: 0.72em; font-style: normal; line-height: 1; }
@@ -3199,7 +3199,7 @@ button.sdh-upnext-row:hover, button.sdh-upnext-row:focus-visible { outline: 3px 
 
 /* Short screens (phone landscape): compact car cards, the map strip without group headings. */
 @media (max-height: 540px) {
-  .sdh-car-card .sdh-mastery, .sdh-car-card-dt { display: none; }
+  .sdh-car-card .sdh-mastery { display: none; }
   .sdh-car-card-main { height: 4.2em; }
   .sdh-lock-divider { font-size: 0.62em; }
   .sdh-region-group[data-group="open"] { display: none; }

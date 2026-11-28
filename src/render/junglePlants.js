@@ -14,7 +14,8 @@ export function plantGeometry(column, row, spread, overhead = false) {
         const fold = (1-Math.abs(w))*0.18;
         const depth = h*spread + fold;
         pos.push(ux*w - uz*depth, overhead ? h*0.68+0.25-fold : h, uz*w + ux*depth);
-        normal.push(ux*w*0.48,0.85,uz*w*0.48);
+        const lift = overhead ? 0.30 + 0.65 * h : 0.55 + 0.35 * h;
+        normal.push(ux*w*0.72 - uz*depth, lift, uz*w*0.72 + ux*depth);
         uv.push((column+0.008+0.984*(w+1)/2)/2,(1-row+0.008+0.984*h)/2);
       }
     }

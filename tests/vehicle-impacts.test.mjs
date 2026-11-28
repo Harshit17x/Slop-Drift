@@ -96,7 +96,7 @@ const obstacleWorld = (ox, oz, radius) => ({
  * climbs. energyGain: peak (kinetic + potential) energy per kg above the start, throttle off.
  */
 function drive(world, { kmh, yawDeg = 0, seconds = 4, throttle = 0.4 }) {
-  const v = new Vehicle({ world, handling: 'Balanced' });
+  const v = new Vehicle({ world, assists: { handling: 'balanced' } });
   v.teleport({ position: { x: 0, y: 0, z: 0 }, quaternion: { x: 0, y: Math.sin(yawDeg * DEG / 2), z: 0, w: Math.cos(yawDeg * DEG / 2) } });
   const ground = {};
   const rideHeight = v.position.y - world.sampleGround(v.position.x, v.position.z, ground).y;

@@ -1,4 +1,4 @@
-// Vehicle tuning: one base car plus handling presets merged over it as plain data.
+// Vehicle tuning: base chassis with per-car and garage overrides.
 // Units are SI throughout: kg, m, N, N/m, N·s/m, N·m, rad (angles given in degrees are named *Deg).
 // Chassis space: -Z forward, +X right, +Y up, origin on the ground under the car centre at rest.
 
@@ -53,7 +53,7 @@ export const BASE_TUNING = Object.freeze({
      */
     rollCentreFront: null,
     rollCentreRear: null,
-    /** Scales the roll arm above explicit roll centres (handling presets: <1 rolls less). */
+    /** Scales the roll arm above explicit roll centres (<1 rolls less). */
     rollMomentScale: 1,
     /** 1/cos(angle between ground normal and ray) is capped at this. */
     maxInvCos: 10,
@@ -78,8 +78,6 @@ export const BASE_TUNING = Object.freeze({
     cancelCap: 0.5,
     /** Height of the lateral force application point: 0 = at CoM height, 1 = at the contact patch. */
     rollInfluence: 0.4,
-    /** 0..1: how much of the remaining grip the drive force may use beyond the lateral demand (0 = raw). */
-    tractionControl: 0,
     /**
      * Load sensitivity: mu falls by this fraction per 100 % of load above the tyre's static corner
      * load (Pacejka's -pDy2; real tyres ~0.1-0.2), clamped to loadSensitivityRange.
@@ -150,14 +148,17 @@ export const BASE_TUNING = Object.freeze({
     mechanicalLockDeg: 42,
     /** When steering into a slide the lock grows by this fraction of the front axle's travel angle. */
     countersteerRange: 1.0,
+    inputExponent: 1,
     /** Normalised steering units per second toward a larger angle / back toward centre. */
     rate: 3.2,
     returnRate: 6.0,
   },
 
   assist: {
-    /** Effective assist = max(player setting, assistFloor). */
-    assistFloor: 0,
+    // Only dedicated drift builds sustain a commanded angle after handbrake release.
+    carryAngleDeg: 0,
+    holdThrottle: 0.2,
+    releaseRate: 1.6,
     /** Body slip band over which the assist fades in. */
     slipStartDeg: 6,
     slipFullDeg: 24,
@@ -213,23 +214,6 @@ export const BASE_TUNING = Object.freeze({
   },
 });
 
-/** Presets are partial objects deep-merged over BASE_TUNING. No branches in the physics. */
-export const HANDLING = Object.freeze({
-  Arcade: {
-    tire: { mu: 1.28, peakSlipDeg: 9, slideRatio: 0.9, falloff: 0.9, lockedFriction: 0.78, rollInfluence: 0.3, tractionControl: 0.6 },
-    steering: { rate: 4.5, returnRate: 8, lockSpeedRef: 20 },
-    assist: { assistFloor: 0.45, yawDamping: 2.8, steerBlend: 0.85 },
-    suspension: { antiRollFront: 30000, antiRollRear: 18000, rollMomentScale: 0.8 },
-  },
-  Balanced: {},
-  Sim: {
-    tire: { mu: 1.08, peakSlipDeg: 7, slideRatio: 0.78, falloff: 2.0, lockedFriction: 0.68, rollInfluence: 0.55 },
-    steering: { rate: 2.8, returnRate: 5 },
-    assist: { assistFloor: 0, yawDamping: 1.2, steerBlend: 0.7 },
-    suspension: { antiRollFront: 24000, antiRollRear: 17000 },
-  },
-});
-
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -248,9 +232,6 @@ function deepMerge(base, over) {
   return out;
 }
 
-/** Full tuning object for a preset name (unknown names fall back to 'Balanced'). */
-export function resolveTuning(name = 'Balanced', overrides = null) {
-  const preset = HANDLING[name] || HANDLING.Balanced;
-  const merged = deepMerge(BASE_TUNING, preset);
-  return overrides ? deepMerge(merged, overrides) : merged;
+export function resolveTuning(overrides = null) {
+  return deepMerge(BASE_TUNING, overrides);
 }

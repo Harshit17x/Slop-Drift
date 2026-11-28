@@ -220,7 +220,7 @@ export class Game {
     this.hud.setMap(this.map.id);
     this.hud.setTrack(this.world.getMapData());
     this.meta = new MetaLayer({ career: this.career, hud: this.hud, scene: this.scene, wheelLayout: this.vehicle.wheelLayout, game: this, mapId: this.map.id });
-    this.traffic = new Traffic(this.scene, this.vehicle.wheelLayout);
+    this.traffic = Traffic.forMap(this.map, this.scene, this.vehicle.wheelLayout);
     if (this.map.id === 'tokyo') {
       const { TokyoNight } = await import('../game/TokyoNight.js');
       this.adventure = new TokyoNight(this);
@@ -235,6 +235,7 @@ export class Game {
     }
     this.buildCourseProps();
     this.createNetwork();
+    this.applyActiveVehicleTuning();
     this.applySettings(this.settings, { save: false });
     this.meta.refreshAll();
     this.refreshMapQuests();
@@ -297,7 +298,7 @@ export class Game {
   }
 
   createVehicle(initialCarId = 'hatch') {
-    this.vehicle = new Vehicle({ world: this.world, handling: this.settings.handling });
+    this.vehicle = new Vehicle({ world: this.world, assists: this.settings });
     this.drift = new DriftScorer();
     this.carId = getCar(initialCarId).id;
     this.carModelLoading = null;
@@ -462,8 +463,7 @@ export class Game {
     this.car.setNeon({ level: neonLevel(this.settings.timeOfDay) });
     this.remotePlayers?.setNeonLevel(neonLevel(this.settings.timeOfDay));
     this.remotePlayers?.setNight?.(this.atmosphere.isNight || this.atmosphere.timeOfDay === 'sunset' || this.atmosphere.timeOfDay === 'dawn');
-    this.applyActiveVehicleTuning();
-    this.vehicle.setAssists({ driftAssist: this.settings.driftAssist, abs: this.settings.abs, transmission: this.settings.transmission });
+    this.vehicle.setAssists(this.settings);
     this.input.setManualShift(this.settings.transmission === 'manual');
     this.input.setTouchSteer?.(this.settings.touchSteer);
     this.audio.setVolume(this.settings.volume);
@@ -567,11 +567,11 @@ export class Game {
     this.nitro = nitroStats.capacity;
     this.fujimiClipsHit = new Set();
     this.smokeShown = null;
-    if (this.settings.traffic && !this.world.apex && mode.id !== 'apex-meeting') {
+    if (this.traffic && this.settings.traffic) {
       this.traffic.start(this.world, mode, `${this.map.id}:${mode.id}`);
       this.traffic.update(0, { position: { x: Infinity, z: Infinity }, speed: 0 });
     } else {
-      this.traffic.clear();
+      this.traffic?.clear();
     }
     this.stuckTimer = 0;
     this.world.bridge?.reset();
@@ -607,7 +607,7 @@ export class Game {
   applyActiveVehicleTuning() {
     const car = getCar(this.carId);
     const upgrades = this.career?.carUpgrades?.(car.id);
-    this.vehicle.setHandling(this.settings.handling, applyCarUpgrades(car, upgrades));
+    this.vehicle.setTuning(applyCarUpgrades(car, upgrades));
     this.input.setNitroAvailable?.(hasCarNitro(car, upgrades));
   }
 
@@ -995,7 +995,7 @@ export class Game {
     }
     this.checkCourseTraps(state);
 
-    const pass = this.traffic.update(this.session.hud.elapsed, state);
+    const pass = this.traffic?.update(this.session.hud.elapsed, state);
     if (pass === 'nearMiss') {
       // Near miss: points into the running drift (or straight into the bank), combo kept alive, a nitro top-up.
       if (drift.active) this.drift.score += NEAR_MISS_BONUS;

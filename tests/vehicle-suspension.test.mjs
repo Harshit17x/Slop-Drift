@@ -35,9 +35,9 @@ const kerbs = () => ({
 const ctl = (o = {}) => ({ throttle: 0, brake: 0, steer: 0, handbrake: false, boost: false, shift: 0, ...o });
 
 function make(car, world, y = 0) {
-  const v = new Vehicle({ world, handling: 'Balanced' });
-  v.setHandling('Balanced', car.tuning);
-  v.setAssists({ driftAssist: 0.6, abs: true, transmission: 'auto' });
+  const v = new Vehicle({ world, assists: { handling: 'balanced' } });
+  v.setTuning(car.tuning);
+  v.setAssists({ driftAssist: true, abs: true, transmission: 'auto' });
   v.teleport({ position: { x: 0, y, z: 0 }, quaternion: { x: 0, y: 0, z: 0, w: 1 } });
   return v;
 }

@@ -11,7 +11,7 @@
 //   5. Integrate the pose, resolve barrier / obstacle contacts, guard against NaN.
 
 import * as THREE from 'three';
-import { CONFIG, SURFACE, SURFACE_PROPS } from '../config.js';
+import { CONFIG, DEFAULT_SETTINGS, HANDLING_ASSISTS, SURFACE, SURFACE_PROPS } from '../config.js';
 import { clamp, saturate, smoothstep, lerp, DEG2RAD } from '../core/math.js';
 import { resolveTuning } from './tuning.js';
 import { Drivetrain } from './Drivetrain.js';
@@ -54,7 +54,7 @@ function num(value, fallback = 0) {
 export class Vehicle {
   constructor(options = {}) {
     this.world = options.world || null;
-    this.assists = { driftAssist: 0.6, abs: true, transmission: 'auto' };
+    this.assists = { handling: DEFAULT_SETTINGS.handling, driftAssist: DEFAULT_SETTINGS.driftAssist, abs: true, transmission: 'auto' };
 
     // Rigid body (position is the centre of mass).
     this.position = new THREE.Vector3();
@@ -81,6 +81,7 @@ export class Vehicle {
 
     // Driver-facing dynamic state.
     this.steerInput = 0;
+    this.slideIntent = 0;
     this.steerAngle = 0;
     this.throttle = 0;
     this.brake = 0;
@@ -147,17 +148,17 @@ export class Vehicle {
     };
 
     this.drivetrain = null;
-    this.setHandling(options.handling || 'Balanced');
+    this.setTuning(options.tuning);
     if (options.assists) this.setAssists(options.assists);
     this.teleport(options.spawn || { position: { x: 0, y: 0, z: 0 }, quaternion: { x: 0, y: 0, z: 0, w: 1 } });
   }
 
   // ---------------------------------------------------------------- configuration
 
-  setHandling(name, overrides = null) {
-    const t = resolveTuning(name, overrides);
-    this.handlingName = name;
+  setTuning(overrides = null) {
+    const t = resolveTuning(overrides);
     this.tuning = t;
+    this.slideIntent = 0;
     this.roadTemperature = 28;
     const g = t.geometry;
     const s = t.suspension;
@@ -208,7 +209,11 @@ export class Vehicle {
   }
 
   setAssists(assists = {}) {
-    if (assists.driftAssist !== undefined) this.assists.driftAssist = saturate(num(assists.driftAssist, 0.6));
+    if (Object.hasOwn(HANDLING_ASSISTS, assists.handling)) this.assists.handling = assists.handling;
+    if (assists.driftAssist !== undefined) {
+      this.assists.driftAssist = Boolean(assists.driftAssist);
+      if (!this.assists.driftAssist) this.slideIntent = 0;
+    }
     if (assists.abs !== undefined) this.assists.abs = Boolean(assists.abs);
     if (assists.transmission !== undefined) this.assists.transmission = assists.transmission === 'manual' ? 'manual' : 'auto';
   }
@@ -400,6 +405,7 @@ export class Vehicle {
     this.drivetrain.reset();
     this.throttle = 0;
     this.steerInput = 0;
+    this.slideIntent = 0;
     this.steerAngle = 0;
     this.reverseTimer = 0;
     this.brakeLatch = false;
@@ -521,7 +527,7 @@ export class Vehicle {
 
     // ---- steering
     const st = t.steering;
-    const target = steerIn;
+    const target = st.inputExponent === 1 ? steerIn : Math.sign(steerIn) * Math.abs(steerIn) ** st.inputExponent;
     const growing = Math.abs(target) > Math.abs(this.steerInput) && Math.sign(target) === Math.sign(this.steerInput || target);
     const rate = (growing ? st.rate : st.returnRate) * dt;
     const error = target - this.steerInput;
@@ -541,18 +547,36 @@ export class Vehicle {
     // so a full countersteer can always point the wheels past the travel direction (as a real rack can).
     if (this.steerInput * frontTravel > 0) lock = Math.min(mech, lock + Math.abs(frontTravel) * st.countersteerRange);
     let steer = this.steerInput * lock;
+    const handling = HANDLING_ASSISTS[this.assists.handling];
+    const bodySlip = speed > 1.5 ? Math.atan2(latSpeed, Math.abs(fwdSpeed)) : 0;
+    // A handbrake tap requests a slide. Keep that intent while the driver powers through it,
+    // then progressively restore normal traction when they lift or straighten the car.
+    const as = t.assist;
+    const driftBuild = as.carryAngleDeg > 0 && this.assists.driftAssist;
+    if (driftBuild && handbrake && fwdSpeed > 5) this.slideIntent = 1;
+    else if (!driftBuild) this.slideIntent = 0;
+    else {
+      const carrying = drive > as.holdThrottle && fwdSpeed > 5
+        && (Math.abs(this.steerInput) > 0.25 || Math.abs(bodySlip) > 10 * DEG2RAD);
+      this.slideIntent = Math.max(0, this.slideIntent - dt * (carrying ? 0 : as.releaseRate));
+    }
+    const driftWindow = handbrake && fwdSpeed > 5 ? 1 : this.slideIntent;
+    // At speed, pushing the front tyres well beyond peak slip gives *less* turning force.
+    // Ease excess steering lock while leaving fine inputs and deliberate countersteer intact.
+    const steerHelp = handling * smoothstep(12, 30, fwdSpeed) * (1 - driftWindow);
+    const peakLock = t.tire.peakSlipDeg * DEG2RAD;
+    const usefulLock = Math.max(peakLock * 0.45, peakLock + Math.sign(steer) * frontTravel);
+    steer = lerp(steer, clamp(steer, -usefulLock, usefulLock), steerHelp);
 
     // Drift assist: blend the front wheels toward the front axle's direction of travel.
-    const as = t.assist;
-    const assist = Math.max(this.assists.driftAssist, as.assistFloor);
-    const bodySlip = speed > 1.5 ? Math.atan2(latSpeed, Math.abs(fwdSpeed)) : 0;
+    const assist = this.assists.driftAssist && fwdSpeed > 2 ? 1 : 0;
     const slipFactor = smoothstep(as.slipStartDeg * DEG2RAD, as.slipFullDeg * DEG2RAD, Math.abs(bodySlip)) * smoothstep(as.minSpeed * 0.6, as.minSpeed, speed);
     const assistAmount = assist * slipFactor;
     if (assistAmount > 0 && fwdSpeed > 2) {
       const assisted = frontTravel + this.steerInput * Math.min(lock, st.maxLockDeg * DEG2RAD) * as.driverAuthority;
       // A committed steering command takes priority when catching or releasing a slide.
       const driverOverride = smoothstep(0.25, 0.95, Math.abs(this.steerInput));
-      steer = lerp(steer, assisted, assistAmount * as.steerBlend * (1 - driverOverride));
+      steer = lerp(steer, assisted, assistAmount * as.steerBlend * (1 - 0.65 * driverOverride));
     }
     this.steerAngle = clamp(steer, -mech, mech);
 
@@ -732,6 +756,10 @@ export class Vehicle {
 
       let brakeForce = 0;
       if (brakePedal > 0) brakeForce = brakePedal * b.maxForce * (w.front ? b.frontBias : 1 - b.frontBias) * 0.5;
+      // Trail-braking aid: taper the pedal as lateral slip builds. An unloaded rear
+      // tyre receives less braking, leaving it enough lateral force to follow the front.
+      const cornerLoad = smoothstep(0, peakSlip, Math.atan2(Math.abs(w.vLat), Math.max(1, Math.abs(w.vLong))));
+      brakeForce *= 1 - handling * cornerLoad * smoothstep(4, 14, fwdSpeed) * (w.front ? 0.28 : 0.58);
       w.locked = (!w.front && handbrake) || (!abs && brakeForce > w.muN * b.lockThreshold && Math.abs(w.vLong) > 1.5);
 
       if (w.locked) {
@@ -781,16 +809,16 @@ export class Vehicle {
         fy = -Math.sign(w.slipAngle) * mag * w.blend;
       }
       // Traction control: let drive use only what lateral demand leaves (blended by the setting).
-      if (tire.tractionControl > 0 && w.driven && fx > 0) {
+      if (handling > 0 && w.driven && drive > 0 && fx * driveForce > 0) {
         const room = Math.sqrt(Math.max(0, w.muN * w.muN - fy * fy));
-        if (fx > room) {
+        if (Math.abs(fx) > room) {
           w.tcActive = true;
-          fx = lerp(fx, room, tire.tractionControl);
+          fx = lerp(fx, Math.sign(fx) * room, handling * (1 - 0.75 * driftWindow));
         }
       }
       // Under trail braking the requested longitudinal force also uses the contact patch.
       // Reserve its share here. The impulse solver applies the actual braking below.
-      if (tire.combinedBraking && brakeForce > 0 && w.blend > 0) {
+      if ((tire.combinedBraking || handling > 0) && brakeForce > 0 && w.blend > 0) {
         const brakingDemand = Math.min(brakeForce, w.muN);
         const combined = Math.hypot(fx - Math.sign(w.vLong) * brakingDemand, fy);
         if (combined > w.muN) fy *= w.muN / combined;
@@ -810,7 +838,7 @@ export class Vehicle {
 
       // Constraint budgets (used by the velocity solver after integration).
       let room = Math.sqrt(Math.max(0, w.muN * w.muN - fx * fx - fy * fy));
-      if (tire.combinedBraking && brakeForce > 0 && w.blend === 1) {
+      if ((tire.combinedBraking || handling > 0) && brakeForce > 0 && w.blend === 1) {
         // Signed drive/overrun is already applied. Bound the FINAL longitudinal force.
         room = Math.max(0, Math.sqrt(Math.max(0, w.muN ** 2 - fy ** 2)) + Math.sign(w.vLong) * fx);
       }
@@ -875,10 +903,31 @@ export class Vehicle {
       this.torque.addScaledVector(this.angularVelocity, -this.inertiaY * 2 * sub);
     }
 
-    // ---- assist yaw damping (only while sliding)
-    if (assistAmount > 0 && contacts > 0) {
+    // While carrying a requested drift, follow the heading of the moving car with a
+    // throttle- and steer-selected slip angle. Only rotate the chassis: the tyres
+    // still have to supply the cornering force and determine the path through the bend.
+    const stability = handling * (1 - driftWindow) * smoothstep(5, 20, fwdSpeed)
+      * smoothstep(1.5 * DEG2RAD, 8 * DEG2RAD, Math.abs(bodySlip));
+    const driftEntry = assist * this.slideIntent * drive * Math.abs(this.steerInput) * smoothstep(6, 12, fwdSpeed);
+    const driftControl = Math.max(assistAmount, driftEntry);
+    if (contacts > 0 && (driftControl > 0 || stability > 0)) {
       const yawRate = this.angularVelocity.dot(this.up);
-      this.torque.addScaledVector(this.up, -as.yawDamping * assistAmount * this.inertiaY * yawRate);
+      const carry = handbrake ? 0 : this.slideIntent * drive;
+      const targetSlip = -this.steerInput * as.carryAngleDeg * DEG2RAD;
+      const pathYaw = -(this.force.dot(this.right) * Math.cos(bodySlip)
+        - this.force.dot(this.forward) * Math.sin(bodySlip)) * this.invMass / Math.max(speed, 5);
+      const targetYaw = pathYaw + 3 * (targetSlip - bodySlip);
+      const driftCorrection = lerp(-as.yawDamping * yawRate, 5 * (targetYaw - yawRate), carry);
+      // In a normal bend, damp excess rotation around the path the tyres are actually
+      // following. Small slip angles are useful for cornering and need no correction.
+      const excessSlip = bodySlip - clamp(bodySlip, -2 * DEG2RAD, 2 * DEG2RAD);
+      const stabilityCorrection = 7 * (pathYaw - 4 * excessSlip - yawRate);
+      const correction = driftCorrection * driftControl + stabilityCorrection * stability;
+      // Scale authority to the loaded contact patches, including surface and tyre grip.
+      let availableMoment = 0;
+      for (const w of this.wheels) if (w.contact) availableMoment += w.muN * this.wheelbase * 0.35;
+      const moment = clamp(correction * this.inertiaY, -availableMoment, availableMoment);
+      this.torque.addScaledVector(this.up, moment);
     }
 
     // ---- integrate velocities (semi-implicit Euler)

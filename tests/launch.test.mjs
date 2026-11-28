@@ -5,7 +5,9 @@ import { mirroredStorage, profileXp } from '../src/platform/progressStorage.js';
 import { CrazyGamesPlatform } from '../src/platform/CrazyGames.js';
 import { ClipZones, findApexes } from '../src/render/ClipZones.js';
 import { SpeedTraps, findSpeedTraps } from '../src/render/SpeedTraps.js';
-import { judgePass, spawnTraffic, trafficPose } from '../src/game/Traffic.js';
+import { Group } from 'three';
+import { MAPS } from '../src/world/maps.js';
+import { Traffic, judgePass, spawnTraffic, trafficPose } from '../src/game/Traffic.js';
 
 let failures = 0;
 let passes = 0;
@@ -98,6 +100,13 @@ check('leaving the zone re-arms it', clips.check(at(z0.x), { active: true }) !==
 
 // ---- traffic: layout, motion and near-miss judging
 const openRoute = { closed: false, direction: 1, startS: 100, finishS: 2100, length: 2000 };
+const trafficMaps = new Set(['mussoorie', 'alpine', 'tokyo', 'hollow']);
+for (const map of Object.values(MAPS)) {
+  const scene = new Group();
+  const traffic = Traffic.forMap(map, scene);
+  check(map.id + ' follows the road traffic map list',
+    Boolean(traffic) === trafficMaps.has(map.id) && scene.children.length === Number(trafficMaps.has(map.id)));
+}
 const cars = spawnTraffic(openRoute, 2300, 'mussoorie:climb');
 check('traffic is dense and fixed per event', cars.length === 15 && JSON.stringify(cars) === JSON.stringify(spawnTraffic(openRoute, 2300, 'mussoorie:climb')));
 check('no traffic car starts on the grid', cars.every((c) => c.s0 - openRoute.startS >= 180));

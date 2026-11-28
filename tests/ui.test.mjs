@@ -26,6 +26,23 @@ import { resolveAtmospherePreset } from '../src/render/Atmosphere.js';
 let passed = 0;
 const test = (name, fn) => { fn(); passed += 1; console.log(`ok - ${name}`); };
 
+test('driving assist defaults, legacy saves, and all six independent combinations', () => {
+  assert.equal(normalizeSettings({}).handling, 'full');
+  assert.equal(normalizeSettings({}).driftAssist, true);
+  assert.equal(normalizeSettings({ handling: 'Balanced' }).handling, 'full');
+  assert.equal(normalizeSettings({ handling: 'Arcade' }).handling, 'full');
+  assert.equal(normalizeSettings({ handling: 'Sim' }).handling, 'none');
+  assert.equal(normalizeSettings({ driftAssist: 0.6 }).driftAssist, true);
+  assert.equal(normalizeSettings({ driftAssist: 0 }).driftAssist, false);
+  for (const handling of ['none', 'balanced', 'full']) {
+    for (const driftAssist of [true, false]) {
+      const saved = JSON.parse(JSON.stringify(normalizeSettings({ handling, driftAssist })));
+      assert.equal(normalizeSettings(saved).handling, handling);
+      assert.equal(normalizeSettings(saved).driftAssist, driftAssist);
+    }
+  }
+});
+
 test('formatTime', () => {
   assert.equal(formatTime(0), '0:00.00');
   assert.equal(formatTime(5.25), '0:05.25');
