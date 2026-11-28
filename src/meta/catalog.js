@@ -105,9 +105,9 @@ export const CREDITS = Object.freeze({
   nearMiss: 10,
 });
 
-/** Difficulty bonus multipliers for Sim handling and Manual transmission (+15% each). */
+/** Difficulty bonus multipliers for unassisted handling and Manual transmission (+15% each). */
 export const PRO_BONUS = Object.freeze({
-  simHandling: 0.15,
+  unassistedHandling: 0.15,
   manualGears: 0.15,
 });
 
@@ -169,7 +169,7 @@ export const FEATURE_UNLOCKS = Object.freeze([
   Object.freeze({ id: 'tuning-1', label: 'Garage Upgrades Stage 1', level: 2, summary: 'Unlock Stage 1 engine, tires, nitrous & brake kits.' }),
   Object.freeze({ id: 'smoke', label: 'Custom Tire Smoke Colors', level: 4, summary: 'Unlock colored drift smoke trails in the Garage.' }),
   Object.freeze({ id: 'tuning-2', label: 'Garage Upgrades Stage 2', level: 5, summary: 'Unlock twin-scroll turbos, angle kits & dual N2O.' }),
-  Object.freeze({ id: 'pro-bonus', label: 'Pro Difficulty Bonus (+30%)', level: 6, summary: 'Earn +15% XP & CR each for Sim handling and Manual gears.' }),
+  Object.freeze({ id: 'pro-bonus', label: 'Pro Difficulty Bonus (+30%)', level: 6, summary: 'Earn +15% XP & CR each for unassisted handling and Manual gears.' }),
   Object.freeze({ id: 'tuning-3', label: 'Pro Race Spec Stage 3', level: 9, summary: 'Unlock top-tier forged internals, compounds & cryo N2O.' }),
   Object.freeze({ id: 'author-hunt', label: 'Author Medal Challenges', level: 12, summary: 'Unlock prestigious Author targets & gold smoke finishes.' }),
 ]);
@@ -277,7 +277,7 @@ export const ACHIEVEMENTS = Object.freeze([
   { id: 'medals-10', title: 'Trophy Shelf', description: 'Earn 10 medals across any events.', event: 'medals:10', xp: 250 },
   { id: 'medals-25', title: 'Podium Collector', description: 'Earn 25 medals across any events.', event: 'medals:25', xp: 600 },
   { id: 'all-gold', title: 'Mountain Master', description: 'Earn gold or better in every event on a map.', event: 'all-gold', xp: 1000 },
-  { id: 'purist-gold', title: 'Zero-Assist Purist', description: 'Earn Gold with Sim handling, Manual gears, ABS off, and 0% Drift Assist.', event: 'purist-gold', xp: 500 },
+  { id: 'purist-gold', title: 'Zero-Assist Purist', description: 'Earn Gold with unassisted handling, Manual gears, ABS off, and Drift Assist off.', event: 'purist-gold', xp: 500 },
   { id: 'underdog', title: 'Underdog Run', description: 'Earn Gold in the Hill 4x4 or an un-upgraded Rally Hatch.', event: 'underdog', xp: 250 },
   { id: 'daily-1', title: 'Daily Driver', description: 'Complete a daily challenge.', event: 'daily', xp: 50 },
   { id: 'streak-7', title: 'Week Streak', description: 'Complete the daily challenge 7 days in a row.', stat: 'dailyStreakBest', value: 7, xp: 500 },

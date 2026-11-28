@@ -1142,11 +1142,11 @@ export class Career {
       this.addCredits(CREDITS.personalBest, 'Personal best');
     }
 
-    // Pro difficulty bonus when unlocked (Sim handling / Manual transmission).
+    // Pro difficulty bonus when unlocked (unassisted handling / Manual transmission).
     const settings = options.settings || run.settings;
     let proPct = 0;
     if (settings && this.isFeatureUnlocked('pro-bonus')) {
-      if (settings.handling === 'Sim') proPct += PRO_BONUS.simHandling;
+      if (settings.handling === 'none') proPct += PRO_BONUS.unassistedHandling;
       if (settings.transmission === 'manual') proPct += PRO_BONUS.manualGears;
     }
     if (proPct > 0) {
@@ -1183,7 +1183,7 @@ export class Career {
         const upgrades = this.carUpgrades(usedCar);
         const totalStages = UPGRADE_SLOTS.reduce((s, slot) => s + (upgrades[slot.id] || 0), 0);
         if (usedCar === 'thar' || (usedCar === 'hatch' && totalStages === 0)) this.trigger('underdog');
-        if (settings && settings.handling === 'Sim' && settings.transmission === 'manual' && !settings.abs && settings.driftAssist === 0) {
+        if (settings && settings.handling === 'none' && settings.transmission === 'manual' && !settings.abs && settings.driftAssist === false) {
           this.trigger('purist-gold');
         }
       }

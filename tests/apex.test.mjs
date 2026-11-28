@@ -167,7 +167,7 @@ assert(repaired.repair);assert.equal(service.stops,1);assert.equal(service.fuel,
 const controls={throttle:1,brake:0};service.controls(controls,{speedKmh:76});assert.equal(controls.throttle,0);assert(controls.brake>0);
 for(const [routeId,route] of Object.entries(world.routes)){
 const road=world.roads[route.roadId],mode={id:routeId,route:routeId,laps:1,trackLimits:false},session=new RaceSession({world,mode});
-const car=new Vehicle({world,handling:'Balanced'});car.setHandling('Balanced',getCar('gt').tuning);car.teleport(world.getSpawn(routeId,route.startS-6));
+const car=new Vehicle({world,assists:{handling:'balanced'}});car.setTuning(getCar('gt').tuning);car.teleport(world.getSpawn(routeId,route.startS-6));
 let maxOffset=0,air=0;
 const loc={},ahead={},probe={};
 for(let i=0;i<60*840&&!session.finished;i++){

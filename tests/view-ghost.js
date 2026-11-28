@@ -56,7 +56,7 @@ const camera = cameraRig.camera;
 const t0 = performance.now();
 const road = world.roads[route.roadId];
 const vehicle = new Vehicle({ world });
-vehicle.setAssists({ driftAssist: 0.6, abs: true, transmission: 'auto' });
+vehicle.setAssists({ driftAssist: true, abs: true, transmission: 'auto' });
 let state = vehicle.teleport(world.getSpawn(routeId, route.startS + Number(params.get('start') || 0) * route.direction));
 const loc = {};
 const frame = {};

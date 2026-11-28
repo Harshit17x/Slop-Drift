@@ -148,7 +148,7 @@ export class TokyoCity {
   constructor({world,quality}){
     this.world=world;this.group=new T.Group();this.group.name='Tokyo After Hours';
     this.kit=new CityBatch(this.group);this.rand=createRandom(81086);
-    this.materials=[];this.textures=[];this.sources=[];this.slots=[];this.walks=[];this.solid=[];this.time=0;
+    this.materials=[];this.textures=[];this.sources=[];this.slots=[];this.solid=[];this.time=0;
     this.lots=new Map();this.junctionSites=[];this.gapStats={sealed:0,cross:0,corners:0,signals:0,crossings:0,shops:0,wide:0,shopMiss:0};
     this.world.tokyoPavements=[];
     this.concrete=this.material({color:0xffffff,roughness:.78});
@@ -578,25 +578,6 @@ export class TokyoCity {
       this.part(f,w*u,side*(front-.96),2.25,.09,3.75,.13,this.steel,0x2e3036);
       if(n%3===1)this.part(f,w*u,side*(front-1.7),3.32,w*.22,.87,.13,this.concrete,0x9b333d);
     }
-    if(n%2===0 && r.id<2 && this.clearsRoads(f,side*(curb+1.15),w*.68,.7,2,r)){
-      this.walks.push({f,side:side*(curb+1.15),span:w*.32});
-    }
-    if(style==='electric'||style==='alley'){
-      for(let j=0;j<2+n%3;j++){
-        const u=(j-1)*1.24+w*.15,off=side*(front-1.68-(j%2)*.41);
-        const coat=[0x504762,0x93634b,0x526075][(j+n)%3],base=.14;
-        this.part(f,u,off,base+1.04,.48,.75,.32,this.concrete,coat,'lamp');
-        this.part(f,u,off,base+1.40,.13,.17,.14,this.concrete,0xab806a,'round');
-        this.part(f,u,off,base+1.54,.25,.31,.25,this.concrete,0xc89c80,'lamp');
-        this.part(f,u,off,base+1.64,.26,.18,.27,this.concrete,0x302b2c,'lamp');
-        for(const side of [-1,1]){
-          this.part(f,u+side*.10,off,base+.43,.20,.86,.23,this.concrete,0x32363c,'round');
-          this.part(f,u+side*.10,off+.04,base+.07,.18,.14,.28,this.steel,0x2b292b,'lamp');
-          this.part(f,u+side*.22,off,base+1.05,.15,.54,.19,this.concrete,coat,'lamp');
-          this.part(f,u+side*.22,off,base+.78,.10,.14,.12,this.concrete,0xb98b73,'lamp');
-        }
-      }
-    }
     if(n%3===0){
       const behind=side*(front+d+12),bw=w*1.32,bh=h+12+n*4;
       if(this.clearsRoads(f,behind,bw,16,bh) && Math.hypot(p.x-this.world.tower.x,p.z-this.world.tower.z)>180){
@@ -784,9 +765,7 @@ export class TokyoCity {
           this.part(mid,0,-roadWidth*.42,6.75,.25,.28,roadWidth*1.2,this.steel);
           this.part(mid,0,-roadWidth*.42,7.1,.22,2.15,6.4,this.sign(10,false,['湾岸線 ↑','BAYSHORE ROUTE  /  B'],'#17654e'));
         }
-        // Tokyo's pavements are continuous raised platforms. They carry the
-        // pedestrians, vending machines and shop spill, and the physics samples
-        // the same +0.155 m deck so wheels never sink into the city fill.
+        // The pavement and its wheel contact surface share a +0.155 m deck.
         if(r!==entry && Math.abs(f.y)<1.6){
           const curb=r.halfWidth[0];
           for(const side of [-1,1]){
@@ -801,8 +780,6 @@ export class TokyoCity {
             // Tactile guidance strip and transverse expansion joints.
             this.part(mid,0,center,.162,span+.12,.006,.30,this.concrete,0xc7a03a,'plane');
             this.part(mid,0,center,.161,.045,.006,walk-.04,this.concrete,0x66645f,'plane');
-            // Nightlife footfall: a steady stream of people along both shopfronts.
-            if(dense && s%18===0)this.walks.push({f:{...mid},side:side*(curb+1.35),span:4.2});
           }
         }
         if(mid.y>=-1.8 && s%45===0){

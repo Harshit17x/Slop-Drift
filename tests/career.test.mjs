@@ -134,10 +134,10 @@ for (const modeId of ['descent']) {
   career.beginRun({ modeId });
   career.finishRun(result(modeId, { time: MEDAL_TARGETS[modeId].gold - 0.1 }));
 }
-career.beginRun({ modeId: 'drift', settings: { handling: 'Sim', transmission: 'manual', abs: false, driftAssist: 0 } });
+career.beginRun({ modeId: 'drift', settings: { handling: 'none', transmission: 'manual', abs: false, driftAssist: false } });
 summary = career.finishRun(result('drift', { time: 120, score: MEDAL_TARGETS.drift.gold + 10 }));
 check('gold everywhere unlocks Mountain Master and Alpine Specialist', Boolean(career.profile.achievements['all-gold']) && Boolean(career.profile.achievements['alpine-silver']));
-check('Zero-Assist Purist achievement triggers on Sim+Manual+NoABS+0 assist gold', Boolean(career.profile.achievements['purist-gold']));
+check('Zero-Assist Purist achievement triggers on unassisted handling+Manual+NoABS+0 assist gold', Boolean(career.profile.achievements['purist-gold']));
 check('Mountain Master unlocks Obsidian', career.unlockedIds().has('paint:obsidian'));
 check('5 golds unlock gold rims', career.unlockedIds().has('rim:gold'));
 

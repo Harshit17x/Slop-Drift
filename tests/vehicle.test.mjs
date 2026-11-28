@@ -102,9 +102,9 @@ function controls(o = {}) {
   return { throttle: 0, brake: 0, steer: 0, handbrake: false, boost: false, shift: 0, ...o };
 }
 
-function makeVehicle(world, handling = 'Balanced', assists = {}) {
-  const v = new Vehicle({ world, handling });
-  v.setAssists({ driftAssist: 0.6, abs: true, transmission: 'auto', ...assists });
+function makeVehicle(world, handling = 'balanced', assists = {}) {
+  const v = new Vehicle({ world, assists: { handling } });
+  v.setAssists({ driftAssist: true, abs: true, transmission: 'auto', ...assists });
   return v;
 }
 
@@ -183,7 +183,7 @@ function testPedalAndWheelResponse() {
 
 function testSettle() {
   console.log('\nSettling at rest');
-  for (const name of ['Arcade', 'Balanced', 'Sim']) {
+  for (const name of ['full', 'balanced', 'none']) {
     const v = makeVehicle(flatWorld(), name);
     let s = v.getState();
     const p0 = s.position.clone();
@@ -191,7 +191,7 @@ function testSettle() {
     s = run(v, 5, (t, st) => { maxSpeed = Math.max(maxSpeed, st.speed); return controls(); });
     const drift = s.position.distanceTo(p0);
     check(`${name}: settles with no jitter`, maxSpeed < 0.01 && drift < 0.01, `max speed ${maxSpeed.toExponential(2)} m/s, drift ${(drift * 1000).toFixed(2)} mm`);
-    if (name === 'Balanced') {
+    if (name === 'balanced') {
       check('origin sits on the ground at rest', Math.abs(s.position.y) < 0.01, `y = ${s.position.y.toFixed(4)}`);
       check('all four wheels loaded', s.wheels.every((w) => w.contact && w.load > 2500), s.wheels.map((w) => w.load.toFixed(0)).join('/'));
     }
@@ -292,7 +292,7 @@ function testPerformance() {
 
   // 100-0 with ABS.
   for (const absOn of [true, false]) {
-    const b = makeVehicle(flatWorld(), 'Balanced', { abs: absOn });
+    const b = makeVehicle(flatWorld(), 'balanced', { abs: absOn });
     s = run(b, 20, (t, st) => (st.speedKmh < 101 ? controls({ throttle: 1 }) : null));
     let start = null;
     let dist = null;
@@ -315,7 +315,7 @@ function testPerformance() {
   // ABS keeps the fronts rolling so the car still turns under full braking; locked fronts plough.
   {
     const turn = (absOn) => {
-      const b = makeVehicle(flatWorld(), 'Balanced', { abs: absOn, driftAssist: 0 });
+      const b = makeVehicle(flatWorld(), 'balanced', { abs: absOn, driftAssist: false });
       run(b, 20, (t, st) => (st.speed < 25 ? controls({ throttle: 1 }) : null));
       const h0 = Math.atan2(b.forward.x, -b.forward.z);
       run(b, 1.2, () => controls({ brake: 1, steer: 1 }));
@@ -359,7 +359,7 @@ function circleDriver(cx, cz, radius, speed, dirSign) {
 
 function testCornering() {
   console.log('\nSteady cornering, 20 m/s on a 60 m radius');
-  for (const name of ['Arcade', 'Balanced', 'Sim']) {
+  for (const name of ['full', 'balanced', 'none']) {
     const v = makeVehicle(flatWorld(), name);
     // Bring it up to speed on the circle.
     const driver = circleDriver(60, 0, 60, 20, -1);
@@ -376,7 +376,7 @@ function testCornering() {
       sumG += Math.abs(st.gLat); n++;
       return driver(t, st);
     });
-    if (name === 'Balanced') {
+    if (name === 'balanced') {
       figure('Steady 20 m/s / R60 body slip', maxSlip / DEG, 'deg', '< 6');
       figure('Steady 20 m/s / R60 lateral g', sumG / n, 'g', '~0.68');
     }
@@ -386,9 +386,9 @@ function testCornering() {
 
 function testNoFlip() {
   console.log('\nFull throttle + full lock from rest');
-  for (const name of ['Arcade', 'Balanced', 'Sim']) {
+  for (const name of ['full', 'balanced', 'none']) {
     for (const steer of [1, -1]) {
-      const v = makeVehicle(flatWorld(), name, { driftAssist: 0 });
+      const v = makeVehicle(flatWorld(), name, { driftAssist: false });
       let minUp = 1;
       let maxRoll = 0;
       run(v, 10, (t, st) => {
@@ -403,8 +403,8 @@ function testNoFlip() {
 
 function testDrift() {
   console.log('\nHandbrake drift at 22 m/s and recovery');
-  for (const name of ['Arcade', 'Balanced', 'Sim']) {
-    const v = makeVehicle(flatWorld(), name, { driftAssist: 0.6 });
+  for (const name of ['full', 'balanced', 'none']) {
+    const v = makeVehicle(flatWorld(), name, { driftAssist: true });
     let s = run(v, 20, (t, st) => (st.speed < 22 ? controls({ throttle: 1 }) : null));
     let maxSlip = 0;
     let tEntry = 0;
@@ -424,9 +424,9 @@ function testDrift() {
       if (recovered !== null && t > recovered + 0.5) return null;
       return controls({ steer: Math.max(-1, Math.min(1, slip * 3)), throttle: 0.25 });
     });
-    if (name === 'Balanced') {
+    if (name === 'balanced') {
       figure('Handbrake entry: peak body slip', maxSlip / DEG, 'deg', '> 20');
-      figure('Drift recovery time (assist 0.6)', recovered, 's', '< 3');
+      figure('Drift recovery time (drift assist on)', recovered, 's', '< 3');
       figure('Drift worst slip', worst / DEG, 'deg', '< 100');
     }
     check(`${name}: handbrake + steer at 22 m/s exceeds 20 deg slip`, maxSlip > 20 * DEG, `peak ${(maxSlip / DEG).toFixed(1)} deg after ${tEntry.toFixed(2)} s, ${entrySpeed.toFixed(1)} m/s`);
@@ -435,7 +435,7 @@ function testDrift() {
   }
   // Raw car (assist 0): the handbrake still swings the tail; the assist is not what makes it drift.
   {
-    const v = makeVehicle(flatWorld(), 'Balanced', { driftAssist: 0 });
+    const v = makeVehicle(flatWorld(), 'balanced', { driftAssist: false });
     run(v, 20, (t, st) => (st.speed < 22 ? controls({ throttle: 1 }) : null));
     let maxSlip = 0;
     run(v, 1.5, (t, st) => { maxSlip = Math.max(maxSlip, Math.abs(st.slipAngle)); return controls({ handbrake: true, steer: 1 }); });
@@ -444,7 +444,7 @@ function testDrift() {
   // Power oversteer: full throttle in 2nd while turning rotates the RWD car more than a light throttle.
   {
     const slipFor = (throttle) => {
-      const v = makeVehicle(flatWorld(), 'Balanced', { driftAssist: 0 });
+      const v = makeVehicle(flatWorld(), 'none', { driftAssist: false });
       run(v, 20, (t, st) => (st.speed < 14 ? controls({ throttle: 1 }) : null));
       let m = 0;
       run(v, 1.2, (t, st) => { m = Math.max(m, Math.abs(st.slipAngle)); return controls({ throttle, steer: 1 }); });
@@ -523,7 +523,7 @@ function fuzzRun(seed, seconds = 60) {
     if (Math.floor(t / 0.4) !== Math.floor((t - DT) / 0.4)) {
       const fast = r() < 0.75;
       c = controls({ throttle: fast ? 0.6 + 0.4 * r() : r() * 0.5, brake: !fast && r() < 0.4 ? r() : 0, steer: r() < 0.5 ? (r() * 2 - 1) * 0.3 : r() * 2 - 1, handbrake: r() < 0.12, boost: r() < 0.15 });
-      if (r() < 0.02) v.setHandling(['Arcade', 'Balanced', 'Sim'][Math.floor(r() * 3)]);
+      if (r() < 0.02) v.setAssists({ handling: ['full', 'balanced', 'none'][Math.floor(r() * 3)] });
     }
     const ok = [st.position.x, st.position.y, st.position.z, st.quaternion.x, st.quaternion.w, st.speed, st.rpm, st.yawRate].every(Number.isFinite);
     if (!ok) finite = false;
@@ -590,7 +590,7 @@ function testReverse() {
   s = run(v, 3, () => controls({ throttle: 1 }));
   check('throttle brakes the reverse and returns to 1st', s.gear !== 'R' && s.forwardSpeed > 1, `gear ${s.gear}, v ${s.forwardSpeed.toFixed(2)}`);
   // Manual box.
-  const m = makeVehicle(flatWorld(), 'Balanced', { transmission: 'manual' });
+  const m = makeVehicle(flatWorld(), 'balanced', { transmission: 'manual' });
   m.step(DT, controls({ throttle: 1, shift: 1 }));
   run(m, 0.5, () => controls({ throttle: 1 }));
   check('manual shift request changes gear', m.getState().gear === 2, `gear ${m.getState().gear}`);
@@ -598,7 +598,7 @@ function testReverse() {
 
 function testDriftScorer() {
   console.log('\nDrift scorer');
-  const v = makeVehicle(flatWorld(), 'Balanced', { driftAssist: 0.6 });
+  const v = makeVehicle(flatWorld(), 'balanced', { driftAssist: true });
   const scorer = new DriftScorer();
   run(v, 20, (t, st) => (st.speed < 22 ? controls({ throttle: 1 }) : null));
   let started = false;
@@ -692,7 +692,7 @@ async function testRealWorld() {
 function testRallyGravel() {
   const world = { waterLevel: -Infinity, sampleGround: (x, z, out) => fillGround(out, 0, 0, 1, 0, 1, 0.74, 0.029) };
   const car = makeVehicle(world);
-  car.setHandling('Balanced', CARS.find(entry => entry.id === 'hatch').tuning);
+  car.setTuning(CARS.find(entry => entry.id === 'hatch').tuning);
   car.teleport(spawn());
   run(car, 12, (_, state) => state.speed < 20 ? controls({ throttle: 1 }) : null);
   const entry = run(car, 2, (_, state) => Math.abs(state.slipAngle) < 26 * DEG
@@ -718,15 +718,79 @@ testPerformance();
 testCornering();
 testNoFlip();
 testDrift();
+
+// A digital turn at 119 km/h with throttle, followed by trail braking at turn-in.
+for (const car of CARS) {
+  // Simulate the same uncommanded skid. With the universal switch on the front
+  // wheels countersteer. Turning it off mid-skid restores the player's rack input.
+  const skid = new Vehicle({ world: flatWorld(), tuning: car.tuning, assists: { handling: 'none' } });
+  skid.velocity.set(9, 0, -20);
+  skid.step(DT, {});
+  const assistedAngle = skid.steerAngle;
+  skid.setAssists({ driftAssist: false });
+  skid.step(DT, {});
+  check(car.id + ' global drift toggle releases automatic countersteer immediately',
+    assistedAngle > 5 * DEG && Math.abs(skid.steerAngle) < 0.001 && skid.slideIntent === 0);
+  skid.setTuning(car.tuning);
+  check(car.id + ' tuning preserves the disabled drift assist', skid.assists.driftAssist === false);
+
+  if (car.id === 'hatch') {
+    for (const steer of [-1, 1]) {
+      for (const driftAssist of [true, false]) {
+        const v = new Vehicle({ world: flatWorld(), tuning: car.tuning, assists: { driftAssist } });
+        const state = run(v, 1, () => ({ steer }));
+        const wheelAngle = Math.max(...state.wheels.map(w => Math.abs(w.steerAngle))) / DEG;
+        check('hatch reaches wide road-wheel lock at rest with either assist setting',
+          wheelAngle > 58 && wheelAngle < 62 && Math.abs(state.steerAngle) > 52 * DEG,
+          wheelAngle.toFixed(1) + ' deg inside tyre');
+      }
+    }
+  }
+
+  const peak = {};
+  for (const handling of ['none', 'balanced', 'full']) {
+    const v = new Vehicle({ world: flatWorld(), tuning: car.tuning, assists: { handling, driftAssist: false } });
+    v.velocity.copy(v.forward).multiplyScalar(33);
+    let tc = false;
+    let worst = 0;
+    run(v, 2, (t, st) => {
+      worst = Math.max(worst, Math.abs(st.slipAngle) / DEG);
+      tc ||= v.wheels.some(w => w.tcActive);
+      return { steer: t < 1 ? 1 : 0, throttle: t < 1 ? 1 : 0.2, brake: t > 0.7 && t <= 1 ? 0.45 : 0 };
+    });
+    peak[handling] = worst;
+    check(car.id + ' traction intervention on ' + handling, tc === (handling !== 'none'));
+  }
+  check(car.id + ' progressively reduces high-speed sideslip', peak.full < 8 && peak.full < peak.balanced && peak.balanced < peak.none,
+    [peak.none, peak.balanced, peak.full].map(n => n.toFixed(1)).join(' / ') + ' deg');
+
+  for (const direction of [-1, 1]) {
+    const v = new Vehicle({ world: flatWorld(), tuning: car.tuning });
+    run(v, 20, (t, st) => st.speed < 24 ? { throttle: 1 } : null);
+    let minAngle = Infinity, maxAngle = 0;
+    const final = run(v, 4, (t, st) => {
+      if (t >= 1.25 && t < 2.25) {
+        const angle = -direction * st.slipAngle / DEG;
+        minAngle = Math.min(minAngle, angle);
+        maxAngle = Math.max(maxAngle, angle);
+      }
+      return { handbrake: t < 0.15, steer: t < 2.25 ? direction : 0, throttle: t < 2.25 ? 0.85 : 0 };
+    });
+    const band = { hatch: [20, 34], tokyo: [35, 50] }[car.id] || [-6, 8];
+    check(car.id + ' ' + (car.tuning.assist?.carryAngleDeg ? 'carries a drift' : 'returns to grip') + (direction > 0 ? ' right' : ' left'),
+      minAngle > band[0] && maxAngle < band[1] && Math.abs(final.slipAngle) < 4 * DEG && final.speed > 5,
+      minAngle.toFixed(1) + '–' + maxAngle.toFixed(1) + ' deg, exit ' + (final.slipAngle / DEG).toFixed(1) + ' deg');
+  }
+}
 testDrop();
 
 // Every selectable car rests on its springs at its own ride height and pulls away (the Hill 4x4 on all four wheels).
 function testCars() {
   console.log('\nSelectable cars');
   for (const car of CARS) {
-    const v = new Vehicle({ world: flatWorld(), handling: 'Balanced' });
-    v.setHandling('Balanced', car.tuning);
-    v.setAssists({ driftAssist: 0.6, abs: true, transmission: 'auto' });
+    const v = new Vehicle({ world: flatWorld(), assists: { handling: 'balanced' } });
+    v.setTuning(car.tuning);
+    v.setAssists({ driftAssist: true, abs: true, transmission: 'auto' });
     v.teleport(spawn());
     let s = run(v, 2, () => controls());
     const contacts = s.wheels.filter((w) => w.contact).length;
@@ -774,8 +838,8 @@ function testGtCombinedGrip() {
   const tune = CARS.find(car => car.id === 'gt').tuning;
   function stop(grip, steer) {
     const world = { waterLevel: -Infinity, sampleGround: (x, z, o) => fillGround(o, 0, 0, 1, 0, 0, grip) };
-    const car = makeVehicle(world, 'Balanced', { driftAssist: 0 });
-    car.setHandling('Balanced', tune);
+    const car = makeVehicle(world, 'balanced', { driftAssist: false });
+    car.setTuning(tune);
     run(car, 1, () => controls());
     car.velocity.set(0, 0, -100 / 3.6);
     let distance = 0, peakUse = 0, lateral = 0;

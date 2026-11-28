@@ -176,7 +176,13 @@ export function detectInitialQuality(renderer = null) {
 }
 
 /** Names only; the tuning each one maps to lives in src/vehicle/tuning.js. */
-export const HANDLING_PRESETS = Object.freeze(['Arcade', 'Balanced', 'Sim']);
+export const HANDLING_ASSISTS = Object.freeze({ none: 0, balanced: 0.5, full: 1 });
+
+function normalizeHandling(value) {
+  if (Object.hasOwn(HANDLING_ASSISTS, value)) return value;
+  // Balanced was the previous default. Give returning players the new default too.
+  return value === 'Sim' ? 'none' : 'full';
+}
 
 export const TIME_OF_DAY = Object.freeze(['dawn', 'day', 'sunset', 'night']);
 
@@ -195,9 +201,9 @@ export const DEFAULT_SETTINGS = Object.freeze({
   quality: 'Auto',
   timeOfDay: 'day',
   paint: 'pearl',
-  handling: 'Balanced',
+  handling: 'full',
   units: 'kmh',
-  driftAssist: 0.6,
+  driftAssist: true,
   abs: true,
   transmission: 'auto',
   volume: 0.8,
@@ -288,9 +294,9 @@ export function normalizeSettings(input = {}) {
     quality: QUALITY_PRESETS[merged.quality] || merged.quality === 'Auto' ? merged.quality : DEFAULT_SETTINGS.quality,
     timeOfDay: TIME_OF_DAY.includes(merged.timeOfDay) ? merged.timeOfDay : DEFAULT_SETTINGS.timeOfDay,
     paint: PAINT_OPTIONS.some((option) => option.id === merged.paint) ? merged.paint : DEFAULT_SETTINGS.paint,
-    handling: HANDLING_PRESETS.includes(merged.handling) ? merged.handling : DEFAULT_SETTINGS.handling,
+    handling: normalizeHandling(merged.handling),
     units: merged.units === 'mph' ? 'mph' : 'kmh',
-    driftAssist: clamp01(merged.driftAssist, DEFAULT_SETTINGS.driftAssist),
+    driftAssist: typeof merged.driftAssist === 'number' ? merged.driftAssist > 0 : merged.driftAssist !== false,
     abs: Boolean(merged.abs),
     transmission: merged.transmission === 'manual' ? 'manual' : 'auto',
     volume: clamp01(merged.volume, DEFAULT_SETTINGS.volume),

@@ -81,10 +81,14 @@ export class CityBatch {
     for(const {shape,mat,cell,items} of this.bins.values()){
       if(!cells.has(cell)){
         const [ix,iz,level]=cell.split(',').map(Number);
-        const g=new T.Group();g.userData.cx=(ix+.5)*180;g.userData.cz=(iz+.5)*180;g.userData.level=level;
+        const g=new T.Group();
+        // Cell and mesh transforms stay at identity. All placements are in the instance matrices.
+        g.matrixAutoUpdate=false;
+        g.userData.cx=(ix+.5)*180;g.userData.cz=(iz+.5)*180;g.userData.level=level;
         cells.set(cell,g);this.group.add(g);this.tiles.push(g);
       }
       const mesh=new T.InstancedMesh(this.geometries[shape],mat,items.length);
+      mesh.matrixAutoUpdate=false;
       items.forEach(([m,tint],i)=>{mesh.setMatrixAt(i,m);mesh.setColorAt(i,color.setHex(tint))});
       mesh.computeBoundingSphere();cells.get(cell).add(mesh);
     }

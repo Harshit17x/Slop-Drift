@@ -90,7 +90,7 @@ export function effectiveNitroStats(baseNitro, upgrades = null) {
 
 /**
  * Returns a fresh tuning override object merging the car's stock tuning with installed upgrades.
- * Safe to pass directly into Vehicle.setHandling(presetName, overrides).
+ * Safe to pass directly into Vehicle.setTuning(overrides).
  */
 export function applyCarUpgrades(car, upgrades = null) {
   const base = car?.tuning || {};

@@ -1,4 +1,4 @@
-// Road traffic on every event except drift sessions: oncoming cars in the other lane and slower cars
+// Road traffic on designated maps: oncoming cars in the other lane and slower cars
 // in yours to overtake, each at its own steady speed. Positions depend only on the run clock, so every
 // attempt meets the same traffic (fair for leaderboards). Passing one close at speed is a near miss;
 // hitting one is a crash.
@@ -114,6 +114,10 @@ export function flattenCar(model) {
 }
 
 export class Traffic {
+  static forMap(map, scene, wheelLayout) {
+    return map.roadTraffic ? new Traffic(scene, wheelLayout) : null;
+  }
+
   constructor(scene, wheelLayout = null) {
     this.scene = scene;
     this.wheelLayout = wheelLayout;

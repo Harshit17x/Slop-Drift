@@ -37,16 +37,6 @@ export class TokyoLife {
       this.signals.push(lamp);
     }
     this.green=green;
-    // Reuse a local crowd pool. Walkers turn at shop boundaries and remain
-    // on the pavement even when the racing surface branches nearby.
-    this.walks=city.walks;
-    this.walkCount=200;this.person=new T.Object3D();
-    this.clothes=city.material({color:0xffffff,roughness:.87});
-    this.walkerShape=new T.SphereGeometry(.5,8,6);
-    this.crowd=new T.InstancedMesh(this.walkerShape,this.clothes,this.walkCount*7);
-    this.crowd.instanceMatrix.setUsage(T.DynamicDrawUsage);
-    this.crowd.frustumCulled=false;this.crowd.count=0;this.group.add(this.crowd);
-    this.crowdTick=0;this.tint=new T.Color();
     const taxiPaint=city.material({color:0x244851,roughness:.37,metalness:.55});
     const glass=city.material({color:0x293d52,roughness:.17,metalness:.5});
     this.cabs=[];
@@ -79,42 +69,7 @@ export class TokyoLife {
     this.rain=new T.LineSegments(this.rainGeometry,this.rainMaterial);this.rain.visible=false;this.group.add(this.rain);
     this.clock=0;
   }
-  pedestrians(p,wet){
-    const mesh=this.crowd, model=this.person;
-    let i=0;
-    const put=(x,y,z,w,h,d,yaw,tint)=>{
-      model.position.set(x,y,z);model.rotation.y=yaw;model.scale.set(w,h,d);model.updateMatrix();
-      mesh.setMatrixAt(i,model.matrix);mesh.setColorAt(i++,this.tint.setHex(tint));
-    };
-    for(let k=0;k<this.walks.length&&i<7*this.walkCount;k++){
-      const {f,side,span}=this.walks[k];
-      if((f.x-p.x)**2+(f.z-p.z)**2>110**2||Math.abs(f.y-p.y)>14)continue;
-      // Three neighbours per shopfront: pairs walking together, one crossing
-      // the pavement. The pool is capped, so the extra bodies cost no draws.
-      for(let person=0;person<3&&i<7*this.walkCount;person++){
-        const phase=(this.clock*(.62+person*.11)+k*3.17+person*span*.83)%(4*span),dir=phase<2*span?1:-1;
-        const u=phase<2*span?phase-span:3*span-phase;
-        const lateral=side+(person-1)*.58;
-        const x=f.x+u*f.tx+lateral*f.rx,z=f.z+u*f.tz+lateral*f.rz,y=f.y+.16;
-        const yaw=Math.atan2(-dir*f.tz,dir*f.tx),stride=Math.sin(this.clock*(4.5+person*.7)+k)*.16;
-        const cloth=[0x813f48,0x36526c,0xba9672,0x405e56,0x49404f,0x6b5f74,0x8a4b3c][(k*3+person)%7];
-        for(const leg of [-1,1])put(x+f.tx*leg*stride+f.rx*leg*.1,y+.4,z+f.tz*leg*stride+f.rz*leg*.1,.23,.83,.18,yaw,0x353943);
-        put(x,y+1.07,z,.35,.79,.48,yaw,cloth);
-        put(x,y+1.54,z,.25,.32,.24,yaw,0xbd947e);
-        put(x-.025*f.tx,y+1.63,z-.025*f.tz,.26,.19,.26,yaw,0x302c30);
-        put(x+.27*f.rx,y+.77,z+.27*f.rz,.23,.30,.16,yaw,0x8d7460);
-        if(wet)put(x,y+1.94,z,.97,.13,.91,yaw,cloth);
-        else put(x-.24*f.rx,y+1.03,z-.24*f.rz,.17,.46,.13,yaw,cloth);
-      }
-    }
-    mesh.count=i;mesh.instanceMatrix.needsUpdate=true;
-    if(mesh.instanceColor)mesh.instanceColor.needsUpdate=true;
-  }
   update(dt,p,wet,inside,roam,driver){
-    if(this.clock>=this.crowdTick||dt===0){
-      this.crowdTick=this.clock+.08;
-      if(inside)this.crowd.count=0;else this.pedestrians(p,wet);
-    }
     for(const car of this.cabs){
       const {road,cab}=car;
       cab.visible=false;
@@ -141,5 +96,5 @@ export class TokyoLife {
     this.rain.visible=wet&&!inside;
     if(this.rain.visible)this.rain.position.set(p.x,p.y-3-(this.clock*10)%3,p.z);
   }
-  dispose(){this.crowd.dispose();this.walkerShape.dispose();this.geometry.dispose();this.rainGeometry.dispose();this.rainMaterial.dispose();}
+  dispose(){this.geometry.dispose();this.rainGeometry.dispose();this.rainMaterial.dispose();}
 }

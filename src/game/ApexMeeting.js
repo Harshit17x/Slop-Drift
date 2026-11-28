@@ -41,7 +41,7 @@ export class ApexMeeting{
     this.ambience=choice(form,'Trackside sound',[[1,'Full'],[.5,'Reduced'],[0,'Off']]);
     this.radio=choice(form,'Race radio',[['text','Messages'],['voice','Messages and voice']]);
     this.resolution=choice(form,'Race resolution',[['adaptive','Adaptive'],['fixed','Fixed']]);
-    this.handling=choice(form,'Handling',[['gt','GT racing'],['current','Garage preset']]);
+    this.handling=choice(form,'Handling',[['gt','GT racing'],['current','Garage setup']]);
     this.profile=element('canvas','apx-profile',this.panel);this.profile.width=640;this.profile.height=112;
     this.summary=element('p','',this.panel);
     this.layout.onchange=()=>this.drawProfile();
@@ -142,9 +142,7 @@ export class ApexMeeting{
     this.resetResolution();this.baseDpr=g.renderer.getPixelRatio();this.pixelScale=1;this.windowFrames=0;this.windowTime=0;
     this.clockStage=0;g.world.apex.wetness=this.sky==='drying'?.9:0;
     this.gt=this.custom && this.handling.value==='gt';
-    g.vehicle.setAssists({driftAssist:g.settings.driftAssist,abs:g.settings.abs,transmission:g.settings.transmission});
-    g.vehicle.setHandling(this.gt?'Balanced':g.settings.handling,getCar(this.gt?'gt':g.carId).tuning);
-    if(this.gt)g.vehicle.setAssists({driftAssist:0,abs:true,transmission:g.settings.transmission});
+    if (this.gt) g.vehicle.setTuning(getCar('gt').tuning);
     const race=this.custom && ['race','cup'].includes(this.sessionType) || mode.id==='circuit';
     const qualify=this.custom && this.sessionType==='qualify';
     this.grid.start((race||qualify) && !party?(this.custom?Number(this.entries.value):3):0,this.custom?Number(this.level.value):.94,race && this.format.value==='weekend'?this.gridOrder:null);
@@ -349,8 +347,7 @@ export class ApexMeeting{
   }
   reset(){if(this.announcement){globalThis.speechSynthesis?.cancel();this.announcement=null;}this.resetResolution();this.sound.quiet();this.g.scenery.pitCrew?.(null);this.grid.clear();this.school.start(false);this.service=null;this.g.world.apex.wetness=0;this.g.world.apex.tyreGrip=1;
     this.g.roads.setWet(0);this.setLight(this.g.settings.timeOfDay);this.g.scenery.marshalSignal('GREEN');this.g.scenery.setEvent(.32);this.g.root.classList.remove('apx-clean');this.rain.visible=false;this.spray.mesh.visible=false;this.serviceBox?.removeFromParent();
-    this.gt=false;this.g.vehicle.setHandling(this.g.settings.handling,getCar(this.g.carId).tuning);
-    this.g.vehicle.setAssists({driftAssist:this.g.settings.driftAssist,abs:this.g.settings.abs,transmission:this.g.settings.transmission});}
+    this.gt=false;this.g.applyActiveVehicleTuning();}
   dispose(){this.disposed=true;this.optics?.dispose();this.reset();this.grid.dispose();this.school.dispose();this.sound.dispose();this.spray.dispose();for(const e of [this.photo,this.status,this.panel])e.remove();this.rain.removeFromParent();this.rain.geometry.dispose();this.rain.material.dispose();this.serviceBox?.geometry.dispose();this.serviceBox?.material.dispose();}
 }
 

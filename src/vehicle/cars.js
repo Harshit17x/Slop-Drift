@@ -1,5 +1,5 @@
 // The cars a driver can pick in the garage. Each one is the shared physics with its own tuning
-// overrides (deep-merged over the handling preset), a body (procedural, or a GLB built by
+// overrides (deep-merged over the base chassis), a body (procedural, or a GLB built by
 // tools/blender/cars/), and an interior style for the cockpit camera (see Cockpit.js STYLES).
 // Wheel positions and radii come from tools/blender/cars/split_export.py's printout.
 
@@ -14,12 +14,12 @@ export const CARS = Object.freeze([
     id: 'hatch',
     label: 'Rally Hatch',
     titleLines: Object.freeze(['RALLY', 'HATCH']),
-    blurb: 'Turbo gravel hatch with all-wheel drive',
+    blurb: 'Learn to drift on gravel. Wide steering lock catches the slide and all-wheel drive pulls you out of tight hairpins.',
     classCode: 'B185',
     classRank: 185,
     classBand: 'b',
     origin: 'IND',
-    category: 'GRAVEL RALLY',
+    category: 'RALLY DRIFT',
     drivetrain: 'AWD',
     gearboxLabel: '5-SPD SEQ',
     thumbnail: HAS_URL ? new URL('../assets/ui/car-hatch.webp', import.meta.url).href : null,
@@ -52,7 +52,7 @@ export const CARS = Object.freeze([
       geometry: { halfTrack: 0.843, wheelCenterY: 0.366, wheelRadius: 0.366 },
       mass: 1280, com: { y: 0.48, z: -0.12 },
       drivetrain: {
-        awd: true, axleTorqueBias: 2.4, frontDriveShare: 0.5, peakTorque: 395,
+        awd: true, axleTorqueBias: 2.4, frontDriveShare: 0.43, peakTorque: 395,
         idleRpm: 1050, launchRpm: 3100, redlineRpm: 6900, limiterRpm: 7100,
         upshiftRpm: 6550, downshiftRpmPower: 3400, engineBrakeBase: 13,
         gearRatios: [3.15, 2.27, 1.76, 1.40, 1.14], finalDrive: 4.08, shiftTime: 0.095,
@@ -64,15 +64,21 @@ export const CARS = Object.freeze([
         // ~1.8 deg/g of roll and 57 % front lateral load transfer (stable but rotates on the brakes).
         rollCentreFront: 0.09, rollCentreRear: 0.12, antiRollFront: 9700, antiRollRear: 1600,
         damperKnee: 0.16 },
-      tire: { gravelPeakDeg: 12.5, gravelSlideRatio: 0.91 },
-      brakes: { frontBias: 0.61 }, steering: { mechanicalLockDeg: 43 },
+      tire: { peakSlipDeg: 9.5, slideRatio: 0.89, falloff: 0.95, gravelPeakDeg: 14, gravelSlideRatio: 0.94 },
+      // A fast, high-angle rack for short hairpins. Gentle initial response keeps
+      // small corrections useful on the straight; full input still reaches full lock.
+      steering: { maxLockDeg: 53, mechanicalLockDeg: 57, rate: 4.8, returnRate: 8.6,
+        lockSpeedRef: 15, countersteerRange: 1.3, inputExponent: 1.22 },
+      assist: { carryAngleDeg: 27, holdThrottle: 0.17, releaseRate: 2.5,
+        slipStartDeg: 4, slipFullDeg: 18, steerBlend: 0.92, yawDamping: 2.6 },
+      brakes: { frontBias: 0.61 },
     },
   }),
   Object.freeze({
     id: 'gt',
     label: 'Track GT3',
     titleLines: Object.freeze(['TRACK', 'GT3']),
-    blurb: 'Rear-engine endurance racer · 4.2 L flat-six',
+    blurb: 'Best for circuit laps and late braking. Warm slicks and rear-wing downforce reward a clean racing line.',
     classCode: 'S312',
     classRank: 312,
     classBand: 's',
@@ -145,7 +151,7 @@ export const CARS = Object.freeze([
       // Slick mu at the static corner load; load sensitivity takes ~6 % off it at the limit.
       tire: { slickThermal: { initial: 52, optimum: 78, heatCapacity: 14500 },
         relaxationLength: 0.42, combinedBraking: true, mu: 1.6, frontGrip: 1, rearGrip: 1.025, peakSlipDeg: 6.6, slideRatio: 0.83,
-        falloff: 1.45, tractionControl: 0.45, gravelPeakDeg: 10, gravelSlideRatio: 0.76, loadSensitivity: 0.1,
+        falloff: 1.45, gravelPeakDeg: 10, gravelSlideRatio: 0.76, loadSensitivity: 0.1,
         surfaceGrip: { [SURFACE.GRAVEL]: 0.76, [SURFACE.GRASS]: 0.64, [SURFACE.DIRT]: 0.78,
           [SURFACE.MUD]: 0.63, [SURFACE.SNOW]: 0.52, [SURFACE.HARDPACK]: 0.86, [SURFACE.WATER]: 0.57 } },
       drivetrain: {
@@ -168,7 +174,7 @@ export const CARS = Object.freeze([
     id: 'thar',
     label: 'Hill 4x4',
     titleLines: Object.freeze(['HILL', '4X4']),
-    blurb: 'Four-wheel drive, tall springs: made for mud',
+    blurb: 'Best for muddy trails and rough climbs. Long suspension travel keeps the tyres working over uneven ground.',
     classCode: 'C164',
     classRank: 164,
     classBand: 'c',
@@ -278,12 +284,12 @@ export const CARS = Object.freeze([
     id: 'tokyo',
     label: 'Tokyo Sedan',
     titleLines: Object.freeze(['TOKYO', 'DRIFT']),
-    blurb: 'Widebody AWD rally-drift sedan with burnt-ti twin cannons',
+    blurb: 'Best for linking street corners. Rear-biased power holds long slides, with throttle to adjust the angle.',
     classCode: 'A255',
     classRank: 255,
     classBand: 'a',
     origin: 'JPN',
-    category: 'TOKYO RALLY DRIFT',
+    category: 'STREET DRIFT',
     drivetrain: 'AWD',
     gearboxLabel: '6-SPD SEQ',
     thumbnail: HAS_URL ? new URL('../assets/ui/car-tokyo.webp', import.meta.url).href : null,
@@ -370,7 +376,10 @@ export const CARS = Object.freeze([
         antiRollRear: 2200,
         damperKnee: 0.14,
       },
-      steering: { maxLockDeg: 40, mechanicalLockDeg: 46, rate: 4.1, returnRate: 6.4 },
+      steering: { maxLockDeg: 51, mechanicalLockDeg: 59, rate: 4.0, returnRate: 6.8,
+        lockSpeedRef: 16, countersteerRange: 1.2, inputExponent: 1.15 },
+      assist: { carryAngleDeg: 41, holdThrottle: 0.26, releaseRate: 1.5,
+        slipStartDeg: 7, slipFullDeg: 27, steerBlend: 0.80, yawDamping: 1.7 },
       tire: {
         mu: 1.24,
         peakSlipDeg: 11.2,
@@ -381,7 +390,7 @@ export const CARS = Object.freeze([
       },
       drivetrain: {
         awd: true,
-        frontDriveShare: 0.32,
+        frontDriveShare: 0.25,
         axleTorqueBias: 2.9,
         peakTorque: 510,
         idleRpm: 1150,
@@ -419,12 +428,12 @@ export const CARS = Object.freeze([
     id: 'raijin',
     label: 'Raijin GT',
     titleLines: Object.freeze(['RAIJIN', 'GT']),
-    blurb: 'AWD twin-turbo V6 grand tourer · 570 PS · dual-clutch',
+    blurb: 'Best for expressway sprints. Twin-turbo torque, all-wheel drive and a dual-clutch gearbox give strong launches and fast exits.',
     classCode: 'S305',
     classRank: 305,
     classBand: 's',
     origin: 'JPN',
-    category: 'SUPER GT',
+    category: 'GT SPRINT',
     drivetrain: 'AWD',
     gearboxLabel: '6-SPD DCT',
     thumbnail: HAS_URL ? new URL('../assets/ui/car-raijin.webp', import.meta.url).href : null,

@@ -100,7 +100,7 @@ server/                Cloudflare Worker: rooms, presence, leaderboards, ghost s
 
 **World.** The mountain is an analytic star-shaped cone, so every (bearing, altitude) pair maps to one point. Roads are described as legs in that space and laid on the matching contour, which is why they hug the slope; hairpins join legs, and each leg climbs at an even grade. The terrain is then baked into a 1281 x 1281 height grid (2 m cells), eroded with a droplet simulation, and cut and filled around the roads with rock-cut and embankment slopes. Rendering and physics read the same grid, and on the road the physics uses the analytic road surface, so the ride is smooth.
 
-**Vehicle.** A 6-DOF rigid body with four suspension rays, written from scratch. Suspension force, friction-circle handling and the velocity-cancelling friction solver follow the raycast-vehicle approach used by Bullet, Rapier and cannon-es; lateral grip above walking pace comes from a peaked slip-angle curve, which is what lets the car drift and recover. A locked rear axle (handbrake) slides at kinetic friction. There is no hidden steering or glue: drift assist only eases the front wheels toward the direction of travel.
+**Vehicle.** A 6-DOF rigid body with four suspension rays, written from scratch. Suspension force, friction-circle handling and the velocity-cancelling friction solver follow the raycast-vehicle approach used by Bullet, Rapier and cannon-es; lateral grip above walking pace comes from a peaked slip-angle curve, which is what lets the car drift and recover. A locked rear axle (handbrake) slides at kinetic friction. Handling assist meters driven-wheel torque and helps preserve cornering grip under braking. Drift assist adds countersteer and yaw damping during a slide. Both can be changed independently in Settings.
 
 **References.** Bullet `btRaycastVehicle`, Rapier `ray_cast_vehicle_controller`, cannon-es `RaycastVehicle`, pmndrs/racing-game, spacejack/carphysics2d, Dechode/Godot-Simple-Vehicle, and Sebastian Lague's Hydraulic-Erosion informed the physics and erosion. No code was copied from them.
 
@@ -127,5 +127,5 @@ t.step(60 * 30);
 ## Tuning
 
 - `src/world/worldConfig.js` — seed, mountain size and shape, erosion, road widths and grades, and the leg lists that define the loop and the spur.
-- `src/vehicle/tuning.js` — mass, suspension, tyres, engine, brakes, steering, and the Arcade / Balanced / Sim presets.
+- `src/vehicle/tuning.js` — mass, suspension, tyres, engine, brakes, steering, and drift-assist tuning.
 - `src/config.js` — modes, quality presets, nitro, checkpoint spacing.

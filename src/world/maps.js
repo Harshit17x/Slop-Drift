@@ -51,6 +51,7 @@ export const MAPS = Object.freeze({
         bedMargin:3,bankGain:5,maxBank:.075}}
   }),
   mussoorie: Object.freeze({
+    roadTraffic: true,
     id: 'mussoorie',
     label: 'Mussoorie',
     tagline: 'Mall Road, Camel\'s Back and the Landour climb',
@@ -66,6 +67,7 @@ export const MAPS = Object.freeze({
     }),
   }),
   tokyo: Object.freeze({
+    roadTraffic: true,
     id:'tokyo', label:'Tokyo: After Hours', tagline:'東京・深夜 · Neon streets, bay tunnels and rooftop drift',
     highlights:['Shibuya Crossing','B2–7F Midnight Parkade','Minato Tower'],
     routes:['loop','shibuya','express','bay','parkade','parkdown','underground','tour'], assets:null,
@@ -90,6 +92,7 @@ export const MAPS = Object.freeze({
         verge: 0.5, vergeDrop: 0.05, railHeight: 1.1 }) }),
   }),
   hollow: Object.freeze({
+    roadTraffic: true,
     id: 'hollow', label: 'Hollow Creek', tagline: 'Three circuits through a town abandoned to the fog',
     highlights: ['Clock Square', 'Signal Tunnel', 'East Wharf'],
     routes: ['loop','quarter','vanishing'], assets: null,
@@ -112,6 +115,7 @@ export const MAPS = Object.freeze({
     }),
   }),
   alpine: Object.freeze({
+    roadTraffic: true,
     id: 'alpine',
     label: 'Alpine Peak',
     tagline: 'The original procedural mountain',

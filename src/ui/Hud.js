@@ -4,7 +4,7 @@
 
 import { MAPS } from '../world/maps.js';
 import {
-  DEFAULT_SETTINGS, HANDLING_PRESETS, MODES, QUALITY_PRESETS, TIME_OF_DAY, UI_ACCENTS, getMode, modesForWorld, normalizeSettings,
+  DEFAULT_SETTINGS, HANDLING_ASSISTS, MODES, QUALITY_PRESETS, TIME_OF_DAY, UI_ACCENTS, getMode, modesForWorld, normalizeSettings,
 } from '../config.js';
 import { CARS, getCar } from '../vehicle/cars.js';
 import { UPGRADE_SLOTS, MAX_UPGRADE_STAGE, effectiveCarRatings, effectiveClassInfo, hasCarNitro } from '../vehicle/upgradeTuning.js';
@@ -876,9 +876,9 @@ export class Hud {
         <form class="sdh-form" novalidate>
           <p class="sdh-settings-note">Changes apply straight away.</p>
           <div class="sdh-group-label">Driving</div>
-          ${seg('handling', 'Handling', HANDLING_PRESETS.map((k) => ({ value: k, label: k })), 'Arcade is the most forgiving; Sim is the most realistic.')}
+          ${seg('handling', 'Handling assist', Object.keys(HANDLING_ASSISTS).map((k) => ({ value: k, label: cap(k) })), 'Controls wheelspin and helps the tyres hold your line while turning and braking.')}
           ${seg('transmission', 'Gears', [{ value: 'auto', label: 'Automatic' }, { value: 'manual', label: 'Manual' }], 'Manual: shift with Q and E.')}
-          ${slider('driftAssist', 'Drift assist', 'Helps you hold a slide. Lower it for more control.')}
+          ${toggle('driftAssist', 'Drift assist', 'Helps catch slides. In the Rally Hatch and Tokyo Sedan, tap the handbrake and hold throttle to drift.')}
           ${toggle('abs', 'ABS', 'Stops the wheels locking when you brake hard')}
           ${seg('touchSteer', 'Touch steering', [{ value: 'arrows', label: 'Arrows' }, { value: 'slider', label: 'Slider' }], 'Phones and tablets. Slider steers gradually; arrows are easier.')}
           <div class="sdh-group-label">Graphics</div>
@@ -894,7 +894,7 @@ export class Hud {
             </div>
           </fieldset>
           ${toggle('cameraShake', 'Camera shake', 'At speed and on impacts')}
-          ${toggle('traffic', 'Traffic', 'Oncoming cars on hill climbs, descents and the expressway')}
+          ${toggle('traffic', 'Traffic', 'Road traffic on Mussoorie, Alpine Peak, Tokyo and Hollow Creek')}
           ${toggle('startGate', 'Title screen', 'Show the Drive, Garage and Map buttons after loading')}
           <div class="sdh-group-label">Controls</div>
         <div class="sdh-legend sdh-legend-settings">
@@ -1886,7 +1886,7 @@ export class Hud {
       const group = n(key);
       if (group) group.value = String(s[key]);
     }
-    n('driftAssist').value = String(Math.round(s.driftAssist * 100));
+    n('driftAssist').checked = s.driftAssist;
     n('volume').value = String(Math.round(s.volume * 100));
     n('abs').checked = s.abs;
     n('cameraShake').checked = s.cameraShake;
@@ -1914,7 +1914,7 @@ export class Hud {
       const v = n(key)?.value;
       if (v) out[key] = v;
     }
-    out.driftAssist = Number(n('driftAssist').value) / 100;
+    out.driftAssist = n('driftAssist').checked;
     out.volume = Number(n('volume').value) / 100;
     out.abs = n('abs').checked;
     out.cameraShake = n('cameraShake').checked;
@@ -2974,7 +2974,7 @@ export class Hud {
                 <span class="sdh-class-badge sdh-num is-${esc(cCls.band)}">${esc(cCls.code)}</span>
               </span>
               <span class="sdh-car-card-foot">
-                <span class="sdh-car-card-dt">${esc(c.drivetrain)} · ${esc(c.gearboxLabel)}</span>
+                <span class="sdh-car-card-role">${esc(c.category)}</span>
                 ${cUnlocked ? masteryMarkup(cEntry?.mastery?.stars || 0) : ''}
                 ${badgeText ? `<span class="sdh-car-card-eq${!cUnlocked && !cTrial ? ' is-lock' : badgeText === 'OWNED' ? ' is-owned' : ''}">${!cUnlocked && !cTrial ? ICON.lock : ''}${esc(badgeText)}</span>` : ''}
               </span>
